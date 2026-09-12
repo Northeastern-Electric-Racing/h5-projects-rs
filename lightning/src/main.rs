@@ -134,12 +134,12 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
-
     let mut ticker = Ticker::every(Duration::from_millis(500));
     loop {
         debug!("Status: Alive");
         Timer::after_millis(500).await;
         ticker.next().await;
+        watchdog.pet();
     }
 }
 
