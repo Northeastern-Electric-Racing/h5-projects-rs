@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+mod inbox;
+mod state;
 use core::fmt::Write;
 use core::num::{NonZeroU8, NonZeroU16};
 use cortex_m::peripheral::SCB;

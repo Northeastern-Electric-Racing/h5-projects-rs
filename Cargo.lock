@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "adbms6830"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#d0239836a694c7a052009d3eb1c4960b4f975aba"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#167ee96f7b557188e80edc8db15e680f5e829962"
 dependencies = [
  "bitfield-struct",
  "embedded-hal 1.0.0",
@@ -103,6 +103,20 @@ name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
+name = "can-handler"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#167ee96f7b557188e80edc8db15e680f5e829962"
+dependencies = [
+ "defmt 1.1.1",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-stm32",
+ "embassy-sync",
+ "embedded-can",
+ "heapless",
+]
 
 [[package]]
 name = "cc"
@@ -715,6 +729,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 name = "lightning"
 version = "0.1.0"
 dependencies = [
+ "can-handler",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",
