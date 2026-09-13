@@ -34,6 +34,5 @@ adbms6830b = { git = "https://github.com/bjackson312006/firmware-rs.git", branch
 defmt-monitor = { git = "https://github.com/bjackson312006/defmt-monitor.git", branch = "main" }
 libm = { version = "0.2.16" }
 
-[lints.clippy]
-disallowed_types = "deny"
-default_numeric_fallback = "deny"
+[lints]
+workspace = true

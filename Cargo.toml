@@ -36,6 +36,13 @@ embassy-net = { version = "0.9.1", features = ["udp", "tcp", "medium-ethernet", 
 rust-mqtt = { version = "0.5",default-features = false, features = ["defmt", "bump", "v5"]}
 embassy-ptp-driver = "0.1.0"
 
+[workspace.lints.clippy]
+all = { level = "allow", priority = -1 }
+correctness = "deny"
+perf = "deny"
+disallowed_types = "deny"
+default_numeric_fallback = "deny"
+
 [patch.crates-io]
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
