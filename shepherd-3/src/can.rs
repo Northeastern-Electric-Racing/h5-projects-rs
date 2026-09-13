@@ -119,10 +119,17 @@ mod interrupts {
     /// Number of times the FDCAN2 IT1 interrupt has fired.
     pub static IT1_IRQ_COUNT: AtomicU32 = AtomicU32::new(0);
 
-    /// Counts FDCAN2 IT0 entries. This runs alongside embassy's internal ISR (it doesn't replace it or anything)
+    /// Counts FDCAN2 IT0 entries. Also clears the TCF flag. This runs alongside embassy's internal ISR (it doesn't replace it or anything)
     struct It0Counter;
     impl embassy_stm32::interrupt::typelevel::Handler<embassy_stm32::interrupt::typelevel::FDCAN2_IT0> for It0Counter {
         unsafe fn on_interrupt() {
+            // Clear IR.TCF (transmission cancellation finished) interrupt flag.
+            // We need to do this because we enable this interrupt manually and embassy doesn't clear this in its internal interrupt handler.
+            let regs = embassy_stm32::pac::FDCAN2;
+            if regs.ir().read().tcf() {
+                regs.ir().write(|w| w.set_tcf(true));
+            }
+
             IT0_IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -136,7 +143,8 @@ mod interrupts {
     }
 
     embassy_stm32::bind_interrupts!(pub struct Irqs {
-        FDCAN2_IT0 => embassy_stm32::can::IT0InterruptHandler<embassy_stm32::peripherals::FDCAN2>, It0Counter;
+        // NOTE: `It0Counter` is listed first on purpose so it runs before the embassy ISR handler.
+        FDCAN2_IT0 => It0Counter, embassy_stm32::can::IT0InterruptHandler<embassy_stm32::peripherals::FDCAN2>;
         FDCAN2_IT1 => embassy_stm32::can::IT1InterruptHandler<embassy_stm32::peripherals::FDCAN2>, It1Counter;
     });
 }
@@ -190,7 +198,14 @@ mod handler {
 
         /// Starts up CAN in normal mode and returns the split objects.
         pub fn start(self) -> (CanTx<'static>, CanRx<'static>, Properties) {
-            self.can_configurator.into_normal_mode().split()
+            let split = self.can_configurator.into_normal_mode().split();
+
+            // Enable the transmission-cancellation interrupt.
+            let regs = embassy_stm32::pac::FDCAN2;
+            regs.txbcie().write(|w| w.0 = 0xffff_ffff);
+            regs.ie().modify(|w| w.set_tcfe(true));
+
+            split
         }
 
         /// Sets adds a new CAN Standard Filter at the given slot
