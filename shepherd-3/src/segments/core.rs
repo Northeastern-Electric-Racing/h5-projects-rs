@@ -166,12 +166,9 @@ impl Segments {
                     .with_gpio9(GpioPullDownConfig::PullDownOff)
                     .with_gpio10(GpioPullDownConfig::PullDownOff)
                 };
-                match api.set_configa(&[config_a; super::chips::ADBMS6830B_NUM_CHIPS]).await {
-                    Ok(_) => (),
-                    Err(err) => {
-                        defmt::error!("Segments: Failed to write ConfigA during ADBMS6830B Service startup. Error: {}", err);
-                        return StartupResult::Incomplete;
-                    }
+                if let Err(err) = api.set_configa(&[config_a; super::chips::ADBMS6830B_NUM_CHIPS]).await {
+                    defmt::error!("Segments: Failed to write ConfigA during ADBMS6830B Service startup. Error: {}", err);
+                    return StartupResult::Incomplete;
                 }
 
                 // Set up ConfigB.
@@ -211,12 +208,9 @@ impl Segments {
                     .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
                     .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
                 };
-                match api.set_configb(&[config_b; ADBMS6830B_NUM_CHIPS]).await {
-                    Ok(_) => (),
-                    Err(err) => {
-                        defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
-                        return StartupResult::Incomplete;
-                    }
+                if let Err(err) = api.set_configb(&[config_b; ADBMS6830B_NUM_CHIPS]).await {
+                    defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
+                    return StartupResult::Incomplete;
                 }
 
                 // Disable balancing on init.
