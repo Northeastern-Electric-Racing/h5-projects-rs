@@ -20,7 +20,6 @@ embedded-can.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 assign-resources.workspace = true
-can-handler.workspace = true
 cangen.workspace = true
 static_cell.workspace = true
 
