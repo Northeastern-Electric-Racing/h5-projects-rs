@@ -29,8 +29,19 @@ bitfield = "0.19"
 bitfield-struct = "0.13"
 assign-resources = "0.5.0"
 
-embassy-net = { version = "0.9", features = ["tcp", "dhcpv4", "medium-ethernet", "proto-ipv6"] } # TODO why doesnt defmt work?
+embassy-net = { version = "0.9.1", features = ["udp", "tcp", "medium-ethernet", "ipv4", "icmp-ping-reply", "defmt"] }
 rust-mqtt = { version = "0.5",default-features = false, features = ["defmt", "bump", "v5"]}
+embassy-ptp-driver = "0.1.0"
+
+[patch.crates-io]
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
+embassy-ptp-driver = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
 
 can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 cangen = { git = "https://github.com/bjackson312006/firmware-rs.git", branch = "cangen.path-fix" }

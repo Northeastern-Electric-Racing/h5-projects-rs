@@ -3,7 +3,10 @@
 #[macro_use]
 extern crate uom;
 
-use defmt::{info};
+use cortex_m::peripheral::SCB;
+use cortex_m_rt::{ExceptionFrame, exception};
+use defmt::debug;
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{peripherals, Peri};
