@@ -8,31 +8,33 @@ mod api {
     use super::{channels, handler, interrupts};
 
     /// Add a frame to the outgoing CAN channel.
-    pub async fn send(frame: Frame) { 
+    pub async fn send(frame: Frame) {
         match channels::OUTGOING.try_send(frame) {
             Ok(_) => {},
             Err(_) => {
                 defmt::warn!("Tried to add a frame to the OUTGOING Channel, but the Channel was full. This is not a failure, because we will .await until the Channel is able to accept the frame. However, consider increasing the capacity of the Channel if this is occurring often.");
                 channels::OUTGOING.send(frame).await
-            }
+            },
         }
     }
 
     /// Tries to add a frame to the outgoing CAN channel.
-    pub fn try_send(frame: Frame) -> Result<(), ()> { 
+    pub fn try_send(frame: Frame) -> Result<(), ()> {
         match channels::OUTGOING.try_send(frame) {
-            Ok(_) => { Ok(())},
+            Ok(_) => Ok(()),
             Err(_) => {
                 defmt::warn!("Tried to add a frame to the OUTGOING Channel, but the Channel was full. This is not a failure, because we will .await until the Channel is able to accept the frame. However, consider increasing the capacity of the Channel if this is occurring often.");
                 Err(())
-            }
+            },
         }
     }
 
     /// Get a frame from the incoming CAN channel.
     /// (this doesn't need to check for an error because of `receive()` is empty there is no problem, it just means there is no pending messages)
     /// u_TODO - this probably shouldn't be public at all, since all recieving should be done inside the can handler itself. but for now we will keep this here since the state of this file is probably temporary (assuming much of this stuff will be moved into the can-handler in the `firmware-rs` repo)
-    pub async fn recieve() -> Frame { channels::INCOMING.receive().await }
+    pub async fn recieve() -> Frame {
+        channels::INCOMING.receive().await
+    }
 
     /// Initializes CAN and starts up the CAN handler.
     #[embassy_executor::task]
@@ -77,20 +79,8 @@ pub mod types {
     }
     impl AlphaCellDataDebug {
         pub fn as_frame(&self) -> Frame {
-            let frame = cangen::AlphaCellDataDebug::new()
-            .with_therm(self.therm)
-            .with_voltage_a(self.voltage_a)
-            .with_voltage_b(self.voltage_b)
-            .with_chip_id(self.chip_id)
-            .with_cell_a(self.cell_a)
-            .with_cell_b(self.cell_b)
-            .with_discharging_a(self.discharging_a)
-            .with_discharging_b(self.discharging_b)
-            .with_cvs_a(self.cvs_a)
-            .with_cvs_b(self.cvs_b)
-            .with_ow_a(self.ow_a)
-            .with_ow_b(self.ow_b);
-            
+            let frame = cangen::AlphaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b).with_ow_a(self.ow_a).with_ow_b(self.ow_b);
+
             frame.to_can_frame()
         }
     }
@@ -111,20 +101,8 @@ pub mod types {
     }
     impl BetaCellDataDebug {
         pub fn as_frame(&self) -> Frame {
-            let frame = cangen::BetaCellDataDebug::new()
-            .with_therm(self.therm)
-            .with_voltage_a(self.voltage_a)
-            .with_voltage_b(self.voltage_b)
-            .with_chip_id(self.chip_id)
-            .with_cell_a(self.cell_a)
-            .with_cell_b(self.cell_b)
-            .with_discharging_a(self.discharging_a)
-            .with_discharging_b(self.discharging_b)
-            .with_cvs_a(self.cvs_a)
-            .with_cvs_b(self.cvs_b)
-            .with_ow_a(self.ow_a)
-            .with_ow_b(self.ow_b);
-            
+            let frame = cangen::BetaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b).with_ow_a(self.ow_a).with_ow_b(self.ow_b);
+
             frame.to_can_frame()
         }
     }
@@ -141,9 +119,7 @@ mod interrupts {
 
     /// Counts FDCAN2 IT0 entries. This runs alongside embassy's internal ISR (it doesn't replace it or anything)
     struct It0Counter;
-    impl embassy_stm32::interrupt::typelevel::Handler<embassy_stm32::interrupt::typelevel::FDCAN2_IT0>
-        for It0Counter
-    {
+    impl embassy_stm32::interrupt::typelevel::Handler<embassy_stm32::interrupt::typelevel::FDCAN2_IT0> for It0Counter {
         unsafe fn on_interrupt() {
             IT0_IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
         }
@@ -151,9 +127,7 @@ mod interrupts {
 
     /// Counts FDCAN2 IT1 entries. This runs alongside embassy's internal ISR (it doesn't replace it or anything)
     struct It1Counter;
-    impl embassy_stm32::interrupt::typelevel::Handler<embassy_stm32::interrupt::typelevel::FDCAN2_IT1>
-        for It1Counter
-    {
+    impl embassy_stm32::interrupt::typelevel::Handler<embassy_stm32::interrupt::typelevel::FDCAN2_IT1> for It1Counter {
         unsafe fn on_interrupt() {
             IT1_IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
         }
@@ -184,9 +158,7 @@ mod channels {
 mod handler {
     use defmt::{warn};
     use embassy_stm32::can::filter::FilterType::{DedicatedDual, DedicatedSingle};
-    use embassy_stm32::can::filter::{
-        Action, ExtendedFilter, ExtendedFilterSlot, StandardFilter, StandardFilterSlot,
-    };
+    use embassy_stm32::can::filter::{Action, ExtendedFilter, ExtendedFilterSlot, StandardFilter, StandardFilterSlot};
     use embassy_stm32::can::{CanConfigurator, CanRx, CanTx, Properties};
     use embassy_time::Timer;
     use embedded_can::{ExtendedId, StandardId};
@@ -203,12 +175,7 @@ mod handler {
         pub fn init(mut can_configurator: CanConfigurator<'static>) -> Self {
             use embassy_stm32::can::config::*;
 
-            let can_config = FdCanConfig::default()
-                .set_automatic_bus_off_recovery(true)
-                .set_automatic_retransmit(true)
-                .set_frame_transmit(FrameTransmissionConfig::ClassicCanOnly)
-                .set_transmit_pause(true)
-                .set_global_filter(GlobalFilter::reject_all());
+            let can_config = FdCanConfig::default().set_automatic_bus_off_recovery(true).set_automatic_retransmit(true).set_frame_transmit(FrameTransmissionConfig::ClassicCanOnly).set_transmit_pause(true).set_global_filter(GlobalFilter::reject_all());
             can_configurator.set_config(can_config);
             can_configurator.set_bitrate(500_000);
 
@@ -235,19 +202,14 @@ mod handler {
             let mut std = StandardFilter::default();
             match std_id2 {
                 Some(id2) => {
-                    std.filter = DedicatedDual(
-                        StandardId::new(std_id1).unwrap(),
-                        StandardId::new(id2).unwrap(),
-                    );
-                }
+                    std.filter = DedicatedDual(StandardId::new(std_id1).unwrap(), StandardId::new(id2).unwrap());
+                },
                 None => {
                     std.filter = DedicatedSingle(StandardId::new(std_id1).unwrap());
-                }
+                },
             }
             std.action = Action::StoreInFifo0;
-            self.can_configurator
-                .properties()
-                .set_standard_filter(std_filter_slot, std);
+            self.can_configurator.properties().set_standard_filter(std_filter_slot, std);
             let _ = self.used_std_slots.push(std_filter_slot);
 
             self
@@ -264,19 +226,14 @@ mod handler {
             let mut ext = ExtendedFilter::default();
             match ext_id2 {
                 Some(id2) => {
-                    ext.filter = DedicatedDual(
-                        ExtendedId::new(ext_id1).unwrap(),
-                        ExtendedId::new(id2).unwrap(),
-                    );
-                }
+                    ext.filter = DedicatedDual(ExtendedId::new(ext_id1).unwrap(), ExtendedId::new(id2).unwrap());
+                },
                 None => {
                     ext.filter = DedicatedSingle(ExtendedId::new(ext_id1).unwrap());
-                }
+                },
             }
             ext.action = Action::StoreInFifo0;
-            self.can_configurator
-                .properties()
-                .set_extended_filter(ext_filter_slot, ext);
+            self.can_configurator.properties().set_extended_filter(ext_filter_slot, ext);
             let _ = self.used_ext_slots.push(ext_filter_slot);
 
             self
@@ -286,14 +243,13 @@ mod handler {
     /// Drains the outgoing channel onto the bus.
     #[embassy_executor::task]
     pub async fn can_tx(mut tx: CanTx<'static>) -> ! {
-
         let mut send_count: u32 = 0;
 
         loop {
             let frame = super::channels::OUTGOING.receive().await;
 
             match tx.write(&frame).await {
-                Some(frame) => { 
+                Some(frame) => {
                     crate::can::send(frame).await;
                 },
                 None => send_count += 1,
@@ -306,17 +262,16 @@ mod handler {
     /// Passes frames received off the bus to the incoming channel.
     #[embassy_executor::task]
     pub async fn can_rx(mut rx: CanRx<'static>) -> ! {
-
         let mut rx_count: u32 = 0;
         let mut rx_err_count: u32 = 0;
 
         loop {
             match rx.read().await {
-                Ok(can_recv) => { 
+                Ok(can_recv) => {
                     super::channels::INCOMING.send(can_recv.frame).await;
                     rx_count += 1;
                 },
-                Err(err) => { 
+                Err(err) => {
                     warn!("Bus error! {}", err);
                     rx_err_count += 1;
                 },
@@ -414,5 +369,4 @@ mod handler {
             Timer::after_millis(PROPS_SAMPLE_PERIOD_MS).await;
         }
     }
-
 }

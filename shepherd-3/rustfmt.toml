@@ -1,36 +1,10 @@
-# rustfmt settings for shepherd-3 only (the other workspace crates keep rustfmt defaults).
-#
-# The goal here is to make `cargo fmt` agree with the conventions this crate is
-# already written in, so that the workspace CI `cargo fmt --all --check` gate
-# passes without rustfmt rewriting the whole crate.
-#
-# Every option below is stable. The toolchain is pinned to stable (see
-# ../rust-toolchain.toml), and rustfmt silently ignores nightly-only options, so
-# there is no point listing them here.
-
-# This crate hand-wraps its lines: long defmt/defmt_monitor log lines, long
-# `use` trees and long single-line expressions are deliberate. The longest
-# existing line is 384 columns, so 400 means rustfmt never re-wraps on width and
-# line breaks stay where they were put.
+# rustfmt settings for shepherd-3 (the other workspace crates keep rustfmt defaults).
 max_width = 400
 fn_call_width = 400
 chain_width = 400
-
-# Struct literals still break onto multiple lines rather than being collapsed.
 struct_lit_width = 70
-
-# `use` statements and `mod` declarations are grouped by meaning here, not
-# alphabetically (see main.rs and segments/mod.rs), so leave the order alone.
 reorder_imports = false
 reorder_modules = false
-
-# This crate writes `},` after a block-bodied match arm.
 match_block_trailing_comma = true
-
-# Separate `#[derive(...)]` lines are used to group traits by purpose
-# (e.g. strum derives on one line, Debug/Clone/Copy on the next).
 merge_derives = false
-
-# Keeps rustfmt from re-indenting the hand-aligned builder chain inside the
-# `const { ConfigA::new() ... }` block in segments/core.rs.
 use_try_shorthand = true

@@ -1,5 +1,5 @@
 //! Contains the `Broadcast` type, which is basically just a wrapper around `embassy_sync::pubsub::PubSubChannel` but specifically meant for allowing tasks to subscribe to an awaitable trigger signal.
-//! 
+//!
 //! u_TODO - if actually keep using this then this should probably be a standalone crate (maybe in firmware-rs repo) so it can be reused
 
 use embassy_sync::{
@@ -15,8 +15,8 @@ pub enum WaitError {
 }
 
 /// N is the max number of waiters this broadcast should allow.
-pub struct Broadcast<M: RawMutex, const N: usize> { 
-    inner: PubSubChannel<M, (), 1, N, 0> 
+pub struct Broadcast<M: RawMutex, const N: usize> {
+    inner: PubSubChannel<M, (), 1, N, 0>,
 }
 impl<M: RawMutex, const N: usize> Default for Broadcast<M, N> {
     fn default() -> Self {
@@ -25,10 +25,12 @@ impl<M: RawMutex, const N: usize> Default for Broadcast<M, N> {
 }
 
 impl<M: RawMutex, const N: usize> Broadcast<M, N> {
-    pub const fn new() -> Self { Self { inner: PubSubChannel::new() } }
+    pub const fn new() -> Self {
+        Self { inner: PubSubChannel::new() }
+    }
 
     /// Subscribes you to this broadcast. This doesn't automatically do anything on its own, but it gives you the `Subscription` handle (which allows you to .wait() on this broadcast).
-    /// 
+    ///
     /// This is meant to be called at the init stage of tasks that want to be notified based
     /// on this broadcast.
     pub fn subscribe(&self) -> Result<Subscription<'_, M, N>, WaitError> {
@@ -49,7 +51,7 @@ pub struct Subscription<'broadcast, M: RawMutex, const N: usize> {
 }
 impl<M: RawMutex, const N: usize> Subscription<'_, M, N> {
     /// Waits until the broadcast is signaled.
-    /// 
+    ///
     /// If a broadcast has already been signaled since you last called this function, this future will resolve immediately.
     /// If you want to throw away any signals that arrived since you last checked, and just get woken up exactly whenever the NEXT signal comes in, you can call `clear()` before `wait()`.
     pub async fn wait(&mut self) {

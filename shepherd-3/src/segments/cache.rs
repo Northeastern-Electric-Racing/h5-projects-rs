@@ -1,19 +1,22 @@
 //! Module for caching SPI reads to the ADBMS6830B chips.
-//! 
+//!
 //! (this module uses `Cell` because the cache can be accessed at any time by different tasks. it doesn't use RefCell because that can panic. maybe in the future it would be good to look into RefCell but the Cell copies are realistically never going to be an actual issue)
 
-use adbms6830b::{chip::registers::{
-    ReadableGroup,
-    pwm::{PwmA, PwmB},
-    results::{RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD},
-    results::{CellVoltagesA, CellVoltagesB, CellVoltagesC, CellVoltagesD, CellVoltagesE},
-    results::{AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE},
-    results::{FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE},
-    results::{SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE},
-    status::{StatusC, StatusD, StatusA, StatusB},
-    clear::{ClearFlags, types::ClearAction, ClearOvervoltageUndervoltage},
-    results::{AuxillaryA, AuxillaryB, AuxillaryC, AuxillaryD},
-}, turnkey::api::LineId};
+use adbms6830b::{
+    chip::registers::{
+        ReadableGroup,
+        pwm::{PwmA, PwmB},
+        results::{RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD},
+        results::{CellVoltagesA, CellVoltagesB, CellVoltagesC, CellVoltagesD, CellVoltagesE},
+        results::{AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE},
+        results::{FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE},
+        results::{SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE},
+        status::{StatusC, StatusD, StatusA, StatusB},
+        clear::{ClearFlags, types::ClearAction, ClearOvervoltageUndervoltage},
+        results::{AuxillaryA, AuxillaryB, AuxillaryC, AuxillaryD},
+    },
+    turnkey::api::LineId,
+};
 use adbms6830b::line::Error;
 use crate::segments::core::alias::{SpiError};
 use adbms6830b::line::PecStatus;
@@ -56,9 +59,13 @@ pub struct Reading<R: ReadableGroup> {
 }
 impl<R: ReadableGroup> Reading<R> {
     /// Actual register reading.
-    pub const fn data(&self) -> R { self.data }
+    pub const fn data(&self) -> R {
+        self.data
+    }
     /// The PEC status of the reading.
-    pub const fn pec(&self) -> PecStatus { self.pec }
+    pub const fn pec(&self) -> PecStatus {
+        self.pec
+    }
 }
 
 /// Actual register cache data (held inside blocking mutex)
@@ -70,7 +77,7 @@ pub struct RegisterCacheData<R: ReadableGroup> {
     /// If no read has been made yet, this is None.
     last_sucessful_read: Option<embassy_time::Instant>,
 }
-// ^^ u_TODO ideas for maybe cool extra stuff we could add to RegisterCacheData: 
+// ^^ u_TODO ideas for maybe cool extra stuff we could add to RegisterCacheData:
 // - a `read_duration: Option<embassy_time::Duration>` that stores how long the most recent read took. maybe also a `max_read_duration`, `min_read_duration`, and `avg_read_duration` field? would actually be helpful for optimizing our timing a bit. or just cool to look at
 // - idk
 
@@ -88,7 +95,6 @@ impl<R: ReadableGroup> RegisterCacheData<R> {
     }
 }
 
-
 pub struct RegisterCache<R: ReadableGroup> {
     inner: embassy_sync::blocking_mutex::ThreadModeMutex<Cell<RegisterCacheData<R>>>,
 }
@@ -97,23 +103,17 @@ impl<R: ReadableGroup> RegisterCache<R> {
     /// New uninitialized register cache.
     pub const fn new() -> Self {
         Self {
-            inner: embassy_sync::blocking_mutex::ThreadModeMutex::new(Cell::new(RegisterCacheData {
-                data: None,
-                last_sucessful_read: None,
-            }))
+            inner: embassy_sync::blocking_mutex::ThreadModeMutex::new(Cell::new(RegisterCacheData { data: None, last_sucessful_read: None })),
         }
     }
 
     /// Copies out Register Cache data. Copy is needed here due to the mutex, since multiple threads read the cache. Hopefully compiler uses RVO?
     pub fn data(&self) -> RegisterCacheData<R> {
-        self.inner.lock(|inner| {
-            inner.get()
-        })
+        self.inner.lock(|inner| inner.get())
     }
 
     /// Reads the register and updates the cache.
     pub async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
         let data: [Reading<R>; ADBMS6830B_NUM_CHIPS] = {
             let responses = api.read::<R>().await;
 
@@ -121,7 +121,7 @@ impl<R: ReadableGroup> RegisterCache<R> {
                 // Both lines failed.
                 (Some(linea_err), Some(lineb_err)) => {
                     defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read on both Line A and Line B failed. Errors: linea_err={}, lineb_err={}", linea_err, lineb_err);
-                    return Err(UpdateError::BothLinesFailed{ linea_err: *linea_err, lineb_err: *lineb_err });
+                    return Err(UpdateError::BothLinesFailed { linea_err: *linea_err, lineb_err: *lineb_err });
                 },
 
                 // Line A failed, but not Line B.
@@ -141,16 +141,7 @@ impl<R: ReadableGroup> RegisterCache<R> {
             }
 
             let readings: [Reading<R>; ADBMS6830B_NUM_CHIPS] = {
-                let Some(readings) = responses.iter().map(|response| {
-                    response.map(|response| 
-                        Reading {
-                            data: response.data(),
-                            pec: response.pec(),
-                        }
-                    )})
-                    .collect::<Option<heapless::Vec<Reading<R>, { ADBMS6830B_NUM_CHIPS }>>>()
-                    .and_then(|readings| readings.into_array::<{ ADBMS6830B_NUM_CHIPS }>().ok())
-                else {
+                let Some(readings) = responses.iter().map(|response| response.map(|response| Reading { data: response.data(), pec: response.pec() })).collect::<Option<heapless::Vec<Reading<R>, { ADBMS6830B_NUM_CHIPS }>>>().and_then(|readings| readings.into_array::<{ ADBMS6830B_NUM_CHIPS }>().ok()) else {
                     // u_Note: there is probably a way to restructure this so that ImpossibleError doesn't need to exist at all, but it might require going into the driver which is kinda annoying. so even though this existing is kinda gross it is probably fine for now
                     defmt::error!("Segments: cache: In RegisterCache::update(): a chip reading was `None` even though we already verified that no line errors occured. This should not be possible.");
                     return Err(UpdateError::ImpossibleError);
@@ -244,22 +235,20 @@ pub mod fault_counts {
         impl UndervoltageOvervoltageFlags {
             /// Lets you index the overvoltage/undervoltage flags by cell. This throws away c14uv/ov through c16uv/ov since we only have 13 cells.
             pub fn idx_by_cell(&self) -> IndexByCell<CellFlagCounts> {
-                IndexByCell::from_fn(|cell| {
-                    match cell {
-                        CellId::Cell1 => CellFlagCounts {uv: self.c1uv, ov: self.c1ov },
-                        CellId::Cell2 => CellFlagCounts {uv: self.c2uv, ov: self.c2ov },
-                        CellId::Cell3 => CellFlagCounts {uv: self.c3uv, ov: self.c3ov },
-                        CellId::Cell4 => CellFlagCounts {uv: self.c4uv, ov: self.c4ov },
-                        CellId::Cell5 => CellFlagCounts {uv: self.c5uv, ov: self.c5ov },
-                        CellId::Cell6 => CellFlagCounts {uv: self.c6uv, ov: self.c6ov },
-                        CellId::Cell7 => CellFlagCounts {uv: self.c7uv, ov: self.c7ov },
-                        CellId::Cell8 => CellFlagCounts {uv: self.c8uv, ov: self.c8ov },
-                        CellId::Cell9 => CellFlagCounts {uv: self.c9uv, ov: self.c9ov },
-                        CellId::Cell10 => CellFlagCounts {uv: self.c10uv, ov: self.c10ov },
-                        CellId::Cell11 => CellFlagCounts {uv: self.c11uv, ov: self.c11ov },
-                        CellId::Cell12 => CellFlagCounts {uv: self.c12uv, ov: self.c12ov },
-                        CellId::Cell13 => CellFlagCounts {uv: self.c13uv, ov: self.c13ov },
-                    }
+                IndexByCell::from_fn(|cell| match cell {
+                    CellId::Cell1 => CellFlagCounts { uv: self.c1uv, ov: self.c1ov },
+                    CellId::Cell2 => CellFlagCounts { uv: self.c2uv, ov: self.c2ov },
+                    CellId::Cell3 => CellFlagCounts { uv: self.c3uv, ov: self.c3ov },
+                    CellId::Cell4 => CellFlagCounts { uv: self.c4uv, ov: self.c4ov },
+                    CellId::Cell5 => CellFlagCounts { uv: self.c5uv, ov: self.c5ov },
+                    CellId::Cell6 => CellFlagCounts { uv: self.c6uv, ov: self.c6ov },
+                    CellId::Cell7 => CellFlagCounts { uv: self.c7uv, ov: self.c7ov },
+                    CellId::Cell8 => CellFlagCounts { uv: self.c8uv, ov: self.c8ov },
+                    CellId::Cell9 => CellFlagCounts { uv: self.c9uv, ov: self.c9ov },
+                    CellId::Cell10 => CellFlagCounts { uv: self.c10uv, ov: self.c10ov },
+                    CellId::Cell11 => CellFlagCounts { uv: self.c11uv, ov: self.c11ov },
+                    CellId::Cell12 => CellFlagCounts { uv: self.c12uv, ov: self.c12ov },
+                    CellId::Cell13 => CellFlagCounts { uv: self.c13uv, ov: self.c13ov },
                 })
             }
         }
@@ -292,33 +281,31 @@ pub mod fault_counts {
         impl ComparisonFaultFlags {
             /// Lets you index the comparison fault flags by cell. This throws away cs14flt through cs16flt since we only have 13 cells.
             pub fn idx_by_cell(&self) -> IndexByCell<u32> {
-                IndexByCell::from_fn(|cell| {
-                    match cell {
-                        CellId::Cell1 => self.cs1flt,
-                        CellId::Cell2 => self.cs2flt,
-                        CellId::Cell3 => self.cs3flt,
-                        CellId::Cell4 => self.cs4flt,
-                        CellId::Cell5 => self.cs5flt,
-                        CellId::Cell6 => self.cs6flt,
-                        CellId::Cell7 => self.cs7flt,
-                        CellId::Cell8 => self.cs8flt,
-                        CellId::Cell9 => self.cs9flt,
-                        CellId::Cell10 => self.cs10flt,
-                        CellId::Cell11 => self.cs11flt,
-                        CellId::Cell12 => self.cs12flt,
-                        CellId::Cell13 => self.cs13flt,
-                    }
+                IndexByCell::from_fn(|cell| match cell {
+                    CellId::Cell1 => self.cs1flt,
+                    CellId::Cell2 => self.cs2flt,
+                    CellId::Cell3 => self.cs3flt,
+                    CellId::Cell4 => self.cs4flt,
+                    CellId::Cell5 => self.cs5flt,
+                    CellId::Cell6 => self.cs6flt,
+                    CellId::Cell7 => self.cs7flt,
+                    CellId::Cell8 => self.cs8flt,
+                    CellId::Cell9 => self.cs9flt,
+                    CellId::Cell10 => self.cs10flt,
+                    CellId::Cell11 => self.cs11flt,
+                    CellId::Cell12 => self.cs12flt,
+                    CellId::Cell13 => self.cs13flt,
                 })
             }
         }
     }
 
     /// Persistent counts of ADBMS6830B fault flags for CacheData.
-    /// 
+    ///
     /// Basically, any time a fault flag gets read in here during an update (e.g., the fault flags on StatusC), that fault flag will be
     /// incremented here. The fault flags are W1C and are cleared each update, so this may help callers track the history of faults that
     /// have shown up, or detect that a fault occured during a cache read that they may have missed.
-    /// 
+    ///
     /// Also, this isn't meant to be a super sophisticated error-detection thing. It is supposed to be pretty dumb and just a basic relay of fault values. If
     /// these are increased, it might not necessarily mean that something super serious is going on, it's just possibly useful data for debugging and diagnostic stuff.
     #[derive(Copy, Clone, Debug, defmt::Format)]
@@ -379,7 +366,7 @@ pub mod fault_counts {
                     cs13flt: 0,
                     cs14flt: 0,
                     cs15flt: 0,
-                    cs16flt: 0
+                    cs16flt: 0,
                 },
                 smed: 0,
                 sed: 0,
@@ -397,23 +384,39 @@ pub mod fault_counts {
                 vde: 0,
                 vdel: 0,
                 cxovuv: undervotlage_overvoltage::UndervoltageOvervoltageFlags {
-                    c1uv: 0, c1ov: 0,
-                    c2uv: 0, c2ov: 0,
-                    c3uv: 0, c3ov: 0,
-                    c4uv: 0, c4ov: 0,
-                    c5uv: 0, c5ov: 0,
-                    c6uv: 0, c6ov: 0,
-                    c7uv: 0, c7ov: 0,
-                    c8uv: 0, c8ov: 0,
-                    c9uv: 0, c9ov: 0,
-                    c10uv: 0, c10ov: 0,
-                    c11uv: 0, c11ov: 0,
-                    c12uv: 0, c12ov: 0,
-                    c13uv: 0, c13ov: 0,
-                    c14uv: 0, c14ov: 0,
-                    c15uv: 0, c15ov: 0,
-                    c16uv: 0, c16ov: 0,
-                }
+                    c1uv: 0,
+                    c1ov: 0,
+                    c2uv: 0,
+                    c2ov: 0,
+                    c3uv: 0,
+                    c3ov: 0,
+                    c4uv: 0,
+                    c4ov: 0,
+                    c5uv: 0,
+                    c5ov: 0,
+                    c6uv: 0,
+                    c6ov: 0,
+                    c7uv: 0,
+                    c7ov: 0,
+                    c8uv: 0,
+                    c8ov: 0,
+                    c9uv: 0,
+                    c9ov: 0,
+                    c10uv: 0,
+                    c10ov: 0,
+                    c11uv: 0,
+                    c11ov: 0,
+                    c12uv: 0,
+                    c12ov: 0,
+                    c13uv: 0,
+                    c13ov: 0,
+                    c14uv: 0,
+                    c14ov: 0,
+                    c15uv: 0,
+                    c15ov: 0,
+                    c16uv: 0,
+                    c16ov: 0,
+                },
             }
         }
     }
@@ -451,7 +454,7 @@ pub struct CacheData {
     fcc: RegisterCache<FilteredCellVoltagesC>,
     fcd: RegisterCache<FilteredCellVoltagesD>,
     fce: RegisterCache<FilteredCellVoltagesE>,
-    
+
     sca: RegisterCache<SVoltagesA>,
     scb: RegisterCache<SVoltagesB>,
     scc: RegisterCache<SVoltagesC>,
@@ -544,12 +547,14 @@ pub mod redundant_aux {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         inner: IndexByGpio<Voltage>,
@@ -563,10 +568,12 @@ pub mod redundant_aux {
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -580,48 +587,51 @@ pub mod redundant_aux {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(a) = raw.raxa.data() else { return Err(()); };
-            let Some(b) = raw.raxb.data() else { return Err(()); };
-            let Some(c) = raw.raxc.data() else { return Err(()); };
-            let Some(d) = raw.raxd.data() else { return Err(()); };
+            let Some(a) = raw.raxa.data() else {
+                return Err(());
+            };
+            let Some(b) = raw.raxb.data() else {
+                return Err(());
+            };
+            let Some(c) = raw.raxc.data() else {
+                return Err(());
+            };
+            let Some(d) = raw.raxd.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
-                    IndexByChip::from_fn(|chip| {
-                        NiceDataChip {
-                            inner: IndexByGpio::from_fn(|gpio| {
-                                match gpio {
-                                    GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
-                                    GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
-                                    GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().r_g3v().as_microvolts() as f32),
+                    IndexByChip::from_fn(|chip| NiceDataChip {
+                        inner: IndexByGpio::from_fn(|gpio| match gpio {
+                            GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
+                            GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
+                            GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().r_g3v().as_microvolts() as f32),
 
-                                    GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().r_g4v().as_microvolts() as f32),
-                                    GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().r_g5v().as_microvolts() as f32),
-                                    GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().r_g6v().as_microvolts() as f32),
+                            GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().r_g4v().as_microvolts() as f32),
+                            GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().r_g5v().as_microvolts() as f32),
+                            GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().r_g6v().as_microvolts() as f32),
 
-                                    GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().r_g7v().as_microvolts() as f32),
-                                    GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().r_g8v().as_microvolts() as f32),
-                                    GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().r_g9v().as_microvolts() as f32),
-                                    
-                                    GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
-                                }
-                            })
-                        }
+                            GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().r_g7v().as_microvolts() as f32),
+                            GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().r_g8v().as_microvolts() as f32),
+                            GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().r_g9v().as_microvolts() as f32),
+
+                            GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
+                        }),
                     })
-                }
+                },
             })
         }
     }
 
     impl CacheData {
         /// Updates caches RedundantAuxillaryA through D with new data.
-        /// 
+        ///
         /// This doesn't run the `autoconvert` function!! The caller should do that. Otherwise this update will basically do nothing
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_redundant_aux(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             self.raxa.update(api).await?;
             self.raxb.update(api).await?;
             self.raxc.update(api).await?;
@@ -660,12 +670,14 @@ pub mod cell_voltages {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         inner: IndexByCell<Voltage>,
@@ -679,10 +691,12 @@ pub mod cell_voltages {
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -696,51 +710,56 @@ pub mod cell_voltages {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(a) = raw.cva.data() else { return Err(()); };
-            let Some(b) = raw.cvb.data() else { return Err(()); };
-            let Some(c) = raw.cvc.data() else { return Err(()); };
-            let Some(d) = raw.cvd.data() else { return Err(()); };
-            let Some(e) = raw.cve.data() else { return Err(()); };
+            let Some(a) = raw.cva.data() else {
+                return Err(());
+            };
+            let Some(b) = raw.cvb.data() else {
+                return Err(());
+            };
+            let Some(c) = raw.cvc.data() else {
+                return Err(());
+            };
+            let Some(d) = raw.cvd.data() else {
+                return Err(());
+            };
+            let Some(e) = raw.cve.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
-                    IndexByChip::from_fn(|chip| {
-                        NiceDataChip {
-                            inner: IndexByCell::from_fn(|cell| {
-                                match cell {
-                                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().c1v().as_microvolts() as f32),
-                                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().c2v().as_microvolts() as f32),
-                                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().c3v().as_microvolts() as f32),
+                    IndexByChip::from_fn(|chip| NiceDataChip {
+                        inner: IndexByCell::from_fn(|cell| match cell {
+                            CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().c1v().as_microvolts() as f32),
+                            CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().c2v().as_microvolts() as f32),
+                            CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().c3v().as_microvolts() as f32),
 
-                                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().c4v().as_microvolts() as f32),
-                                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().c5v().as_microvolts() as f32),
-                                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().c6v().as_microvolts() as f32),
+                            CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().c4v().as_microvolts() as f32),
+                            CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().c5v().as_microvolts() as f32),
+                            CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().c6v().as_microvolts() as f32),
 
-                                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().c7v().as_microvolts() as f32),
-                                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().c8v().as_microvolts() as f32),
-                                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().c9v().as_microvolts() as f32),
+                            CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().c7v().as_microvolts() as f32),
+                            CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().c8v().as_microvolts() as f32),
+                            CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().c9v().as_microvolts() as f32),
 
-                                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().c10v().as_microvolts() as f32),
-                                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().c11v().as_microvolts() as f32),
-                                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().c12v().as_microvolts() as f32),
+                            CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().c10v().as_microvolts() as f32),
+                            CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().c11v().as_microvolts() as f32),
+                            CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().c12v().as_microvolts() as f32),
 
-                                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().c13v().as_microvolts() as f32),
-                                }
-                            })
-                        }
+                            CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().c13v().as_microvolts() as f32),
+                        }),
                     })
-                }
+                },
             })
         }
     }
 
     impl CacheData {
         /// Updates caches CellVoltages A through E with new data.
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             let result: Result<(), UpdateError> = async {
                 self.cva.update(api).await?;
                 self.cvb.update(api).await?;
@@ -748,7 +767,8 @@ pub mod cell_voltages {
                 self.cvd.update(api).await?;
                 self.cve.update(api).await?;
                 Ok(())
-            }.await;
+            }
+            .await;
 
             result
         }
@@ -784,12 +804,14 @@ pub mod average_cell_voltages {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         inner: IndexByCell<Voltage>,
@@ -803,10 +825,12 @@ pub mod average_cell_voltages {
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -820,51 +844,56 @@ pub mod average_cell_voltages {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(a) = raw.aca.data() else { return Err(()); };
-            let Some(b) = raw.acb.data() else { return Err(()); };
-            let Some(c) = raw.acc.data() else { return Err(()); };
-            let Some(d) = raw.acd.data() else { return Err(()); };
-            let Some(e) = raw.ace.data() else { return Err(()); };
+            let Some(a) = raw.aca.data() else {
+                return Err(());
+            };
+            let Some(b) = raw.acb.data() else {
+                return Err(());
+            };
+            let Some(c) = raw.acc.data() else {
+                return Err(());
+            };
+            let Some(d) = raw.acd.data() else {
+                return Err(());
+            };
+            let Some(e) = raw.ace.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
-                    IndexByChip::from_fn(|chip| {
-                        NiceDataChip {
-                            inner: IndexByCell::from_fn(|cell| {
-                                match cell {
-                                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().ac1v().as_microvolts() as f32),
-                                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().ac2v().as_microvolts() as f32),
-                                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().ac3v().as_microvolts() as f32),
+                    IndexByChip::from_fn(|chip| NiceDataChip {
+                        inner: IndexByCell::from_fn(|cell| match cell {
+                            CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().ac1v().as_microvolts() as f32),
+                            CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().ac2v().as_microvolts() as f32),
+                            CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().ac3v().as_microvolts() as f32),
 
-                                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().ac4v().as_microvolts() as f32),
-                                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().ac5v().as_microvolts() as f32),
-                                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().ac6v().as_microvolts() as f32),
+                            CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().ac4v().as_microvolts() as f32),
+                            CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().ac5v().as_microvolts() as f32),
+                            CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().ac6v().as_microvolts() as f32),
 
-                                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().ac7v().as_microvolts() as f32),
-                                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().ac8v().as_microvolts() as f32),
-                                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().ac9v().as_microvolts() as f32),
+                            CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().ac7v().as_microvolts() as f32),
+                            CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().ac8v().as_microvolts() as f32),
+                            CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().ac9v().as_microvolts() as f32),
 
-                                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().ac10v().as_microvolts() as f32),
-                                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().ac11v().as_microvolts() as f32),
-                                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().ac12v().as_microvolts() as f32),
+                            CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().ac10v().as_microvolts() as f32),
+                            CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().ac11v().as_microvolts() as f32),
+                            CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().ac12v().as_microvolts() as f32),
 
-                                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().ac13v().as_microvolts() as f32),
-                                }
-                            })
-                        }
+                            CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().ac13v().as_microvolts() as f32),
+                        }),
                     })
-                }
+                },
             })
         }
     }
 
     impl CacheData {
         /// Updates caches AverageCellVoltages A through E with new data.
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_average_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             let result: Result<(), UpdateError> = async {
                 self.aca.update(api).await?;
                 self.acb.update(api).await?;
@@ -872,7 +901,8 @@ pub mod average_cell_voltages {
                 self.acd.update(api).await?;
                 self.ace.update(api).await?;
                 Ok(())
-            }.await;
+            }
+            .await;
 
             result
         }
@@ -908,18 +938,22 @@ pub mod filtered_cell_voltages {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         inner: IndexByCell<Voltage>,
     }
     impl NiceDataChip {
-        pub const fn cells(&self) -> &IndexByCell<Voltage> { &self.inner }
+        pub const fn cells(&self) -> &IndexByCell<Voltage> {
+            &self.inner
+        }
     }
     impl core::ops::Deref for NiceDataChip {
         type Target = IndexByCell<Voltage>;
@@ -930,10 +964,12 @@ pub mod filtered_cell_voltages {
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -947,51 +983,56 @@ pub mod filtered_cell_voltages {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(a) = raw.fca.data() else { return Err(()); };
-            let Some(b) = raw.fcb.data() else { return Err(()); };
-            let Some(c) = raw.fcc.data() else { return Err(()); };
-            let Some(d) = raw.fcd.data() else { return Err(()); };
-            let Some(e) = raw.fce.data() else { return Err(()); };
+            let Some(a) = raw.fca.data() else {
+                return Err(());
+            };
+            let Some(b) = raw.fcb.data() else {
+                return Err(());
+            };
+            let Some(c) = raw.fcc.data() else {
+                return Err(());
+            };
+            let Some(d) = raw.fcd.data() else {
+                return Err(());
+            };
+            let Some(e) = raw.fce.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
-                    IndexByChip::from_fn(|chip| {
-                        NiceDataChip {
-                            inner: IndexByCell::from_fn(|cell| {
-                                match cell {
-                                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().fc1v().as_microvolts() as f32),
-                                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().fc2v().as_microvolts() as f32),
-                                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().fc3v().as_microvolts() as f32),
+                    IndexByChip::from_fn(|chip| NiceDataChip {
+                        inner: IndexByCell::from_fn(|cell| match cell {
+                            CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().fc1v().as_microvolts() as f32),
+                            CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().fc2v().as_microvolts() as f32),
+                            CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().fc3v().as_microvolts() as f32),
 
-                                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().fc4v().as_microvolts() as f32),
-                                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().fc5v().as_microvolts() as f32),
-                                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().fc6v().as_microvolts() as f32),
+                            CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().fc4v().as_microvolts() as f32),
+                            CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().fc5v().as_microvolts() as f32),
+                            CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().fc6v().as_microvolts() as f32),
 
-                                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().fc7v().as_microvolts() as f32),
-                                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().fc8v().as_microvolts() as f32),
-                                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().fc9v().as_microvolts() as f32),
+                            CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().fc7v().as_microvolts() as f32),
+                            CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().fc8v().as_microvolts() as f32),
+                            CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().fc9v().as_microvolts() as f32),
 
-                                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().fc10v().as_microvolts() as f32),
-                                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().fc11v().as_microvolts() as f32),
-                                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().fc12v().as_microvolts() as f32),
+                            CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().fc10v().as_microvolts() as f32),
+                            CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().fc11v().as_microvolts() as f32),
+                            CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().fc12v().as_microvolts() as f32),
 
-                                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().fc13v().as_microvolts() as f32),
-                                }
-                            })
-                        }
+                            CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().fc13v().as_microvolts() as f32),
+                        }),
                     })
-                }
+                },
             })
         }
     }
 
     impl CacheData {
         /// Updates caches FilteredCellVoltages A through E with new data.
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_filtered_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             let result: Result<(), UpdateError> = async {
                 self.fca.update(api).await?;
                 self.fcb.update(api).await?;
@@ -999,7 +1040,8 @@ pub mod filtered_cell_voltages {
                 self.fcd.update(api).await?;
                 self.fce.update(api).await?;
                 Ok(())
-            }.await;
+            }
+            .await;
 
             result
         }
@@ -1035,12 +1077,14 @@ pub mod s_voltages {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         inner: IndexByCell<Voltage>,
@@ -1054,10 +1098,12 @@ pub mod s_voltages {
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -1071,51 +1117,56 @@ pub mod s_voltages {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(a) = raw.sca.data() else { return Err(()); };
-            let Some(b) = raw.scb.data() else { return Err(()); };
-            let Some(c) = raw.scc.data() else { return Err(()); };
-            let Some(d) = raw.scd.data() else { return Err(()); };
-            let Some(e) = raw.sce.data() else { return Err(()); };
+            let Some(a) = raw.sca.data() else {
+                return Err(());
+            };
+            let Some(b) = raw.scb.data() else {
+                return Err(());
+            };
+            let Some(c) = raw.scc.data() else {
+                return Err(());
+            };
+            let Some(d) = raw.scd.data() else {
+                return Err(());
+            };
+            let Some(e) = raw.sce.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
-                    IndexByChip::from_fn(|chip| {
-                        NiceDataChip {
-                            inner: IndexByCell::from_fn(|cell| {
-                                match cell {
-                                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().s1v().as_microvolts() as f32),
-                                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().s2v().as_microvolts() as f32),
-                                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().s3v().as_microvolts() as f32),
+                    IndexByChip::from_fn(|chip| NiceDataChip {
+                        inner: IndexByCell::from_fn(|cell| match cell {
+                            CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().s1v().as_microvolts() as f32),
+                            CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().s2v().as_microvolts() as f32),
+                            CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().s3v().as_microvolts() as f32),
 
-                                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().s4v().as_microvolts() as f32),
-                                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().s5v().as_microvolts() as f32),
-                                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().s6v().as_microvolts() as f32),
+                            CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().s4v().as_microvolts() as f32),
+                            CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().s5v().as_microvolts() as f32),
+                            CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().s6v().as_microvolts() as f32),
 
-                                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().s7v().as_microvolts() as f32),
-                                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().s8v().as_microvolts() as f32),
-                                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().s9v().as_microvolts() as f32),
+                            CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().s7v().as_microvolts() as f32),
+                            CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().s8v().as_microvolts() as f32),
+                            CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().s9v().as_microvolts() as f32),
 
-                                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().s10v().as_microvolts() as f32),
-                                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().s11v().as_microvolts() as f32),
-                                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().s12v().as_microvolts() as f32),
+                            CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().s10v().as_microvolts() as f32),
+                            CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().s11v().as_microvolts() as f32),
+                            CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().s12v().as_microvolts() as f32),
 
-                                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().s13v().as_microvolts() as f32),
-                                }
-                            })
-                        }
+                            CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().s13v().as_microvolts() as f32),
+                        }),
                     })
-                }
+                },
             })
         }
     }
 
     impl CacheData {
         /// Updates caches SVoltages A through E with new data.
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_s_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             let result: Result<(), UpdateError> = async {
                 self.sca.update(api).await?;
                 self.scb.update(api).await?;
@@ -1123,7 +1174,8 @@ pub mod s_voltages {
                 self.scd.update(api).await?;
                 self.sce.update(api).await?;
                 Ok(())
-            }.await;
+            }
+            .await;
 
             result
         }
@@ -1146,19 +1198,16 @@ pub mod status_c {
     use super::*;
     use super::alias;
     use crate::segments::chips::cells::{IndexByCell, CellId};
-    use adbms6830b::chip::registers::status::types::c::{ComparisonFault, ConversionsCount, 
-        STrimMultipleError, STrimError, CTrimMultipleError, CTrimError, DigitalRailOvervoltage, DigitalRailUndervoltage, 
-        AnalogRailUndervoltage, AnalogRailOvervoltage, OscillatorCheck, TestModeDetection, ThermalShutdownStatus, SleepModeDetection, 
-        SpiFault, ComparisonActive, SupplyRailDelta, SupplyRailDeltaLatent};
+    use adbms6830b::chip::registers::status::types::c::{ComparisonFault, ConversionsCount, STrimMultipleError, STrimError, CTrimMultipleError, CTrimError, DigitalRailOvervoltage, DigitalRailUndervoltage, AnalogRailUndervoltage, AnalogRailOvervoltage, OscillatorCheck, TestModeDetection, ThermalShutdownStatus, SleepModeDetection, SpiFault, ComparisonActive, SupplyRailDelta, SupplyRailDeltaLatent};
 
     /// Raw StatusC register reading.
     pub struct Raw {
         pub statc: RegisterCacheData<StatusC>,
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
-    /// 
+    ///
     /// This data isn't even that "nice", since it is mostly just the raw StatusC data but with nicer ComparisonFault formatting (can be indexed by cells) and nicer
     /// conversions count formatting. Everything else is basically the same though.
     pub struct NiceDataChip {
@@ -1183,16 +1232,20 @@ pub mod status_c {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -1206,29 +1259,29 @@ pub mod status_c {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(statc) = raw.statc.data() else { return Err(()); };
+            let Some(statc) = raw.statc.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
                     IndexByChip::from_fn(|chip| {
                         let chip_statc = statc.get(chip).data();
                         NiceDataChip {
-                            cell_channel_comparison_faults: IndexByCell::from_fn(|cell| {
-                                match cell {
-                                    CellId::Cell1 => chip_statc.cs1flt(),
-                                    CellId::Cell2 => chip_statc.cs2flt(),
-                                    CellId::Cell3 => chip_statc.cs3flt(),
-                                    CellId::Cell4 => chip_statc.cs4flt(),
-                                    CellId::Cell5 => chip_statc.cs5flt(),
-                                    CellId::Cell6 => chip_statc.cs6flt(),
-                                    CellId::Cell7 => chip_statc.cs7flt(),
-                                    CellId::Cell8 => chip_statc.cs8flt(),
-                                    CellId::Cell9 => chip_statc.cs9flt(),
-                                    CellId::Cell10 => chip_statc.cs10flt(),
-                                    CellId::Cell11 => chip_statc.cs11flt(),
-                                    CellId::Cell12 => chip_statc.cs12flt(),
-                                    CellId::Cell13 => chip_statc.cs13flt(),
-                                }
+                            cell_channel_comparison_faults: IndexByCell::from_fn(|cell| match cell {
+                                CellId::Cell1 => chip_statc.cs1flt(),
+                                CellId::Cell2 => chip_statc.cs2flt(),
+                                CellId::Cell3 => chip_statc.cs3flt(),
+                                CellId::Cell4 => chip_statc.cs4flt(),
+                                CellId::Cell5 => chip_statc.cs5flt(),
+                                CellId::Cell6 => chip_statc.cs6flt(),
+                                CellId::Cell7 => chip_statc.cs7flt(),
+                                CellId::Cell8 => chip_statc.cs8flt(),
+                                CellId::Cell9 => chip_statc.cs9flt(),
+                                CellId::Cell10 => chip_statc.cs10flt(),
+                                CellId::Cell11 => chip_statc.cs11flt(),
+                                CellId::Cell12 => chip_statc.cs12flt(),
+                                CellId::Cell13 => chip_statc.cs13flt(),
                             }),
                             conversions_count: ConversionsCount::new(chip_statc.ct_lower(), chip_statc.ct_upper(), chip_statc.cts()),
                             s_trim_multiple_error: chip_statc.smed(),
@@ -1249,7 +1302,7 @@ pub mod status_c {
                             supply_rail_delta_latent: chip_statc.vdel(),
                         }
                     })
-                }
+                },
             })
         }
     }
@@ -1264,7 +1317,9 @@ pub mod status_c {
 
                 for (chip, reading) in readings.iter() {
                     // if the PEC failed then we shouldnt count any of those fault flags because they could just be junk. for the same reason, we dont want to W1C those flags either. if they are really set then they will appear when we have a read with a PEC that actually passes
-                    if !reading.pec().is_success() { continue; }
+                    if !reading.pec().is_success() {
+                        continue;
+                    }
 
                     let statc = reading.data();
                     let c = counts.get_mut(chip);
@@ -1296,20 +1351,20 @@ pub mod status_c {
                     record!(cs15flt, c.csxflt.cs15flt, with_cl_cs15flt);
                     record!(cs16flt, c.csxflt.cs16flt, with_cl_cs16flt);
 
-                    record!(smed,    c.smed,    with_cl_smed);
-                    record!(sed,     c.sed,     with_cl_sed);
-                    record!(cmed,    c.cmed,    with_cl_cmed);
-                    record!(ced,     c.ced,     with_cl_ced);
-                    record!(vd_uv,   c.vd_uv,   with_cl_vduv);
-                    record!(vd_ov,   c.vd_ov,   with_cl_vdov);
-                    record!(va_uv,   c.va_uv,   with_cl_vauv);
-                    record!(va_ov,   c.va_ov,   with_cl_vaov);
-                    record!(oscchk,  c.oscchk,  with_cl_oscchk);
+                    record!(smed, c.smed, with_cl_smed);
+                    record!(sed, c.sed, with_cl_sed);
+                    record!(cmed, c.cmed, with_cl_cmed);
+                    record!(ced, c.ced, with_cl_ced);
+                    record!(vd_uv, c.vd_uv, with_cl_vduv);
+                    record!(vd_ov, c.vd_ov, with_cl_vdov);
+                    record!(va_uv, c.va_uv, with_cl_vauv);
+                    record!(va_ov, c.va_ov, with_cl_vaov);
+                    record!(oscchk, c.oscchk, with_cl_oscchk);
                     record!(tmodchk, c.tmodchk, with_cl_tmode);
-                    record!(thsd,    c.thsd,    with_cl_thsd);
-                    record!(spiflt,  c.spiflt,  with_cl_spiflt);
-                    record!(vde,     c.vde,     with_cl_vde);
-                    record!(vdel,    c.vdel,    with_cl_vdel);
+                    record!(thsd, c.thsd, with_cl_thsd);
+                    record!(spiflt, c.spiflt, with_cl_spiflt);
+                    record!(vde, c.vde, with_cl_vde);
+                    record!(vdel, c.vdel, with_cl_vdel);
 
                     // SPECIFIC CASE FOR THE SLEEP BIT
                     // the SLEEP bit gets read and cleared by the `Service` as part of the sleep detection stuff.
@@ -1330,17 +1385,16 @@ pub mod status_c {
             clears
         }
 
-
         /// Updates StatusC cache.
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_status_c(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             let result: Result<(), UpdateError> = async {
                 self.statc.update(api).await?;
                 Ok(())
-            }.await;
+            }
+            .await;
 
             if result.is_ok() {
                 let statc_data = self.statc.data();
@@ -1355,14 +1409,11 @@ pub mod status_c {
             }
 
             result
-
         }
 
         /// Gets the current cached StatusC data.
         pub fn get_status_c(&self) -> status_c::Raw {
-            status_c::Raw {
-                statc: self.statc.data(),
-            }
+            status_c::Raw { statc: self.statc.data() }
         }
     }
 }
@@ -1385,7 +1436,7 @@ pub mod status_d {
         pub undervoltage: CellUndervoltageFlag,
         pub overvoltage: CellOvervoltageFlag,
     }
-    
+
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         pub cell_undervoltage_overvoltage_state: IndexByCell<CellUndervoltageOvervoltageState>,
@@ -1393,16 +1444,20 @@ pub mod status_d {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -1416,34 +1471,34 @@ pub mod status_d {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(statd) = raw.statd.data() else { return Err(()); };
+            let Some(statd) = raw.statd.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
                     IndexByChip::from_fn(|chip| {
                         let chip_statd = statd.get(chip).data();
                         NiceDataChip {
-                            cell_undervoltage_overvoltage_state: IndexByCell::from_fn(|cell| {
-                                match cell {
-                                    CellId::Cell1 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c1uv(), overvoltage: chip_statd.c1ov() },
-                                    CellId::Cell2 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c2uv(), overvoltage: chip_statd.c2ov() },
-                                    CellId::Cell3 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c3uv(), overvoltage: chip_statd.c3ov() },
-                                    CellId::Cell4 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c4uv(), overvoltage: chip_statd.c4ov() },
-                                    CellId::Cell5 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c5uv(), overvoltage: chip_statd.c5ov() },
-                                    CellId::Cell6 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c6uv(), overvoltage: chip_statd.c6ov() },
-                                    CellId::Cell7 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c7uv(), overvoltage: chip_statd.c7ov() },
-                                    CellId::Cell8 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c8uv(), overvoltage: chip_statd.c8ov() },
-                                    CellId::Cell9 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c9uv(), overvoltage: chip_statd.c9ov() },
-                                    CellId::Cell10 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c10uv(), overvoltage: chip_statd.c10ov() },
-                                    CellId::Cell11 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c11uv(), overvoltage: chip_statd.c11ov() },
-                                    CellId::Cell12 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c12uv(), overvoltage: chip_statd.c12ov() },
-                                    CellId::Cell13 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c13uv(), overvoltage: chip_statd.c13ov() },
-                                }
+                            cell_undervoltage_overvoltage_state: IndexByCell::from_fn(|cell| match cell {
+                                CellId::Cell1 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c1uv(), overvoltage: chip_statd.c1ov() },
+                                CellId::Cell2 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c2uv(), overvoltage: chip_statd.c2ov() },
+                                CellId::Cell3 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c3uv(), overvoltage: chip_statd.c3ov() },
+                                CellId::Cell4 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c4uv(), overvoltage: chip_statd.c4ov() },
+                                CellId::Cell5 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c5uv(), overvoltage: chip_statd.c5ov() },
+                                CellId::Cell6 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c6uv(), overvoltage: chip_statd.c6ov() },
+                                CellId::Cell7 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c7uv(), overvoltage: chip_statd.c7ov() },
+                                CellId::Cell8 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c8uv(), overvoltage: chip_statd.c8ov() },
+                                CellId::Cell9 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c9uv(), overvoltage: chip_statd.c9ov() },
+                                CellId::Cell10 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c10uv(), overvoltage: chip_statd.c10ov() },
+                                CellId::Cell11 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c11uv(), overvoltage: chip_statd.c11ov() },
+                                CellId::Cell12 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c12uv(), overvoltage: chip_statd.c12ov() },
+                                CellId::Cell13 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c13uv(), overvoltage: chip_statd.c13ov() },
                             }),
                             oscillator_check_counter: chip_statd.oc_cntr(),
                         }
                     })
-                }
+                },
             })
         }
     }
@@ -1458,7 +1513,9 @@ pub mod status_d {
 
                 for (chip, reading) in readings.iter() {
                     // if the PEC failed then we shouldnt count any of those fault flags because they could just be junk. for the same reason, we dont want to W1C those flags either. if they are really set then they will appear when we have a read with a PEC that actually passes
-                    if !reading.pec().is_success() { continue; }
+                    if !reading.pec().is_success() {
+                        continue;
+                    }
 
                     let statd = reading.data();
                     let c = counts.get_mut(chip);
@@ -1473,22 +1530,38 @@ pub mod status_d {
                         };
                     }
 
-                    record!(c1uv, c.cxovuv.c1uv, with_cl_c1uv); record!(c1ov, c.cxovuv.c1ov, with_cl_c1ov);
-                    record!(c2uv, c.cxovuv.c2uv, with_cl_c2uv); record!(c2ov, c.cxovuv.c2ov, with_cl_c2ov);
-                    record!(c3uv, c.cxovuv.c3uv, with_cl_c3uv); record!(c3ov, c.cxovuv.c3ov, with_cl_c3ov);
-                    record!(c4uv, c.cxovuv.c4uv, with_cl_c4uv); record!(c4ov, c.cxovuv.c4ov, with_cl_c4ov);
-                    record!(c5uv, c.cxovuv.c5uv, with_cl_c5uv); record!(c5ov, c.cxovuv.c5ov, with_cl_c5ov);
-                    record!(c6uv, c.cxovuv.c6uv, with_cl_c6uv); record!(c6ov, c.cxovuv.c6ov, with_cl_c6ov);
-                    record!(c7uv, c.cxovuv.c7uv, with_cl_c7uv); record!(c7ov, c.cxovuv.c7ov, with_cl_c7ov);
-                    record!(c8uv, c.cxovuv.c8uv, with_cl_c8uv); record!(c8ov, c.cxovuv.c8ov, with_cl_c8ov);
-                    record!(c9uv, c.cxovuv.c9uv, with_cl_c9uv); record!(c9ov, c.cxovuv.c9ov, with_cl_c9ov);
-                    record!(c10uv, c.cxovuv.c10uv, with_cl_c10uv); record!(c10ov, c.cxovuv.c10ov, with_cl_c10ov);
-                    record!(c11uv, c.cxovuv.c11uv, with_cl_c11uv); record!(c11ov, c.cxovuv.c11ov, with_cl_c11ov);
-                    record!(c12uv, c.cxovuv.c12uv, with_cl_c12uv); record!(c12ov, c.cxovuv.c12ov, with_cl_c12ov);
-                    record!(c13uv, c.cxovuv.c13uv, with_cl_c13uv); record!(c13ov, c.cxovuv.c13ov, with_cl_c13ov);
-                    record!(c14uv, c.cxovuv.c14uv, with_cl_c14uv); record!(c14ov, c.cxovuv.c14ov, with_cl_c14ov);
-                    record!(c15uv, c.cxovuv.c15uv, with_cl_c15uv); record!(c15ov, c.cxovuv.c15ov, with_cl_c15ov);
-                    record!(c16uv, c.cxovuv.c16uv, with_cl_c16uv); record!(c16ov, c.cxovuv.c16ov, with_cl_c16ov);
+                    record!(c1uv, c.cxovuv.c1uv, with_cl_c1uv);
+                    record!(c1ov, c.cxovuv.c1ov, with_cl_c1ov);
+                    record!(c2uv, c.cxovuv.c2uv, with_cl_c2uv);
+                    record!(c2ov, c.cxovuv.c2ov, with_cl_c2ov);
+                    record!(c3uv, c.cxovuv.c3uv, with_cl_c3uv);
+                    record!(c3ov, c.cxovuv.c3ov, with_cl_c3ov);
+                    record!(c4uv, c.cxovuv.c4uv, with_cl_c4uv);
+                    record!(c4ov, c.cxovuv.c4ov, with_cl_c4ov);
+                    record!(c5uv, c.cxovuv.c5uv, with_cl_c5uv);
+                    record!(c5ov, c.cxovuv.c5ov, with_cl_c5ov);
+                    record!(c6uv, c.cxovuv.c6uv, with_cl_c6uv);
+                    record!(c6ov, c.cxovuv.c6ov, with_cl_c6ov);
+                    record!(c7uv, c.cxovuv.c7uv, with_cl_c7uv);
+                    record!(c7ov, c.cxovuv.c7ov, with_cl_c7ov);
+                    record!(c8uv, c.cxovuv.c8uv, with_cl_c8uv);
+                    record!(c8ov, c.cxovuv.c8ov, with_cl_c8ov);
+                    record!(c9uv, c.cxovuv.c9uv, with_cl_c9uv);
+                    record!(c9ov, c.cxovuv.c9ov, with_cl_c9ov);
+                    record!(c10uv, c.cxovuv.c10uv, with_cl_c10uv);
+                    record!(c10ov, c.cxovuv.c10ov, with_cl_c10ov);
+                    record!(c11uv, c.cxovuv.c11uv, with_cl_c11uv);
+                    record!(c11ov, c.cxovuv.c11ov, with_cl_c11ov);
+                    record!(c12uv, c.cxovuv.c12uv, with_cl_c12uv);
+                    record!(c12ov, c.cxovuv.c12ov, with_cl_c12ov);
+                    record!(c13uv, c.cxovuv.c13uv, with_cl_c13uv);
+                    record!(c13ov, c.cxovuv.c13ov, with_cl_c13ov);
+                    record!(c14uv, c.cxovuv.c14uv, with_cl_c14uv);
+                    record!(c14ov, c.cxovuv.c14ov, with_cl_c14ov);
+                    record!(c15uv, c.cxovuv.c15uv, with_cl_c15uv);
+                    record!(c15ov, c.cxovuv.c15ov, with_cl_c15ov);
+                    record!(c16uv, c.cxovuv.c16uv, with_cl_c16uv);
+                    record!(c16ov, c.cxovuv.c16ov, with_cl_c16ov);
                 }
 
                 cell.set(counts);
@@ -1497,17 +1570,16 @@ pub mod status_d {
             clears
         }
 
-
         /// Updates StatusD cache.
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_status_d(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             let result: Result<(), UpdateError> = async {
                 self.statd.update(api).await?;
                 Ok(())
-            }.await;
+            }
+            .await;
 
             if result.is_ok() {
                 let statd_data = self.statd.data();
@@ -1522,14 +1594,11 @@ pub mod status_d {
             }
 
             result
-
         }
 
         /// Gets the current cached StatusD data.
         pub fn get_status_d(&self) -> status_d::Raw {
-            status_d::Raw {
-                statd: self.statd.data(),
-            }
+            status_d::Raw { statd: self.statd.data() }
         }
     }
 }
@@ -1552,12 +1621,14 @@ pub mod aux {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         /// GPIO voltages.
@@ -1569,10 +1640,12 @@ pub mod aux {
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -1586,50 +1659,53 @@ pub mod aux {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(a) = raw.auxa.data() else { return Err(()); };
-            let Some(b) = raw.auxb.data() else { return Err(()); };
-            let Some(c) = raw.auxc.data() else { return Err(()); };
-            let Some(d) = raw.auxd.data() else { return Err(()); };
+            let Some(a) = raw.auxa.data() else {
+                return Err(());
+            };
+            let Some(b) = raw.auxb.data() else {
+                return Err(());
+            };
+            let Some(c) = raw.auxc.data() else {
+                return Err(());
+            };
+            let Some(d) = raw.auxd.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
-                    IndexByChip::from_fn(|chip| {
-                        NiceDataChip {
-                            gpio_voltages: IndexByGpio::from_fn(|gpio| {
-                                match gpio {
-                                    GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().g1v().as_microvolts() as f32),
-                                    GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().g2v().as_microvolts() as f32),
-                                    GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().g3v().as_microvolts() as f32),
+                    IndexByChip::from_fn(|chip| NiceDataChip {
+                        gpio_voltages: IndexByGpio::from_fn(|gpio| match gpio {
+                            GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().g1v().as_microvolts() as f32),
+                            GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().g2v().as_microvolts() as f32),
+                            GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().g3v().as_microvolts() as f32),
 
-                                    GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().g4v().as_microvolts() as f32),
-                                    GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().g5v().as_microvolts() as f32),
-                                    GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().g6v().as_microvolts() as f32),
+                            GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().g4v().as_microvolts() as f32),
+                            GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().g5v().as_microvolts() as f32),
+                            GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().g6v().as_microvolts() as f32),
 
-                                    GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().g7v().as_microvolts() as f32),
-                                    GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().g8v().as_microvolts() as f32),
-                                    GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().g9v().as_microvolts() as f32),
+                            GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().g7v().as_microvolts() as f32),
+                            GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().g8v().as_microvolts() as f32),
+                            GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().g9v().as_microvolts() as f32),
 
-                                    GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().g10v().as_microvolts() as f32),
-                                }
-                            }),
-                            vmv: Voltage::new::<microvolt>(d.get(chip).data().vmv().as_microvolts() as f32),
-                            vpv: Voltage::new::<microvolt>(d.get(chip).data().vpv().as_microvolts() as f32),
-                        }
+                            GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().g10v().as_microvolts() as f32),
+                        }),
+                        vmv: Voltage::new::<microvolt>(d.get(chip).data().vmv().as_microvolts() as f32),
+                        vpv: Voltage::new::<microvolt>(d.get(chip).data().vpv().as_microvolts() as f32),
                     })
-                }
+                },
             })
         }
     }
 
     impl CacheData {
         /// Updates caches AuxillaryA through D with new data.
-        /// 
+        ///
         /// This doesn't run the `autoconvert` function!! The caller should do that. Otherwise this update will basically do nothing
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_aux(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             self.auxa.update(api).await?;
             self.auxb.update(api).await?;
             self.auxc.update(api).await?;
@@ -1663,12 +1739,14 @@ pub mod status_a {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         /// Second reference voltage.
@@ -1678,10 +1756,12 @@ pub mod status_a {
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -1695,30 +1775,29 @@ pub mod status_a {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(stata) = raw.stata.data() else { return Err(()); };
+            let Some(stata) = raw.stata.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
-                    IndexByChip::from_fn(|chip| {
-                        NiceDataChip {
-                            vref2: Voltage::new::<microvolt>(stata.get(chip).data().vref2().as_microvolts() as f32),
-                            itmp: Temperature::new::<microcelcius>(stata.get(chip).data().itmp().as_microcelsius() as f32),
-                        }
+                    IndexByChip::from_fn(|chip| NiceDataChip {
+                        vref2: Voltage::new::<microvolt>(stata.get(chip).data().vref2().as_microvolts() as f32),
+                        itmp: Temperature::new::<microcelcius>(stata.get(chip).data().itmp().as_microcelsius() as f32),
                     })
-                }
+                },
             })
         }
     }
 
     impl CacheData {
         /// Updates StatusA cache with new data.
-        /// 
+        ///
         /// This doesn't run the `autoconvert` function!! The caller should do that. Otherwise this update will basically do nothing
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_status_a(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             self.stata.update(api).await?;
 
             Ok(())
@@ -1726,9 +1805,7 @@ pub mod status_a {
 
         /// Gets the current cached StatusA data.
         pub fn get_status_a(&self) -> status_a::Raw {
-            status_a::Raw {
-                stata: self.stata.data(),
-            }
+            status_a::Raw { stata: self.stata.data() }
         }
     }
 }
@@ -1746,12 +1823,14 @@ pub mod status_b {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         /// Digital power supply voltage.
@@ -1763,10 +1842,12 @@ pub mod status_b {
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -1780,31 +1861,30 @@ pub mod status_b {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(statb) = raw.statb.data() else { return Err(()); };
+            let Some(statb) = raw.statb.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
-                    IndexByChip::from_fn(|chip| {
-                        NiceDataChip {
-                            vd: Voltage::new::<microvolt>(statb.get(chip).data().vd().as_microvolts() as f32),
-                            va: Voltage::new::<microvolt>(statb.get(chip).data().va().as_microvolts() as f32),
-                            vres: Voltage::new::<microvolt>(statb.get(chip).data().vres().as_microvolts() as f32),
-                        }
+                    IndexByChip::from_fn(|chip| NiceDataChip {
+                        vd: Voltage::new::<microvolt>(statb.get(chip).data().vd().as_microvolts() as f32),
+                        va: Voltage::new::<microvolt>(statb.get(chip).data().va().as_microvolts() as f32),
+                        vres: Voltage::new::<microvolt>(statb.get(chip).data().vres().as_microvolts() as f32),
                     })
-                }
+                },
             })
         }
     }
 
     impl CacheData {
         /// Updates StatusB cache with new data.
-        /// 
+        ///
         /// This doesn't run the `autoconvert` function!! The caller should do that. Otherwise this update will basically do nothing
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_status_b(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             self.statb.update(api).await?;
 
             Ok(())
@@ -1812,9 +1892,7 @@ pub mod status_b {
 
         /// Gets the current cached StatusB data.
         pub fn get_status_b(&self) -> status_b::Raw {
-            status_b::Raw {
-                statb: self.statb.data(),
-            }
+            status_b::Raw { statb: self.statb.data() }
         }
     }
 }
@@ -1833,14 +1911,16 @@ pub mod pwm {
     }
     impl Raw {
         /// Tries to make it nice.
-        /// 
+        ///
         /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+        pub fn try_nice(&self) -> Result<NiceData, ()> {
+            NiceData::try_from(self)
+        }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
-    
+
     /// "Nice data" for a single chip.
-    /// 
+    ///
     /// This leaves out cells 14 through 16 since we only have 13 cells.
     pub struct NiceDataChip {
         inner: IndexByCell<PwmDutyCycleConfig>,
@@ -1854,10 +1934,12 @@ pub mod pwm {
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
-    /// 
+    ///
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    pub struct NiceData {
+        inner: IndexByChip<NiceDataChip>,
+    }
     impl core::ops::Deref for NiceData {
         type Target = IndexByChip<NiceDataChip>;
 
@@ -1871,45 +1953,43 @@ pub mod pwm {
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
         fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(pwma) = raw.pwma.data() else { return Err(()); };
-            let Some(pwmb) = raw.pwmb.data() else { return Err(()); };
+            let Some(pwma) = raw.pwma.data() else {
+                return Err(());
+            };
+            let Some(pwmb) = raw.pwmb.data() else {
+                return Err(());
+            };
 
             Ok(Self {
                 inner: {
-                    IndexByChip::from_fn(|chip| {
-                        NiceDataChip {
-                            inner: IndexByCell::from_fn(|cell| {
-                                match cell {
-                                    CellId::Cell1 => pwma.get(chip).data().pwm1(),
-                                    CellId::Cell2 => pwma.get(chip).data().pwm2(),
-                                    CellId::Cell3 => pwma.get(chip).data().pwm3(),
-                                    CellId::Cell4 => pwma.get(chip).data().pwm4(),
-                                    CellId::Cell5 => pwma.get(chip).data().pwm5(),
-                                    CellId::Cell6 => pwma.get(chip).data().pwm6(),
-                                    CellId::Cell7 => pwma.get(chip).data().pwm7(),
-                                    CellId::Cell8 => pwma.get(chip).data().pwm8(),
-                                    CellId::Cell9 => pwma.get(chip).data().pwm9(),
-                                    CellId::Cell10 => pwma.get(chip).data().pwm10(),
-                                    CellId::Cell11 => pwma.get(chip).data().pwm11(),
-                                    CellId::Cell12 => pwma.get(chip).data().pwm12(),
-                                    CellId::Cell13 => pwmb.get(chip).data().pwm13(),
-
-                                }
-                            })
-                        }
+                    IndexByChip::from_fn(|chip| NiceDataChip {
+                        inner: IndexByCell::from_fn(|cell| match cell {
+                            CellId::Cell1 => pwma.get(chip).data().pwm1(),
+                            CellId::Cell2 => pwma.get(chip).data().pwm2(),
+                            CellId::Cell3 => pwma.get(chip).data().pwm3(),
+                            CellId::Cell4 => pwma.get(chip).data().pwm4(),
+                            CellId::Cell5 => pwma.get(chip).data().pwm5(),
+                            CellId::Cell6 => pwma.get(chip).data().pwm6(),
+                            CellId::Cell7 => pwma.get(chip).data().pwm7(),
+                            CellId::Cell8 => pwma.get(chip).data().pwm8(),
+                            CellId::Cell9 => pwma.get(chip).data().pwm9(),
+                            CellId::Cell10 => pwma.get(chip).data().pwm10(),
+                            CellId::Cell11 => pwma.get(chip).data().pwm11(),
+                            CellId::Cell12 => pwma.get(chip).data().pwm12(),
+                            CellId::Cell13 => pwmb.get(chip).data().pwm13(),
+                        }),
                     })
-                }
+                },
             })
         }
     }
 
     impl CacheData {
         /// Updates PwmA/B cache with new data.
-        /// 
+        ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_pwm(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-
             self.pwma.update(api).await?;
             self.pwmb.update(api).await?;
 
@@ -1918,10 +1998,7 @@ pub mod pwm {
 
         /// Gets the current cached PwmA/B data.
         pub fn get_pwm(&self) -> pwm::Raw {
-            pwm::Raw {
-                pwma: self.pwma.data(),
-                pwmb: self.pwmb.data(),
-            }
+            pwm::Raw { pwma: self.pwma.data(), pwmb: self.pwmb.data() }
         }
     }
 }

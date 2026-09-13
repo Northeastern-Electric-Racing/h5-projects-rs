@@ -14,10 +14,7 @@ pub fn rcc_config() -> embassy_stm32::Config {
     let mut config = embassy_stm32::Config::default();
 
     // 25 MHz crystal on PH0/PH1.
-    config.rcc.hse = Some(Hse {
-        freq: Hertz(25_000_000),
-        mode: HseMode::Oscillator,
-    });
+    config.rcc.hse = Some(Hse { freq: Hertz(25_000_000), mode: HseMode::Oscillator });
 
     // PLL1: 25 / 2 = 12.5 MHz ref, x28 = 350 MHz VCO, /2 = 175 MHz.
     config.rcc.pll1 = Some(Pll {

@@ -33,15 +33,18 @@ pub mod cells {
         }
 
         /// This `CellId` represented as a raw u8.
-        pub fn as_u8(&self) -> u8 { 
-            *self as u8 
+        pub fn as_u8(&self) -> u8 {
+            *self as u8
         }
 
         /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
         /// of two.
-        /// 
+        ///
         /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
-        pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)> where Self: Copy, {
+        pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)>
+        where
+            Self: Copy,
+        {
             Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
         }
 
@@ -55,7 +58,9 @@ pub mod cells {
 
     /// Like IndexByChip but for cells
     #[derive(Copy, Clone, Debug)]
-    pub struct IndexByCell<T> { data: [T; ADBMS6830B_NUM_CELLS_PER_CHIP] }
+    pub struct IndexByCell<T> {
+        data: [T; ADBMS6830B_NUM_CELLS_PER_CHIP],
+    }
     pub type CellIds = core::iter::Copied<core::slice::Iter<'static, CellId>>;
     pub type Iter<'borrow, T> = core::iter::Zip<CellIds, core::slice::Iter<'borrow, T>>;
     pub type IterMut<'borrow, T> = core::iter::Zip<CellIds, core::slice::IterMut<'borrow, T>>;
@@ -74,7 +79,7 @@ pub mod cells {
         }
 
         /// Retrives the data for `cell`.
-        /// 
+        ///
         /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
         pub const fn cell(&self, cell: CellId) -> &T {
             self.get(cell)
@@ -111,19 +116,23 @@ pub mod cells {
         type Item = (CellId, &'borrow T);
         type IntoIter = Iter<'borrow, T>;
 
-        fn into_iter(self) -> Self::IntoIter { self.iter() }
+        fn into_iter(self) -> Self::IntoIter {
+            self.iter()
+        }
     }
 
     impl<'borrow, T> IntoIterator for &'borrow mut IndexByCell<T> {
         type Item = (CellId, &'borrow mut T);
         type IntoIter = IterMut<'borrow, T>;
 
-        fn into_iter(self) -> Self::IntoIter { self.iter_mut() }
+        fn into_iter(self) -> Self::IntoIter {
+            self.iter_mut()
+        }
     }
 }
 
 /// Number of ADBMS6830B chips we have.
-/// 
+///
 /// (this is just an alais for the ChipId count, but it kind of reads better like this)
 pub const ADBMS6830B_NUM_CHIPS: usize = const { ChipId::COUNT };
 
@@ -152,7 +161,7 @@ pub enum ChipId {
     /// Segment 4, Alpha Chip
     Chip8,
     /// Segment 4, Beta Chip
-    Chip9
+    Chip9,
 }
 impl ChipId {
     /// Lets you iterate over each chip.
@@ -161,15 +170,18 @@ impl ChipId {
     }
 
     /// This `ChipId` represented as a raw u8.
-    pub fn as_u8(&self) -> u8 { 
-        *self as u8 
+    pub fn as_u8(&self) -> u8 {
+        *self as u8
     }
 
     /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
     /// of two.
-    /// 
+    ///
     /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
-    pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)> where Self: Copy, {
+    pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)>
+    where
+        Self: Copy,
+    {
         Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
     }
 
@@ -182,11 +194,7 @@ impl ChipId {
 
     /// Whether a chip is Alpha or Beta.
     pub const fn kind(&self) -> ChipKind {
-        if (*self as usize).is_multiple_of(2) {
-            ChipKind::Alpha
-        } else {
-            ChipKind::Beta
-        }
+        if (*self as usize).is_multiple_of(2) { ChipKind::Alpha } else { ChipKind::Beta }
     }
 
     /// Whether or not this chip is Alpha.
@@ -245,15 +253,18 @@ impl SegmentId {
     }
 
     /// This `SegmentId` represented as a raw u8.
-    pub fn as_u8(&self) -> u8 { 
-        *self as u8 
+    pub fn as_u8(&self) -> u8 {
+        *self as u8
     }
 
     /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
     /// of two.
-    /// 
+    ///
     /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
-    pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)> where Self: Copy, {
+    pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)>
+    where
+        Self: Copy,
+    {
         Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
     }
 
@@ -268,12 +279,14 @@ impl SegmentId {
 /// Small wrapper around an array of responses for each chip.
 /// You can put any datatype in here for `T` as long as it makes
 /// sense to index it by a ChipId.
-/// 
+///
 /// The point of this so responses can be interacted with
 /// via `ChipId` (and iterated over) instead of having to
 /// lookup raw arrays (whuch might require you to convert a ChipId to usize).
 #[derive(Copy, Clone, Debug)]
-pub struct IndexByChip<T> { data: [T; ADBMS6830B_NUM_CHIPS] }
+pub struct IndexByChip<T> {
+    data: [T; ADBMS6830B_NUM_CHIPS],
+}
 pub type ChipIds = core::iter::Copied<core::slice::Iter<'static, ChipId>>;
 pub type Iter<'borrow, T> = core::iter::Zip<ChipIds, core::slice::Iter<'borrow, T>>;
 pub type IterMut<'borrow, T> = core::iter::Zip<ChipIds, core::slice::IterMut<'borrow, T>>;
@@ -292,7 +305,7 @@ impl<T> IndexByChip<T> {
     }
 
     /// Retrives the data for `chip`.
-    /// 
+    ///
     /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
     pub const fn chip(&self, chip: ChipId) -> &T {
         self.get(chip)
@@ -335,14 +348,18 @@ impl<'borrow, T> IntoIterator for &'borrow IndexByChip<T> {
     type Item = (ChipId, &'borrow T);
     type IntoIter = Iter<'borrow, T>;
 
-    fn into_iter(self) -> Self::IntoIter { self.iter() }
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 impl<'borrow, T> IntoIterator for &'borrow mut IndexByChip<T> {
     type Item = (ChipId, &'borrow mut T);
     type IntoIter = IterMut<'borrow, T>;
 
-    fn into_iter(self) -> Self::IntoIter { self.iter_mut() }
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
 }
 
 /// Module that stores the mapping between the 10 GPIOs (see RAUX and AUX), the 13 cells, and the 7 thermistors.
@@ -411,27 +428,30 @@ pub mod gpios {
         }
 
         /// This `GpioId` represented as a raw u8.
-        pub fn as_u8(&self) -> u8 { 
-            *self as u8 
+        pub fn as_u8(&self) -> u8 {
+            *self as u8
         }
 
         /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
         /// of two.
-        /// 
+        ///
         /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
-        pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)> where Self: Copy, {
+        pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)>
+        where
+            Self: Copy,
+        {
             Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
         }
     }
 
     /// Calculates the cell temperature of a 10,000 ohm NTP resistor (model 103).
-    /// 
+    ///
     /// ### Parameters
     /// - `res`: The resistance of the resistor.
-    /// 
+    ///
     /// ### Returns
     /// - The temperature.
-    /// 
+    ///
     /// ### Notes
     /// This function was taken from the TSECU-Shepherd C code (analyzer.c).
     fn calc_temp(resistance: &Resistance) -> Temperature {
@@ -439,21 +459,21 @@ pub mod gpios {
         use uom::si::thermodynamic_temperature::degree_celsius;
 
         let ohms = resistance.get::<ohm>();
-        
+
         // achieved via math --  See BMS 25 Mapping and Calcs
-	    let temp: f32 = ((298.15_f32 * 3462.28_f32) / (298.15_f32 * libm::logf(ohms / 10100_f32) + 3462.28_f32)) - 273.15_f32;
+        let temp: f32 = ((298.15_f32 * 3462.28_f32) / (298.15_f32 * libm::logf(ohms / 10100_f32) + 3462.28_f32)) - 273.15_f32;
 
         Temperature::new::<degree_celsius>(temp)
     }
 
     /// Calculate a cell temperature based on the thermistor reading.
-    /// 
+    ///
     /// ### Parameters
     /// - `voltage`: The thremistor reading.
-    /// 
+    ///
     /// ### Returns
     /// - The temperature.
-    /// 
+    ///
     /// ### Notes
     /// This function was taken from the TSECU-Shepherd C code (analyzer.c).
     pub fn calc_cell_temp(voltage: &Voltage) -> Temperature {
@@ -470,7 +490,9 @@ pub mod gpios {
     }
 
     /// Struct for each cell temperature.
-    pub struct CellTemperatures { inner: IndexByCell<Temperature> }
+    pub struct CellTemperatures {
+        inner: IndexByCell<Temperature>,
+    }
     impl core::ops::Deref for CellTemperatures {
         type Target = IndexByCell<Temperature>;
 
@@ -480,7 +502,7 @@ pub mod gpios {
     }
 
     /// Struct that represents the GPIO voltages, but converted into temperatures.
-    /// 
+    ///
     /// The layout of this struct and the temperature calculations are based on the comment near the top of this module.
     pub struct ThermistorTemperatures {
         /// Temperatures for each cell. Note that some of the temperatures will be the same between some of the cells because some of the cells share the same thermistor.
@@ -502,29 +524,27 @@ pub mod gpios {
         fn from(gpios: IndexByGpio<Voltage>) -> Self {
             Self {
                 cell_temperatures: CellTemperatures {
-                    inner: IndexByCell::from_fn(|cell| {
-                        match cell {
-                            CellId::Cell1 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
-                            CellId::Cell2 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
+                    inner: IndexByCell::from_fn(|cell| match cell {
+                        CellId::Cell1 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
+                        CellId::Cell2 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
 
-                            CellId::Cell3 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
-                            CellId::Cell4 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
+                        CellId::Cell3 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
+                        CellId::Cell4 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
 
-                            CellId::Cell5 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
-                            CellId::Cell6 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
+                        CellId::Cell5 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
+                        CellId::Cell6 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
 
-                            CellId::Cell7 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
-                            CellId::Cell8 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
+                        CellId::Cell7 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
+                        CellId::Cell8 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
 
-                            CellId::Cell9 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
-                            CellId::Cell10 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
+                        CellId::Cell9 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
+                        CellId::Cell10 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
 
-                            CellId::Cell11 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
-                            CellId::Cell12 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
+                        CellId::Cell11 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
+                        CellId::Cell12 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
 
-                            CellId::Cell13 => calc_cell_temp(gpios.get(GpioId::Gpio10)),
-                        }
-                    })
+                        CellId::Cell13 => calc_cell_temp(gpios.get(GpioId::Gpio10)),
+                    }),
                 },
                 on_board_temp_1: calc_cell_temp(gpios.get(GpioId::Gpio3)),
                 on_board_temp_2: calc_cell_temp(gpios.get(GpioId::Gpio4)),
@@ -546,7 +566,9 @@ pub mod gpios {
 
     /// Lets you index by GPIOs.
     #[derive(Copy, Clone, Debug)]
-    pub struct IndexByGpio<T> { data: [T; ADBMS6830B_NUM_GPIOS_PER_CHIP] }
+    pub struct IndexByGpio<T> {
+        data: [T; ADBMS6830B_NUM_GPIOS_PER_CHIP],
+    }
     pub type GpioIds = core::iter::Copied<core::slice::Iter<'static, GpioId>>;
     pub type Iter<'borrow, T> = core::iter::Zip<GpioIds, core::slice::Iter<'borrow, T>>;
     pub type IterMut<'borrow, T> = core::iter::Zip<GpioIds, core::slice::IterMut<'borrow, T>>;
@@ -565,7 +587,7 @@ pub mod gpios {
         }
 
         /// Retrives the data for `gpio`.
-        /// 
+        ///
         /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
         pub const fn gpio(&self, gpio: GpioId) -> &T {
             self.get(gpio)
@@ -608,13 +630,17 @@ pub mod gpios {
         type Item = (GpioId, &'borrow T);
         type IntoIter = Iter<'borrow, T>;
 
-        fn into_iter(self) -> Self::IntoIter { self.iter() }
+        fn into_iter(self) -> Self::IntoIter {
+            self.iter()
+        }
     }
 
     impl<'borrow, T> IntoIterator for &'borrow mut IndexByGpio<T> {
         type Item = (GpioId, &'borrow mut T);
         type IntoIter = IterMut<'borrow, T>;
 
-        fn into_iter(self) -> Self::IntoIter { self.iter_mut() }
+        fn into_iter(self) -> Self::IntoIter {
+            self.iter_mut()
+        }
     }
 }
