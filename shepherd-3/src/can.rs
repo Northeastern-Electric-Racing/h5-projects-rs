@@ -10,7 +10,7 @@ mod api {
     /// Add a frame to the outgoing CAN channel.
     pub async fn send(frame: Frame) { 
         match channels::OUTGOING.try_send(frame) {
-            Ok(_) => { return; },
+            Ok(_) => {},
             Err(_) => {
                 defmt::warn!("Tried to add a frame to the OUTGOING Channel, but the Channel was full. This is not a failure, because we will .await until the Channel is able to accept the frame. However, consider increasing the capacity of the Channel if this is occurring often.");
                 channels::OUTGOING.send(frame).await
@@ -21,10 +21,10 @@ mod api {
     /// Tries to add a frame to the outgoing CAN channel.
     pub fn try_send(frame: Frame) -> Result<(), ()> { 
         match channels::OUTGOING.try_send(frame) {
-            Ok(_) => { return Ok(()); },
+            Ok(_) => { Ok(())},
             Err(_) => {
                 defmt::warn!("Tried to add a frame to the OUTGOING Channel, but the Channel was full. This is not a failure, because we will .await until the Channel is able to accept the frame. However, consider increasing the capacity of the Channel if this is occurring often.");
-                return Err(());
+                Err(())
             }
         }
     }

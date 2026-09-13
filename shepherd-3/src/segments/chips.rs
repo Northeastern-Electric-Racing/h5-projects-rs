@@ -182,7 +182,7 @@ impl ChipId {
 
     /// Whether a chip is Alpha or Beta.
     pub const fn kind(&self) -> ChipKind {
-        if ((*self as usize) % 2) == 0 {
+        if (*self as usize).is_multiple_of(2) {
             ChipKind::Alpha
         } else {
             ChipKind::Beta
@@ -466,7 +466,7 @@ pub mod gpios {
 
         let res: Resistance = Resistance::new::<ohm>(res);
 
-        return calc_temp(&res);
+        calc_temp(&res)
     }
 
     /// Struct for each cell temperature.
@@ -495,7 +495,7 @@ pub mod gpios {
     impl ThermistorTemperatures {
         /// Gets the cell temperature for `cell`.
         pub fn cell(&self, cell: CellId) -> &Temperature {
-            &self.cell_temperatures.cell(cell)
+            self.cell_temperatures.cell(cell)
         }
     }
     impl From<IndexByGpio<Voltage>> for ThermistorTemperatures {

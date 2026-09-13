@@ -18,6 +18,12 @@ pub enum WaitError {
 pub struct Broadcast<M: RawMutex, const N: usize> { 
     inner: PubSubChannel<M, (), 1, N, 0> 
 }
+impl<M: RawMutex, const N: usize> Default for Broadcast<M, N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<M: RawMutex, const N: usize> Broadcast<M, N> {
     pub const fn new() -> Self { Self { inner: PubSubChannel::new() } }
 
