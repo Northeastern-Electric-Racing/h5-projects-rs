@@ -50,6 +50,8 @@ mod api {
 
         spawner.spawn(handler::can_tx(tx).expect("Failed to spawn can_handler::can_tx()."));
         spawner.spawn(handler::can_rx(rx).expect("Failed to spawn can_handler::can_rx()."));
+
+        #[cfg(defmt_monitor)]
         spawner.spawn(handler::can_props(props).expect("Failed to spawn can_handler::can_props()."));
     }
 }
@@ -175,7 +177,7 @@ mod handler {
         pub fn init(mut can_configurator: CanConfigurator<'static>) -> Self {
             use embassy_stm32::can::config::*;
 
-            let can_config = FdCanConfig::default().set_automatic_bus_off_recovery(true).set_automatic_retransmit(true).set_frame_transmit(FrameTransmissionConfig::ClassicCanOnly).set_transmit_pause(true).set_global_filter(GlobalFilter::reject_all());
+            let can_config = FdCanConfig::default().set_automatic_bus_off_recovery(true).set_automatic_retransmit(false).set_frame_transmit(FrameTransmissionConfig::ClassicCanOnly).set_transmit_pause(true).set_global_filter(GlobalFilter::reject_all());
             can_configurator.set_config(can_config);
             can_configurator.set_bitrate(500_000);
 
