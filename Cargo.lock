@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#e98939b0b4f3349ea8dbf62b341c7aff91c8de44"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#6413c8f24b3620ecc8fdcba4d3d167ba215b175c"
 dependencies = [
  "adbms6830b-macros",
  "arbitrary-int",
@@ -20,7 +20,7 @@ dependencies = [
 [[package]]
 name = "adbms6830b-macros"
 version = "0.0.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#e98939b0b4f3349ea8dbf62b341c7aff91c8de44"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#6413c8f24b3620ecc8fdcba4d3d167ba215b175c"
 dependencies = [
  "proc-macro2",
  "quote",
