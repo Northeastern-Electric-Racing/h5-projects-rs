@@ -17,5 +17,3 @@ embassy-futures.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 #static_cell.workspace = true
-
-adbms6830 = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git" }
