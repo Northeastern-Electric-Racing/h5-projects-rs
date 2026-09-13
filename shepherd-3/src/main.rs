@@ -1,4 +1,3 @@
-#![cfg_attr(rustfmt, rustfmt_skip)] // u_TODO - this turns off rustfmt for the whole crate. keep this until we find formatter settings that don't destroy with the formatting conventions used in this crate
 #![no_std]
 #![no_main]
 #[macro_use]
