@@ -1,5 +1,7 @@
 pub use self::inbox::FaultframeState;
 mod inbox {
+    use core::fmt::Debug;
+
     use can_handler::NerCan;
     use defmt::warn;
     use embassy_stm32::can::Frame;
@@ -13,14 +15,15 @@ mod inbox {
     };
     const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
     // Previously known as IMD_GENERAL_MSG_ID
-    const IMD_CAN_ID: Id = Id::Standard(0x37);
+    const IMD_CAN_ID: Id = Id::Standard(StandardId::new(0x501).expect("Invalid ID"));
+
     // BMS_LIGHTNING_OKAY_MSG_ID
-    const BMS_CAN_ID: Id = Id::Standard(0x37);
+    const BMS_CAN_ID: Id = Id::Extended(ExtendedId::new(0x37).expect("Invalid ID"));
 
     // #define RESET_LATCHING_MSG_ID     0x510
-    const LATCHING_CAN_ID: ID = 0x510;
+    const LATCHING_CAN_ID: Id = Id::Standard(StandardId::new(0x510).expect("Invalid ID"));
     use embassy_time::{Duration, WithTimeout};
-    use embedded_can::Id;
+    use embedded_can::{ExtendedId, Id, StandardId};
     use heapless::mpmc::Queue;
     #[derive(Debug)]
     pub enum FaultframeState {
@@ -67,7 +70,7 @@ mod inbox {
                                 _ => Some(FaultframeState::LatchingFault),
                             },
                             _id => {
-                                warn!("Unknown ID: {:#?}", _id);
+                                warn!("Unknown ID ");
                                 None
                             }
                         },
