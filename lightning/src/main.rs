@@ -41,34 +41,34 @@ async fn main(_spawner: Spawner) -> ! {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV2,
-            mul: PllMul::MUL28,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV2),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div2,
+            mul: PllMul::Mul28,
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div2),
             divr: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
 
         config.rcc.pll2 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5,
-            mul: PllMul::MUL64,
-            divp: Some(PllDiv::DIV5),
-            divq: Some(PllDiv::DIV5),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5,
+            mul: PllMul::Mul64,
+            divp: Some(PllDiv::Div5),
+            divq: Some(PllDiv::Div5),
             divr: None,
         });
 
-        config.rcc.mux.lpuart1sel = Lpusartsel::PCLK3;
-        config.rcc.mux.uart4sel = Usartsel::PCLK1;
+        config.rcc.mux.lpuart1sel = Lpusartsel::Pclk3;
+        config.rcc.mux.uart4sel = Usartsel::Pclk1;
 
-        config.rcc.mux.spi1sel = Spi1sel::PLL2_P;
-        config.rcc.mux.spi2sel = Spi2sel::PLL2_P;
-        config.rcc.mux.spi3sel = Spi3sel::PLL2_P;
+        config.rcc.mux.spi1sel = Spi1sel::Pll2P;
+        config.rcc.mux.spi2sel = Spi2sel::Pll2P;
+        config.rcc.mux.spi3sel = Spi3sel::Pll2P;
 
-        config.rcc.mux.fdcan12sel = Fdcansel::PLL2_Q;
+        config.rcc.mux.fdcan12sel = Fdcansel::Pll2Q;
 
         config.rcc.voltage_scale = VoltageScale::Scale1;
     }
@@ -86,8 +86,7 @@ async fn main(_spawner: Spawner) -> ! {
             .set_automatic_retransmit(false)
             .set_frame_transmit(FrameTransmissionConfig::ClassicCanOnly)
             .set_clock_divider(ClockDivider::_1)
-            .set_data_bit_timing(DataBitTiming {
-                transceiver_delay_compensation: false,
+            .set_nominal_bit_timing(NominalBitTiming {
                 prescaler: NonZeroU16::new(8).unwrap(),
                 seg1: NonZeroU8::new(8).unwrap(),
                 seg2: NonZeroU8::new(4).unwrap(),
@@ -97,30 +96,31 @@ async fn main(_spawner: Spawner) -> ! {
             .set_global_filter(GlobalFilter::reject_all());
         can.set_config(can_config);
 
-        let mut std1 = StandardFilter::default();
-        std1.filter = FilterType::DedicatedDual(
-            StandardId::new(0x37).unwrap(),
-            StandardId::new(0x01E).unwrap(),
-        ); // IMD and BMS LIGHTNING
-        std1.action = Action::StoreInFifo0;
+        let std1 = Filter::<embedded_can::StandardId, u16> {
+            filter: FilterType::DedicatedDual(
+                StandardId::new(0x37).unwrap(),
+                StandardId::new(0x01E).unwrap(),
+            ),
+            action: Action::StoreInFifo0,
+        }; // IMD and BMS LIGHTNING
 
-        let mut ext1 = ExtendedFilter::default();
-        ext1.filter = FilterType::DedicatedSingle(ExtendedId::new(0x0CA).unwrap()); // Cerb lightning
-        ext1.action = Action::StoreInFifo0;
-
+        let ext1 = Filter::<embedded_can::ExtendedId, u32> {
+            filter: FilterType::DedicatedSingle(ExtendedId::new(0x0CA).unwrap()),
+            action: Action::StoreInFifo0,
+        }; // Cerb lightning
         can.properties()
             .set_standard_filter(StandardFilterSlot::_0, std1);
         can.properties()
             .set_extended_filter(ExtendedFilterSlot::_0, ext1);
     }
-    let mut can = can.into_normal_mode();
+    let _can = can.into_normal_mode();
 
     let mut usart_config = usart::Config::default();
     usart_config.swap_rx_tx = true;
     let mut usart = Uart::new(
         p.LPUART1,
-        p.PA10,
         p.PA9,
+        p.PA10,
         p.GPDMA1_CH0,
         p.GPDMA1_CH1,
         IrqsUsart,
@@ -140,6 +140,7 @@ async fn main(_spawner: Spawner) -> ! {
         debug!("Status: Alive");
         Timer::after_millis(500).await;
         ticker.next().await;
+        watchdog.pet();
     }
 }
 

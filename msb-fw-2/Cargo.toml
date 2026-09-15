@@ -18,5 +18,5 @@ heapless.workspace = true
 panic-probe.workspace = true
 static_cell.workspace = true
 
-embassy-net.workspace = true
-rust-mqtt.workspace = true
+[lints]
+workspace = true

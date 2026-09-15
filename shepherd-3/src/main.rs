@@ -1,100 +1,92 @@
 #![no_std]
 #![no_main]
+#[macro_use]
+extern crate uom;
 
-use adbms6830::client::Adbms6830;
-use adbms6830::client::RX_SIZE;
-use adbms6830::client::SpiPollAdc;
-use adbms6830::client::TX_SIZE;
-use adbms6830::registers::AdbmsCommand;
-use adbms6830::types::Adax;
-use adbms6830::types::ConfigA;
-use cortex_m::peripheral::SCB;
-use cortex_m_rt::{ExceptionFrame, exception};
-use defmt::debug;
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::wdg::IndependentWatchdog;
-use embassy_stm32::{dma, gpio, peripherals, spi, time::mhz};
-use embassy_time::Timer;
+use embassy_stm32::{peripherals, Peri};
+use embassy_time::{Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-bind_interrupts!(struct Irqs {
-    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
-    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
-});
+pub mod segments;
+pub mod hardfault;
+pub mod can;
+pub mod clocks;
+pub mod units;
+pub mod broadcast;
+pub mod debug;
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
-    info!("Initializing project...");
-
-    let p = embassy_stm32::init(Config::default());
-
-    let mut spi_config = spi::Config::default();
-    spi_config.frequency = mhz(1);
-
-    let spi = spi::Spi::new(
-        p.SPI1,
-        p.PA5,
-        p.PD7,
-        p.PA6,
-        p.GPDMA1_CH0,
-        p.GPDMA1_CH1,
-        Irqs,
-        spi_config,
-    );
-
-    let spi1_cs = gpio::Output::new(p.PG10, gpio::Level::High, gpio::Speed::High);
-
-    const IC_CNT: usize = 1;
-    const CNT_TX: usize = IC_CNT * TX_SIZE;
-    const CNT_RX: usize = IC_CNT * RX_SIZE;
-    let mut tx_buffer = [0u8; 4 + RX_SIZE * IC_CNT];
-    let mut rx_buffer = [0u8; RX_SIZE * IC_CNT];
-    let mut client = Adbms6830::<_, _, _, _, IC_CNT, CNT_RX, CNT_TX>::new(
-        spi,
-        spi1_cs,
-        SpiPollAdc::<1> {},
-        embassy_time::Delay,
-        &mut tx_buffer,
-        &mut rx_buffer,
-    );
-
-    match client.write(&[ConfigA::default()]).await {
-        Ok(_) => (),
-        Err(e) => match e {
-            adbms6830::client::AdbmsError::CommunicationError(_) => todo!(),
-            adbms6830::client::AdbmsError::CSControlError(_) => todo!(),
-            adbms6830::client::AdbmsError::PECError(_) => todo!(),
-            adbms6830::client::AdbmsError::LengthMismatch { expected, got } => todo!(),
-            adbms6830::client::AdbmsError::PollError => todo!(),
-        },
+use assign_resources::assign_resources;
+assign_resources! {
+    /// Resources for default task.
+    default: DefaultResources {
+        watchdog: IWDG,
     }
-
-    let res = client.read::<ConfigA>().await.unwrap();
-    let a = res.first().unwrap();
-    a.comm_bk();
-
-    client
-        .command(Adax {
-            ow: false,
-            pup: false,
-            ch: adbms6830::types::AdaxChannels::All,
-        })
-        .await
-        .unwrap();
-
-    let mut watchdog = IndependentWatchdog::new(p.IWDG, 1000000);
-    watchdog.unleash();
-    loop {
-        debug!("Status: Alive");
-        Timer::after_millis(500).await;
-        watchdog.pet();
+    /// Resources for CAN.
+    can: CanResources {
+        can: FDCAN2,
+        can_tx: PB13,
+        can_rx: PD9,
+    }
+    /// Resources for segment IsoSPI Line A.
+    segment_isospi_linea: SegmentIsoSpiLineAResources {
+        // Line A SPI config
+        linea_spi: SPI1,
+        linea_sck: PA5,
+        linea_mosi: PD7,
+        linea_miso: PA6,
+        linea_cs: PG10,
+        linea_tx_dma: GPDMA1_CH0,
+        linea_rx_dma: GPDMA1_CH1,
+    }
+    /// Resources for segment IsoSPI Line B.
+    segment_isospi_lineb: SegmentIsoSpiLineBResources {
+        // Line B SPI config
+        lineb_spi: SPI2,
+        lineb_sck: PD3,
+        lineb_mosi: PG1,
+        lineb_miso: PC2,
+        lineb_cs: PA3,
+        lineb_tx_dma: GPDMA1_CH2,
+        lineb_rx_dma: GPDMA1_CH3,
     }
 }
 
-#[exception]
-unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {
-    SCB::sys_reset() // <- you could do something other than reset
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    info!("Initializing project...");
+
+    let p = embassy_stm32::init(clocks::rcc_config());
+
+    hardfault::report_last_reset();
+
+    let r = split_resources!(p);
+
+    spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
+    spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
+    spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
+    spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
+}
+
+/// pet the dog beat the heart
+#[embassy_executor::task]
+pub async fn default_task(r: DefaultResources) -> ! {
+    /// Period between heartbeats. should be a good amount under `WATCHDOG_TIMEOUT_US`.
+    const HEARTBEAT_PERIOD_MS: u64 = 500;
+    /// Watchdog timeout in micros. if we stop petting for this long, the chip resets.
+    const WATCHDOG_TIMEOUT_US: u32 = 1_000_000;
+
+    let mut watchdog = IndependentWatchdog::new(r.watchdog, WATCHDOG_TIMEOUT_US);
+    watchdog.unleash();
+
+    let mut heartbeat_counter: usize = 0;
+
+    loop {
+        info!("heartbeat={}", &heartbeat_counter);
+        heartbeat_counter += 1;
+        Timer::after_millis(HEARTBEAT_PERIOD_MS).await;
+        watchdog.pet();
+    }
 }

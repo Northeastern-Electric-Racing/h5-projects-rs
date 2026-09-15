@@ -34,34 +34,34 @@ async fn main(_spawner: Spawner) -> ! {
                               mode: HseMode::Oscillator,
         });
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV2,
-            mul: PllMul::MUL28,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV2),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div2,
+            mul: PllMul::Mul28,
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div2),
             divr: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
 
         config.rcc.pll2 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5,
-            mul: PllMul::MUL64,
-            divp: Some(PllDiv::DIV5),
-            divq: Some(PllDiv::DIV5),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5,
+            mul: PllMul::Mul64,
+            divp: Some(PllDiv::Div5),
+            divq: Some(PllDiv::Div5),
             divr: None,
         });
 
-        config.rcc.mux.lpuart1sel = Lpusartsel::PCLK3;
-        config.rcc.mux.uart4sel = Usartsel::PCLK1;
+        config.rcc.mux.lpuart1sel = Lpusartsel::Pclk3;
+        config.rcc.mux.uart4sel = Usartsel::Pclk1;
 
-        config.rcc.mux.spi1sel = Spi1sel::PLL2_P;
-        config.rcc.mux.spi2sel = Spi2sel::PLL2_P;
-        config.rcc.mux.spi3sel = Spi3sel::PLL2_P;
+        config.rcc.mux.spi1sel = Spi1sel::Pll2P;
+        config.rcc.mux.spi2sel = Spi2sel::Pll2P;
+        config.rcc.mux.spi3sel = Spi3sel::Pll2P;
 
-        config.rcc.mux.fdcan12sel = Fdcansel::PLL2_Q;
+        config.rcc.mux.fdcan12sel = Fdcansel::Pll2Q;
 
         config.rcc.voltage_scale = VoltageScale::Scale1;
     }
