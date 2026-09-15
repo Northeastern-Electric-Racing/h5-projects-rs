@@ -7,45 +7,16 @@ use defmt::debug;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::bind_interrupts;
-use embassy_stm32::dma;
-use embassy_stm32::eth;
 use embassy_stm32::gpio::Level;
 use embassy_stm32::gpio::Output;
 use embassy_stm32::gpio::Speed;
-use embassy_stm32::peripherals;
-use embassy_stm32::rng;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::wdg::IndependentWatchdog;
-use embassy_stm32::i2c;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-bind_interrupts!(struct IrqsEth {
-    ETH => eth::InterruptHandler;
-    RNG => rng::InterruptHandler<peripherals::RNG>;
-});
-
-bind_interrupts!(struct IrqsI2c {
-    I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
-    I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
-    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
-    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
-});
-
-#[embassy_executor::task]
-async fn net_task(
-    mut runner: embassy_net::Runner<
-    'static,
-    eth::Ethernet<
-    'static,
-    peripherals::ETH,
-    eth::GenericPhy<eth::Sma<'static, peripherals::ETH_SMA>>,
-    >,
-    >,
-) -> ! {
-    runner.run().await
-}
+mod efuses;
+mod adc;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
