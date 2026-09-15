@@ -18,4 +18,4 @@ heapless.workspace = true
 panic-probe.workspace = true
 #static_cell.workspace = true
 
-adbms6830 = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git" }
+adbms6830 = { package = "adbms6830b", git = "https://github.com/bjackson312006/firmware-rs.git", branch = "adbms6830b" }
