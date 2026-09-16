@@ -22,6 +22,7 @@ pub mod debug;
 pub mod faults;
 
 use assign_resources::assign_resources;
+#[cfg(not(feature = "hil"))]
 assign_resources! {
     /// Resources for default task.
     default: DefaultResources {
@@ -76,6 +77,37 @@ assign_resources! {
     }
 }
 
+#[cfg(feature = "hil")]
+assign_resources! {
+    /// Resources for default task.
+    default: DefaultResources {
+        watchdog: IWDG,
+    }
+    /// Resources for CAN.
+    can: CanResources {
+        can: FDCAN2,
+        can_tx: PB13,
+        can_rx: PD9,
+    }
+    /// HIL battery emulator connection.
+    segment_isospi_linea: SegmentIsoSpiLineAResources {
+        uart: UART9,
+        tx: PD15,
+        rx: PD14,
+        tx_dma: GPDMA1_CH4,
+        rx_dma: GPDMA1_CH5,
+    }
+    // Preserve the task signature without reserving line-B hardware.
+    segment_isospi_lineb: SegmentIsoSpiLineBResources {}
+    hv_plate: HvPlateResources {
+        uart: UART4,
+        tx: PD12,
+        rx: PD11,
+        tx_dma: GPDMA1_CH6,
+        rx_dma: GPDMA1_CH7,
+    }
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Initializing project...");
@@ -93,6 +125,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
     spawner.spawn(faults::task::faults_task().expect("Failed to spawn faults task."));
     spawner.spawn(debug::faults_debug(spawner).expect("Failed to spawn faults debug task."));
+    #[cfg(not(feature = "hil"))]
     spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
 }
 
