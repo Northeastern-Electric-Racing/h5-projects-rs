@@ -10,6 +10,7 @@ use crate::job_diagnostics::JobDiagnosticsContainer;
 use crate::broadcast::Broadcast;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 
+#[cfg(not(feature = "hil"))]
 embassy_stm32::bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL4 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH4>;
     GPDMA1_CHANNEL5 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH5>;
@@ -18,18 +19,24 @@ embassy_stm32::bind_interrupts!(struct Irqs {
 });
 
 pub mod alias {
+    #[cfg(not(feature = "hil"))]
     use embassy_stm32::{
         gpio::Output,
         mode::Async,
         spi::{mode::Master, Spi},
     };
+    #[cfg(not(feature = "hil"))]
     use embassy_time::Delay;
+    #[cfg(not(feature = "hil"))]
     use embedded_hal_bus::spi::ExclusiveDevice;
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     ///
     /// Note this is `ExclusiveDevice::new`, *not* `new_no_delay`: the driver's wake-up pulse is a
     /// delay-only transaction, so a device without delay support would panic on the first call.
+    #[cfg(feature = "hil")]
+    pub type SpiDevice = super::super::hil::HilDevice;
+    #[cfg(not(feature = "hil"))]
     pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 
     /// The error type our `SpiDevice` produces.
@@ -51,22 +58,28 @@ pub(super) struct HvPlate {
 
 impl HvPlate {
     pub fn new(r: crate::HvPlateResources) -> Self {
-        use embassy_time::Delay;
-        use embedded_hal_bus::spi::ExclusiveDevice;
+        #[cfg(not(feature = "hil"))]
+        let (line_a, line_b) = {
+            use embassy_time::Delay;
+            use embedded_hal_bus::spi::ExclusiveDevice;
 
-        // The C project clocks both SPI3 and SPI4 at 2 MBit/s (prescaler 32).
-        let mut spi_config = embassy_stm32::spi::Config::default();
-        spi_config.frequency = embassy_stm32::time::mhz(2);
+            // The C project clocks both SPI3 and SPI4 at 2 MBit/s (prescaler 32).
+            let mut spi_config = embassy_stm32::spi::Config::default();
+            spi_config.frequency = embassy_stm32::time::mhz(2);
 
-        let linea_spi = embassy_stm32::spi::Spi::new(r.linea_spi, r.linea_sck, r.linea_mosi, r.linea_miso, r.linea_tx_dma, r.linea_rx_dma, Irqs, spi_config);
-        let linea_cs = embassy_stm32::gpio::Output::new(r.linea_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-        let linea_spi: alias::SpiDevice = ExclusiveDevice::new(linea_spi, linea_cs, Delay).unwrap();
-        let line_a: alias::Line = alias::Line::new(linea_spi);
+            let linea_spi = embassy_stm32::spi::Spi::new(r.linea_spi, r.linea_sck, r.linea_mosi, r.linea_miso, r.linea_tx_dma, r.linea_rx_dma, Irqs, spi_config);
+            let linea_cs = embassy_stm32::gpio::Output::new(r.linea_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
+            let linea_spi: alias::SpiDevice = ExclusiveDevice::new(linea_spi, linea_cs, Delay).unwrap();
+            let line_a: alias::Line = alias::Line::new(linea_spi);
 
-        let lineb_spi = embassy_stm32::spi::Spi::new(r.lineb_spi, r.lineb_sck, r.lineb_mosi, r.lineb_miso, r.lineb_tx_dma, r.lineb_rx_dma, Irqs, spi_config);
-        let lineb_cs = embassy_stm32::gpio::Output::new(r.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-        let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
-        let line_b: alias::Line = alias::Line::new(lineb_spi);
+            let lineb_spi = embassy_stm32::spi::Spi::new(r.lineb_spi, r.lineb_sck, r.lineb_mosi, r.lineb_miso, r.lineb_tx_dma, r.lineb_rx_dma, Irqs, spi_config);
+            let lineb_cs = embassy_stm32::gpio::Output::new(r.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
+            let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
+            let line_b: alias::Line = alias::Line::new(lineb_spi);
+            (line_a, line_b)
+        };
+        #[cfg(feature = "hil")]
+        let (line_a, line_b) = (alias::Line::new(super::hil::HilDevice::new(r)), alias::Line::new(super::hil::HilDevice::disabled()));
 
         static API: StaticCell<alias::Api> = StaticCell::new();
         let api: &'static mut alias::Api = API.init(alias::Api::new(line_a, line_b));
@@ -82,6 +95,7 @@ impl HvPlate {
     /// Mirrors `init_hv_plate()` in `Core/Src/hv_plate.c`, except this always soft-resets first.
     /// The C only does that on the recovery path (`hv_plate_restart()`); doing it every time
     /// makes startup independent of whatever state we inherited.
+    #[cfg(not(feature = "hil"))]
     pub async fn startup(&mut self) -> Result<(), Error<alias::SpiError>> {
         use adbms2950::chip::registers::config_a::{ConfigA, types::*};
 
@@ -122,6 +136,13 @@ impl HvPlate {
         defmt::info!("HvPlate: startup complete.");
         self.started = true;
 
+        Ok(())
+    }
+
+    #[cfg(feature = "hil")]
+    pub async fn startup(&mut self) -> Result<(), Error<alias::SpiError>> {
+        // The emulator serves measurements without physical reference/conversion startup.
+        self.started = true;
         Ok(())
     }
 
@@ -166,12 +187,17 @@ pub mod jobs {
 
             // Deliberately not unsnapping on the error paths: leaving the registers frozen is
             // harmless, and the next successful cycle's SNAP/UNSNAP pair clears it.
+            // HIL discards these commands, so skip them to avoid advancing only the driver's counter.
+            #[cfg(not(feature = "hil"))]
             self.api.command(commands::misc::snap()).await.map_err(UpdateError::SnapError)?;
 
             cache::CACHE.update_current_voltage(self.api).await?;
+            #[cfg(not(feature = "hil"))]
             cache::CACHE.update_accumulated(self.api).await?;
+            #[cfg(not(feature = "hil"))]
             cache::CACHE.update_flag(self.api).await?;
 
+            #[cfg(not(feature = "hil"))]
             self.api.command(commands::misc::unsnap()).await.map_err(UpdateError::UnsnapError)?;
 
             crate::log_job_diagnostics!("HvPlate", "job_update_snap_registers", run.finish());
@@ -275,16 +301,19 @@ pub mod task {
                 all_successful = false;
             }
 
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = hv_plate.job_update_voltage_registers().await {
                 defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_voltage_registers()` failed. Error: {}", err);
                 all_successful = false;
             }
 
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = hv_plate.job_update_aux_registers().await {
                 defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_aux_registers()` failed. Error: {}", err);
                 all_successful = false;
             }
 
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = hv_plate.job_update_status_registers().await {
                 defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_status_registers()` failed. Error: {}", err);
                 all_successful = false;

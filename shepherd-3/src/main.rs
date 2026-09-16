@@ -21,6 +21,7 @@ pub mod job_diagnostics;
 pub mod debug;
 
 use assign_resources::assign_resources;
+#[cfg(not(feature = "hil"))]
 assign_resources! {
     /// Resources for default task.
     default: DefaultResources {
@@ -75,6 +76,37 @@ assign_resources! {
     }
 }
 
+#[cfg(feature = "hil")]
+assign_resources! {
+    /// Resources for default task.
+    default: DefaultResources {
+        watchdog: IWDG,
+    }
+    /// Resources for CAN.
+    can: CanResources {
+        can: FDCAN2,
+        can_tx: PB13,
+        can_rx: PD9,
+    }
+    /// HIL battery emulator connection.
+    segment_isospi_linea: SegmentIsoSpiLineAResources {
+        uart: UART9,
+        tx: PD15,
+        rx: PD14,
+        tx_dma: GPDMA1_CH4,
+        rx_dma: GPDMA1_CH5,
+    }
+    // Preserve the task signature without reserving line-B hardware.
+    segment_isospi_lineb: SegmentIsoSpiLineBResources {}
+    hv_plate: HvPlateResources {
+        uart: UART4,
+        tx: PD12,
+        rx: PD11,
+        tx_dma: GPDMA1_CH6,
+        rx_dma: GPDMA1_CH7,
+    }
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Initializing project...");
@@ -90,6 +122,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
+    #[cfg(not(feature = "hil"))]
     spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
 }
 

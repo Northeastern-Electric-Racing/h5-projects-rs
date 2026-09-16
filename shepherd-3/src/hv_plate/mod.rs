@@ -10,6 +10,8 @@
 mod board;
 mod cache;
 mod core;
+#[cfg(feature = "hil")]
+mod hil;
 
 /// Allows you to read the cache data.
 pub const fn cache() -> &'static CacheData {
