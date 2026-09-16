@@ -19,6 +19,7 @@ pub mod broadcast;
 pub mod debug;
 
 use assign_resources::assign_resources;
+#[cfg(not(feature = "hil"))]
 assign_resources! {
     /// Resources for default task.
     default: DefaultResources {
@@ -52,6 +53,30 @@ assign_resources! {
         lineb_tx_dma: GPDMA1_CH2,
         lineb_rx_dma: GPDMA1_CH3,
     }
+}
+
+#[cfg(feature = "hil")]
+assign_resources! {
+    /// Resources for default task.
+    default: DefaultResources {
+        watchdog: IWDG,
+    }
+    /// Resources for CAN.
+    can: CanResources {
+        can: FDCAN2,
+        can_tx: PB13,
+        can_rx: PD9,
+    }
+    /// HIL battery emulator connection.
+    segment_isospi_linea: SegmentIsoSpiLineAResources {
+        uart: UART9,
+        tx: PD15,
+        rx: PD14,
+        tx_dma: GPDMA1_CH4,
+        rx_dma: GPDMA1_CH5,
+    }
+    // Preserve the task signature without reserving line-B hardware.
+    segment_isospi_lineb: SegmentIsoSpiLineBResources {}
 }
 
 #[embassy_executor::main]

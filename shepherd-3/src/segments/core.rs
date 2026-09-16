@@ -4,6 +4,7 @@ use static_cell::StaticCell;
 use embassy_time::{Timer};
 use super::chips::ADBMS6830B_NUM_CHIPS;
 
+#[cfg(not(feature = "hil"))]
 embassy_stm32::bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
     GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
@@ -12,8 +13,11 @@ embassy_stm32::bind_interrupts!(struct Irqs {
 });
 
 pub mod alias {
+    #[cfg(not(feature = "hil"))]
     use embedded_hal_bus::spi::ExclusiveDevice;
+    #[cfg(not(feature = "hil"))]
     use embassy_time::Delay;
+    #[cfg(not(feature = "hil"))]
     use embassy_stm32::{
         mode::Async,
         gpio::Output,
@@ -23,6 +27,9 @@ pub mod alias {
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     /// This is just a single SPI controller with a CS pin.
+    #[cfg(feature = "hil")]
+    pub type SpiDevice = super::super::hil::HilDevice;
+    #[cfg(not(feature = "hil"))]
     pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 
     /// The error type our `SpiDevice` produces.
@@ -44,6 +51,8 @@ pub mod alias {
 /// Guy in charge of the segments.
 pub(super) struct Segments {
     pub(super) service: &'static mut alias::Service,
+    #[cfg(feature = "hil")]
+    hil_initialized: bool,
 }
 impl Segments {
     /// Initializes our `Segments`. AKA inits the two isoSPI lines. Doesn't start up the task or set any runtime config registers though.
@@ -52,22 +61,33 @@ impl Segments {
     /// - `r_linea`: pins and other hardware resources for Line A
     /// - `r_lineb`: pins and other hardware resources for Line B
     pub fn new(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) -> Self {
+        #[cfg(not(feature = "hil"))]
         use embedded_hal_bus::spi::ExclusiveDevice;
+        #[cfg(not(feature = "hil"))]
         use embassy_time::{Delay};
         use adbms6830b::turnkey::service::service_config::{ServiceConfig, SEGMENT_ISOSPI_EVAL_PERIOD_MS, SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS, SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS, SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL, SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW, SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT, SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS};
 
-        let mut spi_config = embassy_stm32::spi::Config::default();
-        spi_config.frequency = embassy_stm32::time::mhz(1);
+        #[cfg(not(feature = "hil"))]
+        let (line_a, line_b) = {
+            let mut spi_config = embassy_stm32::spi::Config::default();
+            spi_config.frequency = embassy_stm32::time::mhz(1);
 
-        let linea_spi = embassy_stm32::spi::Spi::new(r_linea.linea_spi, r_linea.linea_sck, r_linea.linea_mosi, r_linea.linea_miso, r_linea.linea_tx_dma, r_linea.linea_rx_dma, Irqs, spi_config);
-        let linea_cs = embassy_stm32::gpio::Output::new(r_linea.linea_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-        let linea_spi = ExclusiveDevice::new(linea_spi, linea_cs, Delay).unwrap();
-        let line_a: alias::Line = adbms6830b::line::Line::new(linea_spi);
+            let linea_spi = embassy_stm32::spi::Spi::new(r_linea.linea_spi, r_linea.linea_sck, r_linea.linea_mosi, r_linea.linea_miso, r_linea.linea_tx_dma, r_linea.linea_rx_dma, Irqs, spi_config);
+            let linea_cs = embassy_stm32::gpio::Output::new(r_linea.linea_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
+            let linea_spi = ExclusiveDevice::new(linea_spi, linea_cs, Delay).unwrap();
+            let line_a: alias::Line = adbms6830b::line::Line::new(linea_spi);
 
-        let lineb_spi = embassy_stm32::spi::Spi::new(r_lineb.lineb_spi, r_lineb.lineb_sck, r_lineb.lineb_mosi, r_lineb.lineb_miso, r_lineb.lineb_tx_dma, r_lineb.lineb_rx_dma, Irqs, spi_config);
-        let lineb_cs = embassy_stm32::gpio::Output::new(r_lineb.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-        let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
-        let line_b: alias::Line = adbms6830b::line::Line::new(lineb_spi);
+            let lineb_spi = embassy_stm32::spi::Spi::new(r_lineb.lineb_spi, r_lineb.lineb_sck, r_lineb.lineb_mosi, r_lineb.lineb_miso, r_lineb.lineb_tx_dma, r_lineb.lineb_rx_dma, Irqs, spi_config);
+            let lineb_cs = embassy_stm32::gpio::Output::new(r_lineb.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
+            let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
+            let line_b: alias::Line = adbms6830b::line::Line::new(lineb_spi);
+            (line_a, line_b)
+        };
+        #[cfg(feature = "hil")]
+        let (line_a, line_b) = {
+            let _ = r_lineb;
+            (alias::Line::new(super::hil::HilDevice::new(r_linea)), alias::Line::new(super::hil::HilDevice::disabled()))
+        };
 
         static SERVICE: StaticCell<alias::Service> = StaticCell::new();
         let service: &'static mut alias::Service = SERVICE.init(alias::Service::new(
@@ -85,42 +105,46 @@ impl Segments {
             },
         ));
 
-        Self { service }
+        Self {
+            service,
+            #[cfg(feature = "hil")]
+            hil_initialized: false,
+        }
     }
 
     /// Wrapper function to run the service and handle diagnostics.
     pub async fn run_service(&mut self) {
-        // u_TODO: it would be cleaner if the on_startup async closure could be stored directly on the `Service` struct and defined via Service::new() rather than passed into service.run, since technically you shouldn't be able to change the startup routine each time you pass it into .run(). So possibly a good idea to look into that
-        let diagnostics = self
-            .service
-            .run(
-                // ADBMS6830B Service startup sequence! this gets called by the service at boot time, and whenever the service needs to restart the chips (isospi recovery or sleep detection)
-                async |api, _reason| {
-                    use adbms6830b::chip::registers::{
-                        config_a::{
-                            ConfigA,
-                            types::{ReferenceOn, ComparisonThresholdVoltage, SoakTimeOn, SoakTimeRange, OpenWireSoakTimeMultiplier, GpioPullDownConfig, IirFilterConfig},
-                        },
-                        config_b::{
-                            ConfigB,
-                            types::{OvervoltageThreshold, UndervoltageThreshold, DischargeTimerMonitor, DischargeTimerStatus, DischargeTimerRange, DischargeCellConfig},
-                        },
-                    };
-                    use adbms6830b::chip::{
-                        commands,
-                        commands::adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire},
-                    };
-                    use adbms6830b::turnkey::service::StartupResult;
+        // HIL runs the same startup once, bypassing service discovery/sleep/split recovery.
+        #[cfg(feature = "hil")]
+        if self.hil_initialized {
+            return;
+        }
+        let startup = async |api: &mut alias::Api, _reason| {
+            use adbms6830b::chip::registers::{
+                config_a::{
+                    ConfigA,
+                    types::{ReferenceOn, ComparisonThresholdVoltage, SoakTimeOn, SoakTimeRange, OpenWireSoakTimeMultiplier, GpioPullDownConfig, IirFilterConfig},
+                },
+                config_b::{
+                    ConfigB,
+                    types::{OvervoltageThreshold, UndervoltageThreshold, DischargeTimerMonitor, DischargeTimerStatus, DischargeTimerRange, DischargeCellConfig},
+                },
+            };
+            use adbms6830b::chip::{
+                commands,
+                commands::adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire},
+            };
+            use adbms6830b::turnkey::service::StartupResult;
 
-                    // Reset chips to blank state.
-                    if let Err(err) = api.reset().await {
-                        defmt::error!("Segments: Failed to call `api.reset()` during ADBMS6830B Service startup. Error: {}", err.to_kind());
-                        return StartupResult::Incomplete;
-                    }
+            // Reset chips to blank state.
+            if let Err(err) = api.reset().await {
+                defmt::error!("Segments: Failed to call `api.reset()` during ADBMS6830B Service startup. Error: {}", err.to_kind());
+                return StartupResult::Incomplete;
+            }
 
-                    // Set up ConfigA.
-                    let config_a = const {
-                        ConfigA::new()
+            // Set up ConfigA.
+            let config_a = const {
+                ConfigA::new()
                     .with_refon(ReferenceOn::On)
                     .with_cth(ComparisonThresholdVoltage::Mv25_05)
                     // not going to do `clear_diagnostic_flags()` like the C code since they are all cleared via ConfigA::new() and if were to manually re-clear them here it would have to be 8 separate calls for each flag
@@ -141,75 +165,81 @@ impl Segments {
                     // set outputs, 9=iso led 10=bal LED. false=lit up
                     .with_gpio9(GpioPullDownConfig::PullDownOff)
                     .with_gpio10(GpioPullDownConfig::PullDownOff)
-                    };
-                    if let Err(err) = api.set_configa(&[config_a; super::chips::ADBMS6830B_NUM_CHIPS]).await {
-                        defmt::error!("Segments: Failed to write ConfigA during ADBMS6830B Service startup. Error: {}", err);
-                        return StartupResult::Incomplete;
-                    }
+            };
+            if let Err(err) = api.set_configa(&[config_a; super::chips::ADBMS6830B_NUM_CHIPS]).await {
+                defmt::error!("Segments: Failed to write ConfigA during ADBMS6830B Service startup. Error: {}", err);
+                return StartupResult::Incomplete;
+            }
 
-                    // Set up ConfigB.
-                    let config_b = const {
-                        /// VOV setting from microvolts.
-                        const VOV: OvervoltageThreshold = const {
-                            const MICROVOLTS: i32 = 4_200_000; // 4.2 volts
-                            OvervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VOV.")
-                        };
+            // Set up ConfigB.
+            let config_b = const {
+                /// VOV setting from microvolts.
+                const VOV: OvervoltageThreshold = const {
+                    const MICROVOLTS: i32 = 4_200_000; // 4.2 volts
+                    OvervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VOV.")
+                };
 
-                        /// VUV setting from microvolts.
-                        const VUV: UndervoltageThreshold = const {
-                            const MICROVOLTS: i32 = 2_500_000; // 2.5 volts
-                            UndervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VUV.")
-                        };
+                /// VUV setting from microvolts.
+                const VUV: UndervoltageThreshold = const {
+                    const MICROVOLTS: i32 = 2_500_000; // 2.5 volts
+                    UndervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VUV.")
+                };
 
-                        ConfigB::new()
-                            .with_vov(VOV)
-                            .with_vuv(VUV)
-                            .with_dtmen(DischargeTimerMonitor::Disabled)
-                            .with_dcto(DischargeTimerStatus::new().with_increments(0))
-                            .with_dtrng(DischargeTimerRange::ShortRange)
-                            .with_dcc1(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc2(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc3(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc4(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc5(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc6(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc7(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc8(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc9(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc10(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc11(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc12(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc13(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc14(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
-                    };
-                    if let Err(err) = api.set_configb(&[config_b; ADBMS6830B_NUM_CHIPS]).await {
-                        defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
-                        return StartupResult::Incomplete;
-                    }
+                ConfigB::new()
+                    .with_vov(VOV)
+                    .with_vuv(VUV)
+                    .with_dtmen(DischargeTimerMonitor::Disabled)
+                    .with_dcto(DischargeTimerStatus::new().with_increments(0))
+                    .with_dtrng(DischargeTimerRange::ShortRange)
+                    .with_dcc1(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc2(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc3(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc4(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc5(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc6(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc7(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc8(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc9(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc10(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc11(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc12(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc13(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc14(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
+            };
+            if let Err(err) = api.set_configb(&[config_b; ADBMS6830B_NUM_CHIPS]).await {
+                defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
+                return StartupResult::Incomplete;
+            }
 
-                    // Disable balancing on init.
-                    if let Err(err) = api.command(commands::discharge::mute()).await {
-                        defmt::error!("Segments: Failed to send `mute()` command to disable balancing during ADBMS6830B Service startup. Error = {}", err.to_kind());
-                        return StartupResult::Incomplete;
-                    }
+            // Disable balancing on init.
+            if let Err(err) = api.command(commands::discharge::mute()).await {
+                defmt::error!("Segments: Failed to send `mute()` command to disable balancing during ADBMS6830B Service startup. Error = {}", err.to_kind());
+                return StartupResult::Incomplete;
+            }
 
-                    // Start the ADCV conversions.
-                    if let Err(err) = api.command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::Continuous, ResetFilter::Reset, OpenWire::OffForAll)).await {
-                        defmt::error!("Segments: Failed to send command to start adcv() conversions during ADBMS6830B Service startup. Error = {}", err.to_kind());
-                        return StartupResult::Incomplete;
-                    }
+            // Start the ADCV conversions.
+            if let Err(err) = api.command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::Continuous, ResetFilter::Reset, OpenWire::OffForAll)).await {
+                defmt::error!("Segments: Failed to send command to start adcv() conversions during ADBMS6830B Service startup. Error = {}", err.to_kind());
+                return StartupResult::Incomplete;
+            }
 
-                    // okay startup is complete now
-                    // we have to delay after init is successful for 500ms to wait for ADC to start up (this is what the C code does)
-                    Timer::after_millis(500).await;
-                    StartupResult::Complete
-                },
-            )
-            .await;
+            // okay startup is complete now
+            // we have to delay after init is successful for 500ms to wait for ADC to start up (this is what the C code does)
+            Timer::after_millis(500).await;
+            StartupResult::Complete
+        };
+        #[cfg(feature = "hil")]
+        {
+            let startup = startup;
+            self.hil_initialized = !startup(self.service.api(), adbms6830b::turnkey::service::StartupReason::FromSleep).await.is_incomplete();
+        }
+        #[cfg(not(feature = "hil"))]
+        let diagnostics = self.service.run(startup).await;
 
         // handle diagnostics
+        #[cfg(not(feature = "hil"))]
         {
             // u_TODO: eventually this should probably go into its own (flaggable) task, since it doesn't do any SPI transactions itself. it never awaits as of rn so it's probably fine for now.
 
@@ -456,9 +486,14 @@ pub mod jobs {
             let start_time = Instant::now();
 
             /// Autoconvert timeout in ms.
+            #[cfg(not(feature = "hil"))]
             const TIMEOUT_MS: u64 = 100;
 
             // trigger the conversion and poll it until done
+            // HIL sends the conversion command but does not poll the emulator.
+            #[cfg(feature = "hil")]
+            self.service.api().command(adbms6830b::chip::commands::adc::adax2(Aux2InputSelection::All)).await.map_err(UpdateError::PollError)?;
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = self.service.api().adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await {
                 defmt::error!("Segments: Inside `job_update_redundant_aux()`: call to `adax2_autoconvert()` resulted in an error. Error: {}", err);
                 DIAGNOSTICS.update_with_failure();
@@ -504,6 +539,7 @@ pub mod jobs {
             }
 
             // Update average cell voltages.
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = cache::CACHE.update_average_cell_voltages(self.service.api()).await {
                 defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_average_cell_voltages()`. Error: {}", err);
                 DIAGNOSTICS.update_with_failure();
@@ -525,6 +561,7 @@ pub mod jobs {
             }
 
             // Update StatusC.
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = cache::CACHE.update_status_c(self.service.api()).await {
                 defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_status_c()`. Error: {}", err);
                 DIAGNOSTICS.update_with_failure();
@@ -532,6 +569,7 @@ pub mod jobs {
             }
 
             // Update StatusD.
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = cache::CACHE.update_status_d(self.service.api()).await {
                 defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_status_d()`. Error: {}", err);
                 DIAGNOSTICS.update_with_failure();
@@ -558,9 +596,14 @@ pub mod jobs {
             let start_time = Instant::now();
 
             /// Autoconvert timeout in ms.
+            #[cfg(not(feature = "hil"))]
             const TIMEOUT_MS: u64 = 100;
 
             // need to run autoconvert to update the data we read
+            // HIL sends the conversion command but does not poll the emulator.
+            #[cfg(feature = "hil")]
+            self.service.api().command(adbms6830b::chip::commands::adc::adax(OpenWireAux::Off, Pull::PullDown, Aux1InputSelection::All)).await.map_err(UpdateError::PollError)?;
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = self.service.api().adax_autoconvert(OpenWireAux::Off, Pull::PullDown, Aux1InputSelection::All, TIMEOUT_MS).await {
                 defmt::error!("Segments: Inside `job_update_aux_registers()`: call to `adax_autoconvert()` resulted in an error. Error: {}", err);
                 DIAGNOSTICS.update_with_failure();
@@ -582,6 +625,7 @@ pub mod jobs {
             }
 
             // Update StatusB.
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = cache::CACHE.update_status_b(self.service.api()).await {
                 defmt::error!("Segments: Inside `job_update_aux_registers()`: Failed to call `update_status_b()`. Error: {}", err);
                 DIAGNOSTICS.update_with_failure();
@@ -681,7 +725,7 @@ pub mod task {
         loop {
             let start_time = Instant::now();
 
-            // Run the segments service. (this handles isoSPI detection/recovery and sleep detection).
+            // Run the segments service.
             segments.run_service().await;
 
             // Do the SPI transactions to update the register caches.
