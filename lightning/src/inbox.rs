@@ -1,18 +1,10 @@
 pub use self::inbox::FaultframeState;
-mod inbox {
+pub mod inbox {
     use core::fmt::Debug;
 
-    use can_handler::NerCan;
     use defmt::warn;
     use embassy_stm32::can::Frame;
-    use embassy_sync::{
-        blocking_mutex::{
-            CriticalSectionMutex,
-            raw::{CriticalSectionRawMutex, ThreadModeRawMutex},
-        },
-        channel::Receiver,
-        mutex::Mutex,
-    };
+    use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Receiver, mutex::Mutex};
     const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
     // Previously known as IMD_GENERAL_MSG_ID
     const IMD_CAN_ID: Id = Id::Standard(StandardId::new(0x501).expect("Invalid ID"));
@@ -21,6 +13,7 @@ mod inbox {
     const BMS_CAN_ID: Id = Id::Extended(ExtendedId::new(0x37).expect("Invalid ID"));
 
     // #define RESET_LATCHING_MSG_ID     0x510
+    // TODO: Latching is handled as a fault source, not a latch
     const LATCHING_CAN_ID: Id = Id::Standard(StandardId::new(0x510).expect("Invalid ID"));
     use embassy_time::{Duration, WithTimeout};
     use embedded_can::{ExtendedId, Id, StandardId};
@@ -35,52 +28,44 @@ mod inbox {
         LatchingFault,
     }
 
-    #[derive(Debug)]
-    pub enum CANError {
-        Timeout,
-        Unkown,
-    }
-
     /// This struct requires an already existing NerCan instance, as well as an already spawned
     /// can_handler task. The point of the Inbox is to parse the can messages and relay them to the
     /// state machine cleanly
-    pub struct Inbox {
+
+    #[embassy_executor::task]
+    pub async fn populate_queue(
         receiver: Receiver<'static, ThreadModeRawMutex, Frame, 16>,
-    }
-    impl Inbox {
-        // TODO: Make this a task
-        pub async fn populate_queue(
-            self,
-            quetex: &'static Mutex<CriticalSectionRawMutex, Queue<Option<FaultframeState>, 32>>,
-        ) -> ! {
-            loop {
-                let latest: Option<FaultframeState> =
-                    match self.receiver.receive().with_timeout(CAN_RECV_TIMEOUT).await {
-                        Ok(frame) => match frame.id() {
-                            &IMD_CAN_ID => match frame.data().iter().sum() {
-                                0 => Some(FaultframeState::IMDOk),
-                                _ => Some(FaultframeState::IMDFault),
-                            },
-                            &BMS_CAN_ID => match frame.data()[0] & 0x80 {
-                                0 => Some(FaultframeState::BMSOk),
-                                _ => Some(FaultframeState::BMSFault),
-                            },
-                            &LATCHING_CAN_ID => match frame.data()[0] & 0x80 {
-                                0 => Some(FaultframeState::LatchingOk),
-                                _ => Some(FaultframeState::LatchingFault),
-                            },
-                            _id => {
-                                warn!("Unknown ID ");
-                                None
-                            }
+        quetex: &'static Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>>,
+    ) -> ! {
+        loop {
+            let latest: Option<FaultframeState> =
+                match receiver.receive().with_timeout(CAN_RECV_TIMEOUT).await {
+                    Ok(frame) => match frame.id() {
+                        &IMD_CAN_ID => match frame.data().iter().sum() {
+                            0 => Some(FaultframeState::IMDOk),
+                            _ => Some(FaultframeState::IMDFault),
                         },
-                        Err(e) => {
-                            warn!("Did not recive CAN Frame. Error: {}", e);
+                        &BMS_CAN_ID => match frame.data()[0] & 0x80 {
+                            0 => Some(FaultframeState::BMSOk),
+                            _ => Some(FaultframeState::BMSFault),
+                        },
+                        &LATCHING_CAN_ID => match frame.data()[0] & 0x80 {
+                            0 => Some(FaultframeState::LatchingOk),
+                            _ => Some(FaultframeState::LatchingFault),
+                        },
+                        _id => {
+                            warn!("Unknown ID ");
                             None
                         }
-                    };
-                quetex.lock().await.enqueue(latest).expect("Queue Full");
-                // TODO: This shouldn't be a panic
+                    },
+                    Err(e) => {
+                        warn!("Did not recive CAN Frame. Error: {}", e);
+                        None
+                    }
+                };
+            match quetex.lock().await.enqueue(latest) {
+                Ok(_) => {}
+                Err(_) => warn!("Could not append to queue. Dropping packet."),
             }
         }
     }

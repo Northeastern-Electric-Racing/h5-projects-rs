@@ -4,6 +4,9 @@
 mod hardware;
 mod inbox;
 mod state;
+use crate::hardware::Leds;
+use crate::inbox::FaultframeState;
+use can_handler::{NerCan, can_handler};
 use core::fmt::Write;
 use core::num::{NonZeroU8, NonZeroU16};
 use cortex_m::peripheral::SCB;
@@ -11,13 +14,19 @@ use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::debug;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
+use embassy_stm32::can::Frame;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::Uart;
 use embassy_stm32::{Config, can, dma, peripherals, usart};
 use embassy_stm32::{bind_interrupts, wdg::IndependentWatchdog};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_can::ExtendedId;
 use heapless::String;
+use heapless::mpmc::Queue;
+
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct IrqsCan {
@@ -79,7 +88,7 @@ async fn main(_spawner: Spawner) -> ! {
     // initialize the project, ensure we can debug during sleep
     let p = embassy_stm32::init(config);
 
-    let mut can = can::CanConfigurator::new(p.FDCAN2, p.PB12, p.PB13, IrqsCan);
+    let mut can_cfg = can::CanConfigurator::new(p.FDCAN2, p.PB12, p.PB13, IrqsCan);
     {
         use embassy_stm32::can::config::*;
         use embassy_stm32::can::filter::*;
@@ -98,7 +107,7 @@ async fn main(_spawner: Spawner) -> ! {
             })
             .set_transmit_pause(true)
             .set_global_filter(GlobalFilter::reject_all());
-        can.set_config(can_config);
+        can_cfg.set_config(can_config);
 
         let mut std1 = StandardFilter::default();
         std1.filter = FilterType::DedicatedDual(
@@ -111,12 +120,13 @@ async fn main(_spawner: Spawner) -> ! {
         ext1.filter = FilterType::DedicatedSingle(ExtendedId::new(0x0CA).unwrap()); // Cerb lightning
         ext1.action = Action::StoreInFifo0;
 
-        can.properties()
+        can_cfg
+            .properties()
             .set_standard_filter(StandardFilterSlot::_0, std1);
-        can.properties()
+        can_cfg
+            .properties()
             .set_extended_filter(ExtendedFilterSlot::_0, ext1);
     }
-    let mut can = can.into_normal_mode();
 
     let mut usart_config = usart::Config::default();
     usart_config.swap_rx_tx = true;
@@ -130,6 +140,23 @@ async fn main(_spawner: Spawner) -> ! {
         usart_config,
     )
     .unwrap();
+    #[expect(deprecated)]
+    static FFS_QUEUE: Queue<Option<FaultframeState>, 32> = Queue::new();
+    // A mutex that isn't a mutex. Contains a mpmc queue that is neither multi producer nor multi
+    // consumer
+    static QUEUTEX: Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>> =
+        Mutex::new(&FFS_QUEUE);
+
+    static CHANNEL: Channel<ThreadModeRawMutex, Frame, 16> = Channel::new();
+
+    _spawner.spawn(
+        can_handler(
+            NerCan::init(can_cfg).can_configurator,
+            CHANNEL.sender(),
+            CHANNEL.receiver(),
+        )
+        .expect("Failed to init candler"),
+    );
 
     let mut s: String<128> = String::new();
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();
@@ -138,6 +165,16 @@ async fn main(_spawner: Spawner) -> ! {
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
     let mut ticker = Ticker::every(Duration::from_millis(500));
+
+    _spawner.spawn(
+        inbox::inbox::populate_queue(CHANNEL.receiver(), &QUEUTEX)
+            .expect("Failed to spawn inbox queue populator"),
+    );
+
+    let leds: Leds = Leds::new(p.PE4, p.PE5);
+    _spawner.spawn(
+        state::state_machine::state_machine(&QUEUTEX, leds).expect("Failed to spawn state machine"),
+    );
     loop {
         debug!("Status: Alive");
         Timer::after_millis(500).await;
