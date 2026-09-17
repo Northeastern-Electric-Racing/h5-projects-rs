@@ -23,8 +23,8 @@ pub mod state_machine {
         let mut state: State = State::Startup;
         let boot_time = Instant::now(); // This might crash after a few hours; it is probably fine
         let mut grace_period: bool = true;
-        let mut bms_seen: bool = true;
-        let mut imd_seen: bool = true;
+        let mut bms_seen: bool = false;
+        let mut imd_seen: bool = false;
         // QUESTION: Why not just sleep until the grace period is over?
 
         loop {
