@@ -58,7 +58,7 @@ pub mod inbox {
                         }
                     },
                     Err(e) => {
-                        warn!("Did not recive CAN Frame. Error: {}", e);
+                        warn!("Did not receive CAN Frame. Error: {}", e);
                         None
                     }
                 };
