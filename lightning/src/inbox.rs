@@ -24,8 +24,7 @@ pub mod inbox {
         BMSOk,
         IMDFault,
         IMDOk,
-        LatchingOk,
-        LatchingFault,
+        ResetRequested,
     }
 
     /// This struct requires an already existing NerCan instance, as well as an already spawned
@@ -50,8 +49,8 @@ pub mod inbox {
                             _ => Some(FaultframeState::BMSFault),
                         },
                         &LATCHING_CAN_ID => match frame.data()[0] & 0x80 {
-                            0 => Some(FaultframeState::LatchingOk),
-                            _ => Some(FaultframeState::LatchingFault),
+                            0 => None, // Nothing needs to be done if no reset it requested
+                            _ => Some(FaultframeState::ResetRequested),
                         },
                         _id => {
                             warn!("Unknown ID ");

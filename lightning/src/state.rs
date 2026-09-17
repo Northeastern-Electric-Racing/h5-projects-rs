@@ -1,6 +1,6 @@
 pub mod state_machine {
     use crate::hardware::Leds;
-    use crate::inbox::FaultframeState::{self, BMSFault, IMDFault, LatchingFault};
+    use crate::inbox::FaultframeState::{self, BMSFault, BMSOk, IMDFault, IMDOk, ResetRequested};
     #[derive(Debug, PartialEq, Eq)]
     enum State {
         Red,
@@ -10,7 +10,7 @@ pub mod state_machine {
     }
 
     const GRACE_PERIOD_DURATION: Duration = Duration::from_secs(3);
-    use defmt::error;
+    use defmt::{error, warn};
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::mutex::Mutex;
     use embassy_time::{Duration, Instant};
@@ -23,24 +23,43 @@ pub mod state_machine {
         let mut state: State = State::Startup;
         let boot_time = Instant::now(); // This might crash after a few hours; it is probably fine
         let mut grace_period: bool = true;
+        let mut bms_seen: bool = true;
+        let mut imd_seen: bool = true;
         // QUESTION: Why not just sleep until the grace period is over?
 
         loop {
-            grace_period = (Instant::now() - boot_time) >= GRACE_PERIOD_DURATION;
+            grace_period =
+                ((Instant::now() - boot_time) >= GRACE_PERIOD_DURATION) && bms_seen && imd_seen;
             match quetex.lock().await.dequeue() {
                 Some(latest) => {
                     match latest {
                         Some(msg) => {
                             match msg {
-                                // TODO: Fix LatchingFault Logic.
-                                BMSFault | IMDFault | LatchingFault => {
+                                BMSFault | IMDFault => {
                                     if !grace_period {
                                         state = State::Red;
                                     } else {
                                         state = State::Startup;
                                     }
                                 }
-                                _ => {
+                                ResetRequested => {
+                                    if !grace_period {
+                                        warn!("Resetting Fault due to latch");
+                                        state = State::Green;
+                                    }
+                                }
+                                BMSOk => {
+                                    bms_seen = true;
+                                    if grace_period {
+                                        state = State::Startup
+                                    }
+                                    if state != State::Red && !grace_period {
+                                        // Don't allow red -> green transitions
+                                        state = State::Green;
+                                    }
+                                }
+                                IMDOk => {
+                                    imd_seen = true;
                                     if grace_period {
                                         state = State::Startup
                                     }
