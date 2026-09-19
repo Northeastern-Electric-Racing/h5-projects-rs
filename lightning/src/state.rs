@@ -25,11 +25,13 @@ pub mod state_machine {
         let mut grace_period: bool = true;
         let mut bms_seen: bool = false;
         let mut imd_seen: bool = false;
-        // QUESTION: Why not just sleep until the grace period is over?
+        // Note that this always waits slightly longer than the grace period
+        leds.set_all_off();
+        embassy_time::Timer::after(GRACE_PERIOD_DURATION).await; //Wait untill the end of the grace
+        //period
 
         loop {
-            grace_period =
-                ((Instant::now() - boot_time) >= GRACE_PERIOD_DURATION) && bms_seen && imd_seen;
+            grace_period = !bms_seen && !imd_seen;
             match quetex.lock().await.dequeue() {
                 Some(latest) => {
                     match latest {
@@ -39,6 +41,11 @@ pub mod state_machine {
                                     if !grace_period {
                                         state = State::Red;
                                     } else {
+                                        if msg == BMSFault {
+                                            bms_seen = true;
+                                        } else if msg == IMDFault {
+                                            imd_seen = true;
+                                        }
                                         state = State::Startup;
                                     }
                                 }
@@ -71,13 +78,17 @@ pub mod state_machine {
                             };
                         }
                         None =>
-                            // This means that the frame was unrelated or not found
-                            {}
+                        // This means that the frame was unrelated or not found
+                        {
+                            embassy_time::Timer::after_millis(50).await;
+                        }
                     }
                 }
                 None =>
-                    // This means that the queue is empty. Check the old code for what to do here
-                    {}
+                // This means that the queue is empty. Check the old code for what to do here
+                {
+                    embassy_time::Timer::after_millis(50).await;
+                }
             }
             match state {
                 State::Red => leds.set_red_on(),

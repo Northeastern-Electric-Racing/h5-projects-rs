@@ -7,18 +7,24 @@ pub mod inbox {
     use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Receiver, mutex::Mutex};
     const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
     // Previously known as IMD_GENERAL_MSG_ID
-    const IMD_CAN_ID: Id = Id::Standard(StandardId::new(0x501).expect("Invalid ID"));
+    pub const IMD_CAN_ID: u16 = 0x307;
 
     // BMS_LIGHTNING_OKAY_MSG_ID
-    const BMS_CAN_ID: Id = Id::Extended(ExtendedId::new(0x37).expect("Invalid ID"));
+    pub const BMS_CAN_ID: u32 = 0x01E;
 
     // #define RESET_LATCHING_MSG_ID     0x510
-    // TODO: Latching is handled as a fault source, not a latch
-    const LATCHING_CAN_ID: Id = Id::Standard(StandardId::new(0x510).expect("Invalid ID"));
+    pub const LATCHING_CAN_ID: u16 = 0x510;
+
+    const IMD_CAN_ID_PROCESSED: Id = Id::Standard(StandardId::new(IMD_CAN_ID).expect("Invalid ID"));
+    const LATCHING_CAN_ID_PROCESSED: Id =
+        Id::Standard(StandardId::new(LATCHING_CAN_ID).expect("Invalid ID"));
+    const BMS_CAN_ID_PROCESSED: Id = Id::Extended(ExtendedId::new(BMS_CAN_ID).expect("Invalid ID"));
+
     use embassy_time::{Duration, WithTimeout};
     use embedded_can::{ExtendedId, Id, StandardId};
     use heapless::mpmc::Queue;
-    #[derive(Debug)]
+
+    #[derive(Debug, PartialEq)]
     pub enum FaultframeState {
         BMSFault,
         BMSOk,
@@ -40,15 +46,15 @@ pub mod inbox {
             let latest: Option<FaultframeState> =
                 match receiver.receive().with_timeout(CAN_RECV_TIMEOUT).await {
                     Ok(frame) => match frame.id() {
-                        &IMD_CAN_ID => match frame.data().iter().sum() {
-                            0 => Some(FaultframeState::IMDOk),
-                            _ => Some(FaultframeState::IMDFault),
+                        &IMD_CAN_ID_PROCESSED => match frame.data().iter().any(|&b| b != 0) {
+                            false => Some(FaultframeState::IMDOk),
+                            true => Some(FaultframeState::IMDFault),
                         },
-                        &BMS_CAN_ID => match frame.data()[0] & 0x80 {
+                        &BMS_CAN_ID_PROCESSED => match frame.data()[0] & 0x80 {
                             0 => Some(FaultframeState::BMSOk),
                             _ => Some(FaultframeState::BMSFault),
                         },
-                        &LATCHING_CAN_ID => match frame.data()[0] & 0x80 {
+                        &LATCHING_CAN_ID_PROCESSED => match frame.data()[0] & 0x80 {
                             0 => None, // Nothing needs to be done if no reset it requested
                             _ => Some(FaultframeState::ResetRequested),
                         },

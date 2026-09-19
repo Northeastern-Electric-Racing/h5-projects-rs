@@ -6,6 +6,7 @@ mod inbox;
 mod state;
 use crate::hardware::Leds;
 use crate::inbox::FaultframeState;
+use crate::inbox::inbox::{BMS_CAN_ID, IMD_CAN_ID, LATCHING_CAN_ID};
 use can_handler::{NerCan, can_handler};
 use core::fmt::Write;
 use core::num::{NonZeroU8, NonZeroU16};
@@ -88,46 +89,15 @@ async fn main(_spawner: Spawner) -> ! {
     // initialize the project, ensure we can debug during sleep
     let p = embassy_stm32::init(config);
 
-    let mut can_cfg = can::CanConfigurator::new(p.FDCAN2, p.PB12, p.PB13, IrqsCan);
-    {
-        use embassy_stm32::can::config::*;
-        use embassy_stm32::can::filter::*;
-        use embedded_can::StandardId;
-        let can_config = FdCanConfig::default()
-            .set_automatic_bus_off_recovery(true)
-            .set_automatic_retransmit(false)
-            .set_frame_transmit(FrameTransmissionConfig::ClassicCanOnly)
-            .set_clock_divider(ClockDivider::_1)
-            .set_data_bit_timing(DataBitTiming {
-                transceiver_delay_compensation: false,
-                prescaler: NonZeroU16::new(8).unwrap(),
-                seg1: NonZeroU8::new(8).unwrap(),
-                seg2: NonZeroU8::new(4).unwrap(),
-                sync_jump_width: NonZeroU8::new(1).unwrap(),
-            })
-            .set_transmit_pause(true)
-            .set_global_filter(GlobalFilter::reject_all());
-        can_cfg.set_config(can_config);
-
-        let mut std1 = StandardFilter::default();
-        std1.filter = FilterType::DedicatedDual(
-            StandardId::new(0x37).unwrap(),
-            StandardId::new(0x01E).unwrap(),
-        ); // IMD and BMS LIGHTNING
-        std1.action = Action::StoreInFifo0;
-
-        let mut ext1 = ExtendedFilter::default();
-        ext1.filter = FilterType::DedicatedSingle(ExtendedId::new(0x0CA).unwrap()); // Cerb lightning
-        ext1.action = Action::StoreInFifo0;
-
-        can_cfg
-            .properties()
-            .set_standard_filter(StandardFilterSlot::_0, std1);
-        can_cfg
-            .properties()
-            .set_extended_filter(ExtendedFilterSlot::_0, ext1);
-    }
-
+    let mut ner_can = NerCan::init(can::CanConfigurator::new(p.FDCAN2, p.PB12, p.PB13, IrqsCan));
+    ner_can = ner_can
+        .add_standard_filter(
+            can::filter::StandardFilterSlot::_0,
+            LATCHING_CAN_ID,
+            Some(IMD_CAN_ID),
+        )
+        .add_extended_filter(can::filter::ExtendedFilterSlot::_0, BMS_CAN_ID, None);
+    // There used to be some configuration here, but I removed it s.t I wouldn't step on NerCan's toes
     let mut usart_config = usart::Config::default();
     usart_config.swap_rx_tx = true;
     let mut usart = Uart::new(
@@ -147,13 +117,14 @@ async fn main(_spawner: Spawner) -> ! {
     static QUEUTEX: Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>> =
         Mutex::new(&FFS_QUEUE);
 
-    static CHANNEL: Channel<ThreadModeRawMutex, Frame, 16> = Channel::new();
+    static RX_CHANNEL: Channel<ThreadModeRawMutex, Frame, 16> = Channel::new();
+    static TX_CHANNEL: Channel<ThreadModeRawMutex, Frame, 16> = Channel::new();
 
     _spawner.spawn(
         can_handler(
-            NerCan::init(can_cfg).can_configurator,
-            CHANNEL.sender(),
-            CHANNEL.receiver(),
+            ner_can.can_configurator,
+            TX_CHANNEL.sender(),
+            RX_CHANNEL.receiver(),
         )
         .expect("Failed to init candler"),
     );
@@ -162,12 +133,12 @@ async fn main(_spawner: Spawner) -> ! {
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();
     unwrap!(usart.write(s.as_bytes()).await);
 
-    let mut watchdog = IndependentWatchdog::new(p.IWDG, 1000000);
+    let mut watchdog = IndependentWatchdog::new(p.IWDG, 5000000);
     watchdog.unleash();
     let mut ticker = Ticker::every(Duration::from_millis(500));
 
     _spawner.spawn(
-        inbox::inbox::populate_queue(CHANNEL.receiver(), &QUEUTEX)
+        inbox::inbox::populate_queue(RX_CHANNEL.receiver(), &QUEUTEX)
             .expect("Failed to spawn inbox queue populator"),
     );
 
