@@ -345,268 +345,89 @@ impl Segments {
 
 /// "Jobs" to help the Segments task. Basically a collection of helper functions and blocks of work the segments task has to do.
 pub mod jobs {
-    use embassy_sync::blocking_mutex::{Mutex, raw::ThreadModeRawMutex};
-    use embassy_time::{Duration, Instant};
+    use crate::job_diagnostics::JobDiagnosticsContainer;
     use crate::segments::cache::UpdateError;
     use crate::segments::cache;
     use super::Segments;
 
-    pub struct JobDiagnosticsContainer {
-        inner: Mutex<ThreadModeRawMutex, JobDiagnostics>,
-    }
-    impl JobDiagnosticsContainer {
-        /// Initializes the JobDiagnostics to its defaults. Meant to be called only once at init time.
-        const fn new() -> Self {
-            Self { inner: Mutex::new(JobDiagnostics::new()) }
-        }
-
-        /// Updates the JobDiagnostics with new data after a successful job run has completed.
-        /// This should be called right at the end of the job when you are about to return (i.e., where it is no longer possible for errors to occur and the job is known to have been successful).
-        ///
-        /// ### Parameters
-        /// - `start_time`: The instant at which the job started. The caller should save this at the top of their job function. This function will then grab the current `Instant::now()` as `end_time` and calculate the duration the job took.
-        fn update_with_successful_run(&self, start_time: Instant) {
-            let end_time = Instant::now();
-            let job_duration: Duration = end_time.saturating_duration_since(start_time);
-
-            // SAFETY: this call doesn't nest calls to another lock or lock_mut closure
-            unsafe {
-                self.inner.lock_mut(|data| {
-                    data.last_job_duration = job_duration;
-
-                    if data.last_job_duration > data.max_job_duration {
-                        data.max_job_duration = data.last_job_duration;
-                    }
-
-                    if data.last_job_duration < data.min_job_duration {
-                        data.min_job_duration = data.last_job_duration;
-                    }
-                });
-            }
-        }
-
-        /// Updates the JobDiagnostics after a failure has occured.
-        /// This should be called whenever a job has to return early due to a failure. This doesn't record any duration metrics, and just increments the error count.
-        /// This doesn't record the specific error or anything, so it is up to the job to do any more specific logging via defmt and such. JobDiagnostics mainly just keeps a log
-        /// to ensure the history isn't lost.
-        fn update_with_failure(&self) {
-            // SAFETY: this call doesn't nest calls to another lock or lock_mut closure
-            unsafe {
-                self.inner.lock_mut(|data| {
-                    data.error_count += 1;
-                })
-            }
-        }
-
-        /// Copies out the current inner `JobDiagnostics`.
-        fn copy_inner(&self) -> JobDiagnostics {
-            self.inner.lock(|inner| *inner)
-        }
-    }
-
-    /// Diagnostic data for a segments job, mainly just used to track timing stuff (i.e., how long SPI reads and cache updates take).
-    #[derive(Copy, Clone)]
-    pub struct JobDiagnostics {
-        /// How long the job took to run the last time it was ran.
-        last_job_duration: Duration,
-        /// The maximum time it took the job to run recorded so far.
-        max_job_duration: Duration,
-        /// The minimum time it took the job to run recorded so far.
-        min_job_duration: Duration,
-        /// Times this job was unable to run to completion due to an error.
-        error_count: usize,
-    }
-    impl JobDiagnostics {
-        /// Initializes the JobDiagnostics to its defaults. Meant to be called only once at init time.
-        const fn new() -> Self {
-            Self {
-                last_job_duration: Duration::MIN,
-                max_job_duration: Duration::MIN,
-                min_job_duration: Duration::MAX,
-                error_count: 0,
-            }
-        }
-
-        /// How long the job took to run the last time it was ran.
-        pub const fn last_job_duration(&self) -> Duration {
-            self.last_job_duration
-        }
-        /// The maximum time it took the job to run recorded so far.
-        pub const fn max_job_duration(&self) -> Duration {
-            self.max_job_duration
-        }
-        /// The minimum time it took the job to run recorded so far.
-        pub const fn min_job_duration(&self) -> Duration {
-            self.min_job_duration
-        }
-        /// Times this job was unable to run to completion due to an error.
-        pub const fn error_count(&self) -> usize {
-            self.error_count
-        }
-    }
-
     /// Helper "jobs" that update the register caches and do stuff with SPI.
     impl Segments {
         /// Updates RedundantAux cache. Triggers a conversion, polls it, and then reads the result over SPI into the cache.
-        pub async fn job_update_redundant_aux(&mut self) -> Result<JobDiagnostics, UpdateError> {
+        pub async fn job_update_redundant_aux(&mut self) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands::adc::Aux2InputSelection;
-
-            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
-
-            let start_time = Instant::now();
 
             /// Autoconvert timeout in ms.
             const TIMEOUT_MS: u64 = 100;
 
-            // trigger the conversion and poll it until done
-            if let Err(err) = self.service.api().adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await {
-                defmt::error!("Segments: Inside `job_update_redundant_aux()`: call to `adax2_autoconvert()` resulted in an error. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(UpdateError::PollError(err));
-            }
+            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
 
-            // actually read them
-            if let Err(err) = cache::CACHE.update_redundant_aux(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_redundant_aux()`: cache update via call to `update_redundant_aux()` failed. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            self.service.api().adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
+            cache::CACHE.update_redundant_aux(self.service.api()).await?;
 
-            DIAGNOSTICS.update_with_successful_run(start_time);
-            Ok(DIAGNOSTICS.copy_inner())
+            crate::log_job_diagnostics!("Segments", "job_update_redundant_aux", run.finish());
+
+            Ok(())
         }
 
         /// Updates the registers that require the SNAP command. This includes the following registers: CellVoltages, AverageCellVoltages, FilteredCellVoltages, SVotlages, StatusC, StatusD.
         ///
         /// This is done as a single job so there is only one SNAP window. This allows the data from the registers to be compared coherently.
-        pub async fn job_update_snap_registers(&mut self) -> Result<JobDiagnostics, UpdateError> {
+        pub async fn job_update_snap_registers(&mut self) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands;
 
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
 
-            let start_time = Instant::now();
+            // When this job returns early it doesn't unsnap the registers first. That is fine
+            // because this job covers every register affected by SNAP, so other jobs can still
+            // run as normal.
+            self.service.api().command(commands::snapshot::snap()).await.map_err(UpdateError::SnapError)?;
 
-            // when this job returns early, it doesn't unsnap the registers before doing so. this is fine because this job contains all the registers that are affected by SNAP. so other jobs
-            // can still run as normal.
+            cache::CACHE.update_cell_voltages(self.service.api()).await?;
+            cache::CACHE.update_average_cell_voltages(self.service.api()).await?;
+            cache::CACHE.update_filtered_cell_voltages(self.service.api()).await?;
+            cache::CACHE.update_s_voltages(self.service.api()).await?;
+            cache::CACHE.update_status_c(self.service.api()).await?;
+            cache::CACHE.update_status_d(self.service.api()).await?;
 
-            // Snap the registers before doing anything!
-            if let Err(err) = self.service.api().command(commands::snapshot::snap()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to send the SNAP command. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(UpdateError::SnapError(err));
-            }
+            self.service.api().command(commands::snapshot::unsnap()).await.map_err(UpdateError::UnsnapError)?;
 
-            // Update cell voltages.
-            if let Err(err) = cache::CACHE.update_cell_voltages(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_cell_voltages()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            crate::log_job_diagnostics!("Segments", "job_update_snap_registers", run.finish());
 
-            // Update average cell voltages.
-            if let Err(err) = cache::CACHE.update_average_cell_voltages(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_average_cell_voltages()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Update filtered cell voltages.
-            if let Err(err) = cache::CACHE.update_filtered_cell_voltages(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_filtered_cell_voltages()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Update S voltages.
-            if let Err(err) = cache::CACHE.update_s_voltages(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_s_voltages()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Update StatusC.
-            if let Err(err) = cache::CACHE.update_status_c(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_status_c()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Update StatusD.
-            if let Err(err) = cache::CACHE.update_status_d(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_status_d()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Unsnap.
-            if let Err(err) = self.service.api().command(commands::snapshot::unsnap()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to send the UNSNAP command. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(UpdateError::UnsnapError(err));
-            }
-
-            DIAGNOSTICS.update_with_successful_run(start_time);
-            Ok(DIAGNOSTICS.copy_inner())
+            Ok(())
         }
 
         /// Update the Auxillary registers cache. Triggers a conversion, polls it, and then reads the result over SPI into the cache.
-        pub async fn job_update_aux_registers(&mut self) -> Result<JobDiagnostics, UpdateError> {
+        pub async fn job_update_aux_registers(&mut self) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands::adc::{Aux1InputSelection, OpenWireAux, Pull};
-
-            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
-
-            let start_time = Instant::now();
 
             /// Autoconvert timeout in ms.
             const TIMEOUT_MS: u64 = 100;
 
-            // need to run autoconvert to update the data we read
-            if let Err(err) = self.service.api().adax_autoconvert(OpenWireAux::Off, Pull::PullDown, Aux1InputSelection::All, TIMEOUT_MS).await {
-                defmt::error!("Segments: Inside `job_update_aux_registers()`: call to `adax_autoconvert()` resulted in an error. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(UpdateError::PollError(err));
-            }
+            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
 
-            // Update AuxillaryA through D.
-            if let Err(err) = cache::CACHE.update_aux(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_aux_registers()`: Failed to call `update_aux()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            self.service.api().adax_autoconvert(OpenWireAux::Off, Pull::PullDown, Aux1InputSelection::All, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
+            cache::CACHE.update_aux(self.service.api()).await?;
+            cache::CACHE.update_status_a(self.service.api()).await?;
+            cache::CACHE.update_status_b(self.service.api()).await?;
 
-            // Update StatusA.
-            if let Err(err) = cache::CACHE.update_status_a(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_aux_registers()`: Failed to call `update_status_a()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            crate::log_job_diagnostics!("Segments", "job_update_aux_registers", run.finish());
 
-            // Update StatusB.
-            if let Err(err) = cache::CACHE.update_status_b(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_aux_registers()`: Failed to call `update_status_b()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            DIAGNOSTICS.update_with_successful_run(start_time);
-            Ok(DIAGNOSTICS.copy_inner())
+            Ok(())
         }
 
         /// Update the PWM registers cache.
-        pub async fn job_update_pwm_registers(&mut self) -> Result<JobDiagnostics, UpdateError> {
+        pub async fn job_update_pwm_registers(&mut self) -> Result<(), UpdateError> {
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
 
-            let start_time = Instant::now();
+            cache::CACHE.update_pwm(self.service.api()).await?;
 
-            // Update PwmA and PwmB.
-            if let Err(err) = cache::CACHE.update_pwm(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_pwm_registers()`: Failed to call `update_pwm()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            crate::log_job_diagnostics!("Segments", "job_update_pwm_registers", run.finish());
 
-            DIAGNOSTICS.update_with_successful_run(start_time);
-            Ok(DIAGNOSTICS.copy_inner())
+            Ok(())
         }
     }
 }
@@ -685,68 +506,30 @@ pub mod task {
             segments.run_service().await;
 
             // Do the SPI transactions to update the register caches.
-            '_cacheupdates: {
-                let mut all_successful: bool = true;
+            let mut all_successful: bool = true;
 
-                // Run update aux registers job.
-                match segments.job_update_aux_registers().await {
-                    Ok(diagnostics) => {
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_aux_registers()/last_job_duration", desc = "Time (in milliseconds) it took for this job to run the last time it ran.", "{=u64}", diagnostics.last_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_aux_registers()/max_job_duration", desc = "Maximum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.max_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_aux_registers()/min_job_duration", desc = "Minimum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.min_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_aux_registers()/error_count", desc = "Number of times this job has had to return early due to an error.", "{=usize}", diagnostics.error_count());
-                    },
-                    Err(err) => {
-                        defmt::error!("Segments: Inside `segments_task()`: Failed to call `job_update_aux_registers()`. Error: {}", err);
-                        all_successful = false;
-                    },
-                }
+            if let Err(err) = segments.job_update_aux_registers().await {
+                defmt::error!("Segments: Inside `segments_task()`: `job_update_aux_registers()` failed. Error: {}", err);
+                all_successful = false;
+            }
 
-                // Run update snap registers job.
-                match segments.job_update_snap_registers().await {
-                    Ok(diagnostics) => {
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_snap_registers()/last_job_duration", desc = "Time (in milliseconds) it took for this job to run the last time it ran.", "{=u64}", diagnostics.last_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_snap_registers()/max_job_duration", desc = "Maximum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.max_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_snap_registers()/min_job_duration", desc = "Minimum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.min_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_snap_registers()/error_count", desc = "Number of times this job has had to return early due to an error.", "{=usize}", diagnostics.error_count());
-                    },
-                    Err(err) => {
-                        defmt::error!("Segments: Inside `segments_task()`: Failed to call `job_update_snap_registers()`. Error: {}", err);
-                        all_successful = false;
-                    },
-                }
+            if let Err(err) = segments.job_update_snap_registers().await {
+                defmt::error!("Segments: Inside `segments_task()`: `job_update_snap_registers()` failed. Error: {}", err);
+                all_successful = false;
+            }
 
-                // Run update redundant aux registers job.
-                match segments.job_update_redundant_aux().await {
-                    Ok(diagnostics) => {
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_redundant_aux()/last_job_duration", desc = "Time (in milliseconds) it took for this job to run the last time it ran.", "{=u64}", diagnostics.last_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_redundant_aux()/max_job_duration", desc = "Maximum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.max_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_redundant_aux()/min_job_duration", desc = "Minimum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.min_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_redundant_aux()/error_count", desc = "Number of times this job has had to return early due to an error.", "{=usize}", diagnostics.error_count());
-                    },
-                    Err(err) => {
-                        defmt::error!("Segments: Inside `segments_task()`: Failed to call `job_update_redundant_aux()`. Error: {}", err);
-                        all_successful = false;
-                    },
-                }
+            if let Err(err) = segments.job_update_redundant_aux().await {
+                defmt::error!("Segments: Inside `segments_task()`: `job_update_redundant_aux()` failed. Error: {}", err);
+                all_successful = false;
+            }
 
-                // Run update PWM registers job.
-                match segments.job_update_pwm_registers().await {
-                    Ok(diagnostics) => {
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_pwm_registers()/last_job_duration", desc = "Time (in milliseconds) it took for this job to run the last time it ran.", "{=u64}", diagnostics.last_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_pwm_registers()/max_job_duration", desc = "Maximum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.max_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_pwm_registers()/min_job_duration", desc = "Minimum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.min_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_pwm_registers()/error_count", desc = "Number of times this job has had to return early due to an error.", "{=usize}", diagnostics.error_count());
-                    },
-                    Err(err) => {
-                        defmt::error!("Segments: Inside `segments_task()`: Failed to call `job_update_pwm_registers()`. Error: {}", err);
-                        all_successful = false;
-                    },
-                }
+            if let Err(err) = segments.job_update_pwm_registers().await {
+                defmt::error!("Segments: Inside `segments_task()`: `job_update_pwm_registers()` failed. Error: {}", err);
+                all_successful = false;
+            }
 
-                if all_successful {
-                    signal::SEGMENTS_FRESH_DATA_SIGNAL.signal();
-                }
+            if all_successful {
+                signal::SEGMENTS_FRESH_DATA_SIGNAL.signal();
             }
 
             diagnostics.update(start_time);
