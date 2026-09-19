@@ -4,22 +4,29 @@
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::*;
-use embassy_executor::Spawner;
-use embassy_stm32::wdg::IndependentWatchdog;
+use embassy_executor::{InterruptExecutor, Spawner};
+use embassy_stm32::{pac, wdg::IndependentWatchdog};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 use embassy_stm32::time::Hertz;
 use embassy_stm32::adc::{self, Adc, AdcChannel, BasicAdcRegs, RxDma, SampleTime};
-use embassy_stm32::peripherals::{ADC1, GPDMA1_CH0, PA0, PA1, PA6, PA7, PB0, PB1};
+use embassy_stm32::peripherals::{ADC1, GPDMA1_CH0, PA0, PA1, PA6, PA7, PB0, PB1, PC13, PC14, PC15};
 use embassy_stm32::{Config, Peri, bind_interrupts, dma, interrupt};
 use embassy_time::{Duration, Instant, Ticker};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{Watch, Sender, Receiver};
 
+use embassy_stm32::exti::{self, ExtiInput};
+use embassy_stm32::gpio::Pull;
+use embassy_stm32::mode::Async;
+
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => dma::InterruptHandler<GPDMA1_CH0>;
+    EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
+    EXTI14 => exti::InterruptHandler<interrupt::typelevel::EXTI14>;
+    EXTI15 => exti::InterruptHandler<interrupt::typelevel::EXTI15>;
 });
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -39,6 +46,8 @@ static VOLTAGES: Watch<CriticalSectionRawMutex, Voltages, RECEIVERS> = Watch::ne
 
 type VoltageSender = Sender<'static, CriticalSectionRawMutex, Voltages, RECEIVERS>;
 type VoltageReceiver = Receiver<'static, CriticalSectionRawMutex, Voltages, RECEIVERS>;
+
+static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -83,6 +92,14 @@ async fn main(spawner: Spawner) -> ! {
     let p = embassy_stm32::init(config);
 
     let sender = VOLTAGES.sender();
+
+    let exti_button = ExtiInput::new(p.PA13, p.EXTI13, Pull::Down, Irqs);
+    let bspd_trigger_input = ExtiInput::new(p.PA14, p.EXTI14, Pull::Down, Irqs);
+    let bspd_integrity_input = ExtiInput::new(p.PA15, p.EXTI15, Pull::Down, Irqs);
+
+    spawner.spawn(unwrap!(exti_button_task(exti_button)));
+    spawner.spawn(unwrap!(exti_button_task(bspd_trigger_input)));
+    spawner.spawn(unwrap!(exti_button_task(bspd_integrity_input)));
 
     spawner.spawn(unwrap!(adc1_task(p.ADC1, p.GPDMA1_CH0, sender, p.PA0, p.PA1, p.PA6, p.PA7, p.PB0, p.PB1)));
 
@@ -177,5 +194,35 @@ async fn adc_task<'a, T, D, I>(
 
         seq = seq.wrapping_add(1);
         ticker.next().await;
+    }
+}
+
+#[embassy_executor::task]
+async fn exti_button_task(mut button: ExtiInput<'static, Async>){
+    loop{
+        button.wait_for_falling_edge().await;
+        info!("EXTI Button Pressed");
+        // Add whatever firmware wants here
+        button.wait_for_rising_edge().await;
+    }
+}
+
+#[embassy_executor::task]
+async fn bspd_trigger_task(mut input: ExtiInput<'static, Async>){
+    loop{
+        input.wait_for_rising_edge().await;
+        info!("BSPD Threshold Passed");
+        // TODO: Send CAN message
+        input.wait_for_falling_edge().await        
+    }
+}
+
+#[embassy_executor::task]
+async fn bspd_integrity_task(mut input: ExtiInput<'static, Async>){
+    loop {
+        input.wait_for_rising_edge().await;
+        warn!("BSPD Sensor Out of Bounds!");
+        // TODO: Send CAN message
+        input.wait_for_rising_edge().await;
     }
 }
