@@ -17,6 +17,7 @@ pub mod clocks;
 pub mod units;
 pub mod broadcast;
 pub mod debug;
+pub mod faults;
 
 use assign_resources::assign_resources;
 assign_resources! {
