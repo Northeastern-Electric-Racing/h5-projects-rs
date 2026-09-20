@@ -21,3 +21,4 @@ static_cell.workspace = true
 embassy-net.workspace = true
 rust-mqtt.workspace = true
 sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", version = "0.1.0" }
+variant_count = "1.2.1"

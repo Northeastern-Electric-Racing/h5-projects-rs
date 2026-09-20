@@ -42,3 +42,4 @@ impl Efuse {
         self.control_state
     }
 }
+
