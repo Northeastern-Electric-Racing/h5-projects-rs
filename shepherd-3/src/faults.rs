@@ -6,7 +6,7 @@ use embassy_sync::{
     channel::Channel,
 };
 
-pub mod ids {
+mod ids {
     use super::*;
 
     #[derive(EnumIs)]
@@ -27,7 +27,7 @@ pub mod ids {
         /// The severity of a fault.
         pub const fn severity(&self) -> FaultSeverity { self.severity }
     }
-
+    
     #[derive(EnumCount, VariantArray, EnumIter)]
     #[derive(Copy, Clone)]
     #[repr(u32)]
@@ -168,7 +168,7 @@ impl FaultFlags {
     pub fn are_critical_faults_active(&self) -> bool { self.flags.load(Ordering::Relaxed) & FaultId::CRITICAL_MASK != 0 }
 }
 
-pub mod timers {
+mod timers {
     use super::*;
 
     /// Current activation/expiration state for a fault and its timer.
@@ -341,6 +341,11 @@ pub mod task {
                         });
                     }
                 }
+            }
+
+            // u_TODO do stuff here probably:
+            if FLAGS.are_critical_faults_active() {
+
             }
 
             // Sleep until more faults are queued, or a timer is ready to expire (whichever happens sooner). 

@@ -69,6 +69,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
+    spawner.spawn(faults::task::faults_task().expect("Failed to spawn faults task."));
 }
 
 /// pet the dog beat the heart
