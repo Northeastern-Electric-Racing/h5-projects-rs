@@ -315,8 +315,7 @@ pub mod task {
             }
 
             // Stores the time until the soonest expiration.
-            // This starts at MAX
-            let mut time_until_soonest_expiration: Duration = Duration::MAX;
+            let mut time_until_soonest_expiration: Option<Duration> = None;
 
             // Check the state of each fault timer.
             for (fault, timer) in manager.timers.iter_mut() {
@@ -332,12 +331,29 @@ pub mod task {
 
                     // This timer is active, so we use it as part of our "soonest deadline" calculation (to see how long this task should sleep).
                     EvaluationResult::Active { deadline } => {
-                        time_until_soonest_expiration = time_until_soonest_expiration.min(deadline.time_until_deadline());
+                        time_until_soonest_expiration = match time_until_soonest_expiration {
+                            // If no time_until_soonest_expiration exists yet, just use this timer's deadline.
+                            None => { Some(deadline.time_until_deadline()) },
+
+                            // If a time_until_soonest_expiration does exist, compare it to this timer's time until expiration and update it to the sooner of the two
+                            Some(duration) => {
+                                Some(duration.min(deadline.time_until_deadline()))
+                            },
+                        }
                     }
                 }
             }
 
-            select(FAULT_QUEUE.ready_to_receive(), Timer::after(time_until_soonest_expiration)).await;
+            // Sleep until more faults are queued, or a timer is ready to expire (whichever happens sooner). 
+            // If there are no timers counting down, then just sleep until more faults are queued.
+            match time_until_soonest_expiration {
+                Some(time_until_soonest_expiration) => {
+                    select(FAULT_QUEUE.ready_to_receive(), Timer::after(time_until_soonest_expiration)).await;
+                },
+                None => {
+                    FAULT_QUEUE.ready_to_receive().await;
+                }
+            }
         }
     }
 }
