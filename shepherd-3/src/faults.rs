@@ -1,58 +1,343 @@
 use strum::{EnumCount, VariantArray, EnumIter, EnumIs};
-use embassy_time::Duration;
+use embassy_time::{Duration, Instant, Timer};
+use core::sync::atomic::{AtomicU32, Ordering};
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex,
+    channel::Channel,
+};
 
-#[derive(EnumIs)]
-#[derive(Copy, Clone)]
-pub enum FaultSeverity {
-    Critical,
-    NonCritical,
-}
+pub mod ids {
+    use super::*;
 
-/// Const config metadata for a fault.
-pub struct FaultConfig {
-    timeout: Duration,
-    severity: FaultSeverity,
-}
-impl FaultConfig {
-    /// How long a fault should stay active before expiring.
-    pub const fn timeout(&self) -> Duration { self.timeout }
-    /// The severity of a fault.
-    pub const fn severity(&self) -> FaultSeverity { self.severity }
-}
+    #[derive(EnumIs)]
+    #[derive(Copy, Clone)]
+    pub enum FaultSeverity {
+        Critical,
+        NonCritical,
+    }
 
-#[derive(EnumCount, VariantArray, EnumIter)]
-#[derive(Copy, Clone)]
-pub enum FaultId {
-    DischargeLimitEnforcementFault,
-	ChargeLimitEnforcement,
-    CellVoltageTooLow,
-    CellVoltageTooHigh,
-    CellChargeVoltageTooHigh,
-    PackTooHot,
-    DieTempMaximumFault,
-    HvPlateCommsFault,
-    SegmentCommsFault,
-    CellOpenWireFault,
-}
-impl FaultId {
-    /// Returns this FaultId's config settings.
-    #[rustfmt::skip]
-    pub const fn config(self) -> FaultConfig {
-        // This function body is for defining the config settings for each fault.
+    /// Const config metadata for a fault.
+    pub struct FaultConfig {
+        timeout: Duration,
+        severity: FaultSeverity,
+    }
+    impl FaultConfig {
+        /// How long a fault should stay active before expiring.
+        pub const fn timeout(&self) -> Duration { self.timeout }
+        /// The severity of a fault.
+        pub const fn severity(&self) -> FaultSeverity { self.severity }
+    }
 
-        // using a match statement instead of a lookup table here because rust doesnt have designated initializers for arrays
-        // but this should probably (?) compile into a lookup table anyway since there doesn't seem to be a reason not to
-        match self {
-            Self::DischargeLimitEnforcementFault => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-            Self::ChargeLimitEnforcement         => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-            Self::CellVoltageTooLow              => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-            Self::CellVoltageTooHigh             => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-            Self::CellChargeVoltageTooHigh       => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-            Self::PackTooHot                     => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-            Self::DieTempMaximumFault            => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-            Self::HvPlateCommsFault              => FaultConfig { timeout: Duration::from_millis(20_000), severity: FaultSeverity::Critical },
-            Self::SegmentCommsFault              => FaultConfig { timeout: Duration::from_millis(20_000), severity: FaultSeverity::NonCritical },
-            Self::CellOpenWireFault              => FaultConfig { timeout: Duration::from_millis(40_000), severity: FaultSeverity::Critical },
+    #[derive(EnumCount, VariantArray, EnumIter)]
+    #[derive(Copy, Clone)]
+    #[repr(u32)]
+    pub enum FaultId {
+        DischargeLimitEnforcementFault,
+        ChargeLimitEnforcement,
+        CellVoltageTooLow,
+        CellVoltageTooHigh,
+        CellChargeVoltageTooHigh,
+        PackTooHot,
+        DieTempMaximumFault,
+        HvPlateCommsFault,
+        SegmentCommsFault,
+        CellOpenWireFault,
+    }
+    impl FaultId {
+        /// Returns this FaultId's config settings.
+        #[rustfmt::skip]
+        pub const fn config(self) -> FaultConfig {
+            // This function body is for defining the config settings for each fault.
+
+            // using a match statement instead of a lookup table here because rust doesnt have designated initializers for arrays
+            // but this should probably (?) compile into a lookup table anyway since there doesn't seem to be a reason not to
+            match self {
+                Self::DischargeLimitEnforcementFault => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
+                Self::ChargeLimitEnforcement         => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
+                Self::CellVoltageTooLow              => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
+                Self::CellVoltageTooHigh             => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
+                Self::CellChargeVoltageTooHigh       => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
+                Self::PackTooHot                     => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
+                Self::DieTempMaximumFault            => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
+                Self::HvPlateCommsFault              => FaultConfig { timeout: Duration::from_millis(20_000), severity: FaultSeverity::Critical },
+                Self::SegmentCommsFault              => FaultConfig { timeout: Duration::from_millis(20_000), severity: FaultSeverity::NonCritical },
+                Self::CellOpenWireFault              => FaultConfig { timeout: Duration::from_millis(40_000), severity: FaultSeverity::Critical },
+            }
+        }
+
+        /// Checks if this particular fault is configured to be critical or not.
+        pub const fn is_critical(&self) -> bool { *&self.config().severity().is_critical() }
+
+        /// Mask of all fault flags that are configured as critical.
+        /// 
+        /// This is computed at compile time and mainly exists so we can easily check if any critical faults are active via a simple bitwise &.
+        pub const CRITICAL_MASK: u32 = {
+            let mut mask = 0;
+            let mut i = 0;
+
+            // can't use iterators here because Rust doesn't support them in consts yet. sad!
+            while i < FaultId::COUNT {
+                if FaultId::VARIANTS[i].is_critical() {
+                    mask |= 1 << i;
+                }
+                i += 1;
+            }
+            mask
+        };
+    }
+
+    /// Lets you index by Fault ID.
+    #[derive(Copy, Clone, Debug)]
+    pub struct IndexByFaultId<T> {
+        data: [T; FaultId::COUNT],
+    }
+    pub type FaultIds = core::iter::Copied<core::slice::Iter<'static, FaultId>>;
+    pub type Iter<'borrow, T> = core::iter::Zip<FaultIds, core::slice::Iter<'borrow, T>>;
+    pub type IterMut<'borrow, T> = core::iter::Zip<FaultIds, core::slice::IterMut<'borrow, T>>;
+    pub type IntoIter<T> = core::iter::Zip<FaultIds, core::array::IntoIter<T, { FaultId::COUNT }>>;
+
+    impl<T> IndexByFaultId<T> {
+        /// Creates a new `IndexByFaultId` directly from an array.
+        pub const fn new(data: [T; FaultId::COUNT]) -> Self {
+            Self { data }
+        }
+
+        /// Retrives the data for `fault`.
+        pub const fn get(&self, fault: FaultId) -> &T {
+            let i: usize = fault as usize;
+            &self.data[i]
+        }
+
+        /// Retrives the data for `fault`.
+        ///
+        /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
+        pub const fn fault(&self, fault: FaultId) -> &T {
+            self.get(fault)
+        }
+
+        /// Allows you to mutate the inner value located at `fault`.
+        pub fn set(&mut self, fault: FaultId, value: T) {
+            let i: usize = fault as usize;
+            self.data[i] = value;
+        }
+
+        /// Gets a mutable reference to the inner data at `fault`.
+        pub fn get_mut(&mut self, fault: FaultId) -> &mut T {
+            let i: usize = fault as usize;
+            &mut self.data[i]
+        }
+
+        pub fn from_fn(mut f: impl FnMut(FaultId) -> T) -> Self {
+            Self { data: core::array::from_fn(|i| f(FaultId::VARIANTS[i])) }
+        }
+
+        pub fn iter(&self) -> Iter<'_, T> {
+            FaultId::VARIANTS.iter().copied().zip(self.data.iter())
+        }
+
+        pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+            FaultId::VARIANTS.iter().copied().zip(self.data.iter_mut())
+        }
+
+        /// Converts this back into its inner array.
+        pub fn into_array(self) -> [T; FaultId::COUNT] {
+            self.data
         }
     }
-} 
+}
+pub use ids::*;
+
+/// Wrapper around an AtomicU32 that stores the fault flags.
+struct FaultFlags {
+    flags: AtomicU32,
+}
+impl FaultFlags {
+    /// Creates a new fault flags, where all flags are unset.
+    pub const fn new() -> Self { Self { flags: AtomicU32::new(0) } }
+
+    /// Checks whether or not a particular fault flag is set.
+    pub fn is_set(&self, fault: FaultId) -> bool { self.flags.load(Ordering::Relaxed) & (1 << fault as u32) != 0 }
+
+    /// Sets the flag for a fault.
+    pub fn set_fault(&self, fault: FaultId) { self.flags.fetch_or(1 << fault as u32, Ordering::Relaxed); }
+
+    /// Clears the flag for a fault.
+    pub fn clear_fault(&self, fault: FaultId) { self.flags.fetch_and(!(1 << fault as u32), Ordering::Relaxed); }
+
+    /// Checks if any critical faults are currently active.
+    pub fn are_critical_faults_active(&self) -> bool { self.flags.load(Ordering::Relaxed) & FaultId::CRITICAL_MASK != 0 }
+}
+
+pub mod timers {
+    use super::*;
+
+    /// Current activation/expiration state for a fault and its timer.
+    /// 
+    /// PRIVATE! This tracks the internal 
+    #[derive(Copy, Clone)]
+    enum FaultTimerState {
+        Inactive,
+        Active { deadline: Instant, }
+    }
+
+    pub struct Deadline { inner: Instant }
+    impl Deadline {
+        /// Returns the time until this deadline.
+        pub fn time_until_deadline(&self) -> Duration {
+            let deadline = self.inner;
+            let now = Instant::now();
+            deadline.saturating_duration_since(now)
+        }
+    }
+
+    pub enum EvaluationResult {
+        /// Timer has expired.
+        Expired,
+        /// Timer is not active.
+        Inactive,
+        /// Timer is actively counting down, but has not expired yet. `deadline` is the time when it is planned to expire.
+        Active { deadline: Deadline },
+    }
+
+    /// "Timer" for faults stuff.
+    pub struct FaultTimer { state: FaultTimerState }
+    impl FaultTimer {
+        /// Creates a new inactive timer. Meant to be called at init time.
+        pub const fn new() -> Self {
+            Self { state: FaultTimerState::Inactive }
+        }
+
+        /// Evaluates the current state of the timer.
+        pub fn evaluate(&self) -> EvaluationResult {
+            match self.state {
+                FaultTimerState::Inactive => EvaluationResult::Inactive,
+                FaultTimerState::Active { deadline } => {
+                    let now = Instant::now();
+
+                    if now > deadline {
+                        // If we are past the deadline, then the timer is expired. 
+                        EvaluationResult::Expired
+                    } else {
+                        // If we aren't past the deadline, the timer is still active.
+                        EvaluationResult::Active { deadline: Deadline { inner: deadline } }
+                    }
+                }
+            }
+        }
+
+        /// Makes this timer inactive.
+        pub fn set_inactive(&mut self) {
+            self.state = FaultTimerState::Inactive;
+        }
+
+        /// Restarts this timer with a new `duration`. This timer will drop whatever its current state
+        /// is, and enter the `Active` state with a expiration deadline of `now + duration`.
+        pub fn restart(&mut self, duration: Duration) {
+            let deadline= Instant::now().saturating_add(duration);
+            self.state = FaultTimerState::Active { deadline };
+        }
+    }
+}
+use timers::*;
+
+static FAULT_QUEUE: Channel<ThreadModeRawMutex, FaultId, 10> = Channel::new();
+static FLAGS: FaultFlags = FaultFlags::new();
+
+/// !!!! PUBLIC API !!!!
+/// 
+/// (This is the public API of the faults module).
+mod api {
+    use super::*;
+
+    #[repr(u32)]
+    pub enum FaultState {
+        /// This fault is not current active (i.e., everything is normal for this fault).
+        Inactive = 0,
+        /// This fault is currently active (i.e., something bad happened that triggered this fault).
+        Active = 1,
+    }
+    impl FaultState {
+        /// Returns `true` if this is `FaultState::Active`.
+        pub const fn is_active(&self) -> bool { matches!(self, FaultState::Active) }
+    }
+
+    /// Gets the state of a particular fault.
+    pub fn get_fault(fault: FaultId) -> FaultState {
+        if FLAGS.is_set(fault) { FaultState::Active } else { FaultState::Inactive }
+    }
+
+    /// Checks if any critical faults are currently active.
+    pub fn are_critical_faults_active() -> bool {
+        FLAGS.are_critical_faults_active()
+    }
+
+    /// Adds a fault to the fault queue.
+    /// 
+    /// This is used when you want to trigger a fault.
+    pub async fn queue(fault: FaultId) {
+        FAULT_QUEUE.send(fault).await;
+    }
+}
+pub use api::*;
+
+pub mod task {
+    use super::*;
+
+    /// Guy in charge of the faults.
+    struct FaultManager {
+        timers: IndexByFaultId<FaultTimer>,
+    }
+    impl FaultManager {
+        /// Initializes the faults manager.
+        pub fn new() -> Self {
+            Self {
+                timers: IndexByFaultId::from_fn(|_| { FaultTimer::new() }),
+            }
+        }
+
+        /// Triggers a fault.
+        pub fn trigger_fault(&mut self, fault: FaultId) {
+            FLAGS.set_fault(fault);
+            self.timers.get_mut(fault).restart(fault.config().timeout());
+        }
+    }
+
+    #[embassy_executor::task]
+    pub async fn faults_task() -> ! {
+        use embassy_futures::select::select;
+
+        let mut manager = FaultManager::new();
+
+        loop {
+            // Dequeue faults from the faults queue and trigger them.
+            while let Ok(fault) = FAULT_QUEUE.try_receive() {
+                manager.trigger_fault(fault);
+            }
+
+            // Stores the time until the soonest expiration.
+            // This starts at MAX
+            let mut time_until_soonest_expiration: Duration = Duration::MAX;
+
+            // Check the state of each fault timer.
+            for (fault, timer) in manager.timers.iter_mut() {
+                match timer.evaluate() {
+                    // This timer is inactive so we don't need to do anything.
+                    EvaluationResult::Inactive => {},
+
+                    // This timer has expired, so we can set it to Inactive and clear the associated fault.
+                    EvaluationResult::Expired => {
+                        timer.set_inactive();
+                        FLAGS.clear_fault(fault);
+                    },
+
+                    // This timer is active, so we use it as part of our "soonest deadline" calculation (to see how long this task should sleep).
+                    EvaluationResult::Active { deadline } => {
+                        time_until_soonest_expiration = time_until_soonest_expiration.min(deadline.time_until_deadline());
+                    }
+                }
+            }
+
+            select(FAULT_QUEUE.ready_to_receive(), Timer::after(time_until_soonest_expiration)).await;
+        }
+    }
+}
