@@ -180,23 +180,13 @@ pub mod timers {
         Active { deadline: Instant, }
     }
 
-    pub struct Deadline { inner: Instant }
-    impl Deadline {
-        /// Returns the time until this deadline.
-        pub fn time_until_deadline(&self) -> Duration {
-            let deadline = self.inner;
-            let now = Instant::now();
-            deadline.saturating_duration_since(now)
-        }
-    }
-
     pub enum EvaluationResult {
         /// Timer has expired.
         Expired,
         /// Timer is not active.
         Inactive,
         /// Timer is actively counting down, but has not expired yet. `deadline` is the time when it is planned to expire.
-        Active { deadline: Deadline },
+        Active { deadline: Instant },
     }
 
     /// "Timer" for faults stuff.
@@ -207,21 +197,16 @@ pub mod timers {
             Self { state: FaultTimerState::Inactive }
         }
 
-        /// Evaluates the current state of the timer.
-        pub fn evaluate(&self) -> EvaluationResult {
+        /// Evaluates the current state of the timer against `now`. `now` should be the current time (get via `Instant::now()`)
+        pub fn evaluate(&self, now: Instant) -> EvaluationResult {
             match self.state {
                 FaultTimerState::Inactive => EvaluationResult::Inactive,
-                FaultTimerState::Active { deadline } => {
-                    let now = Instant::now();
 
-                    if now > deadline {
-                        // If we are past the deadline, then the timer is expired. 
-                        EvaluationResult::Expired
-                    } else {
-                        // If we aren't past the deadline, the timer is still active.
-                        EvaluationResult::Active { deadline: Deadline { inner: deadline } }
-                    }
-                }
+                // If we are past the deadline, then the timer is expired.
+                FaultTimerState::Active { deadline } if now >= deadline => EvaluationResult::Expired,
+
+                // If we aren't past the deadline, the timer is still active.
+                FaultTimerState::Active { deadline } => EvaluationResult::Active { deadline },
             }
         }
 
@@ -275,7 +260,21 @@ mod api {
     /// 
     /// This is used when you want to trigger a fault.
     pub async fn queue(fault: FaultId) {
-        FAULT_QUEUE.send(fault).await;
+        match FAULT_QUEUE.try_send(fault) {
+            Ok(()) => {},
+            Err(_) => {
+                defmt::warn!("Faults: Tried to queue a fault, but the faults queue was full. This is not an error, since this function will now .await until the queue is open. However, you should probably increase the size of the faults queue if this is getting printed a lot.");
+                FAULT_QUEUE.send(fault).await;
+            }
+        }
+    }
+
+    /// Tries to add a fault to the fault queue.
+    /// 
+    /// If this returns `Err(_)`, then the faults queue was full and the fault couldn't be added. That is a sign to increase the capacity of the faults queue.
+    pub fn try_queue(fault: FaultId) -> Result<(), ()> {
+        // Throwing away the specific error in map_err is fine here since Err always means "channel was full". This is also what can.rs does
+        FAULT_QUEUE.try_send(fault).map_err(|_| {()})
     }
 }
 pub use api::*;
@@ -314,12 +313,14 @@ pub mod task {
                 manager.trigger_fault(fault);
             }
 
-            // Stores the time until the soonest expiration.
-            let mut time_until_soonest_expiration: Option<Duration> = None;
+            let now = Instant::now();
+
+            // Stores the deadline of the soonest expiration.
+            let mut soonest_expiration: Option<Instant> = None;
 
             // Check the state of each fault timer.
             for (fault, timer) in manager.timers.iter_mut() {
-                match timer.evaluate() {
+                match timer.evaluate(now) {
                     // This timer is inactive so we don't need to do anything.
                     EvaluationResult::Inactive => {},
 
@@ -331,24 +332,22 @@ pub mod task {
 
                     // This timer is active, so we use it as part of our "soonest deadline" calculation (to see how long this task should sleep).
                     EvaluationResult::Active { deadline } => {
-                        time_until_soonest_expiration = match time_until_soonest_expiration {
-                            // If no time_until_soonest_expiration exists yet, just use this timer's deadline.
-                            None => { Some(deadline.time_until_deadline()) },
+                        soonest_expiration = Some(match soonest_expiration {
+                            // If no soonest_expiration exists yet, just use this timer's deadline.
+                            None => deadline,
 
-                            // If a time_until_soonest_expiration does exist, compare it to this timer's time until expiration and update it to the sooner of the two
-                            Some(duration) => {
-                                Some(duration.min(deadline.time_until_deadline()))
-                            },
-                        }
+                            // If a soonest_expiration does exist, compare it to this timer's deadline and keep the sooner of the two
+                            Some(soonest) => soonest.min(deadline),
+                        });
                     }
                 }
             }
 
             // Sleep until more faults are queued, or a timer is ready to expire (whichever happens sooner). 
             // If there are no timers counting down, then just sleep until more faults are queued.
-            match time_until_soonest_expiration {
-                Some(time_until_soonest_expiration) => {
-                    select(FAULT_QUEUE.ready_to_receive(), Timer::after(time_until_soonest_expiration)).await;
+            match soonest_expiration {
+                Some(deadline) => {
+                    select(FAULT_QUEUE.ready_to_receive(), Timer::at(deadline)).await;
                 },
                 None => {
                     FAULT_QUEUE.ready_to_receive().await;
