@@ -1,5 +1,7 @@
-use embassy_stm32::gpio::{AnyPin, Output};
+use embassy_stm32::gpio::Output;
 use variant_count::VariantCount;
+
+use crate::efuses;
 
 #[derive(PartialEq, Eq)]
 enum AdcMuxSel {
@@ -8,7 +10,7 @@ enum AdcMuxSel {
 }
 
 #[derive(VariantCount)]
-enum Adc1_channels {
+enum Adc1Channels {
     Adc1Channel3,  // EF_DASH_ADC
     Adc1Channel0,  // Mux 1
     Adc1Channel5,  // Mux 3
@@ -39,33 +41,37 @@ struct AdcMux {
     mux_sel: AdcMuxSel,
     mux_buffer: [u16; MuxDataIndex::VARIANT_COUNT],
     sel_pins:[Output<'static>; MuxDataIndex::VARIANT_COUNT / 2], // half the size of the mux data options
-    adc_buffer: [u16; Adc1_channels::VARIANT_COUNT],
+    adc_buffer: [u16; Adc1Channels::VARIANT_COUNT],
 }
 
 impl AdcMux {
-    fn new(sel_pins: [Output<'static>; MuxDataIndex::VARIANT_COUNT / 2], adc_buffer: [u16; Adc1_channels::VARIANT_COUNT]) -> Self {
+    fn new(sel_pins: [Output<'static>; MuxDataIndex::VARIANT_COUNT / 2], adc_buffer: [u16; Adc1Channels::VARIANT_COUNT]) -> Self {
         Self { mux_sel: AdcMuxSel::SelLow, mux_buffer: [0; MuxDataIndex::VARIANT_COUNT], sel_pins: sel_pins, adc_buffer: adc_buffer }
     }
 
     async fn switch_states(&mut self) {
         if self.mux_sel == AdcMuxSel::SelLow {
-            self.sel_pins.into_iter().map(|output | output.set_low());
-            self.mux_buffer[MuxDataIndex::Sel1Low] = self.adc_buffer[Adc1_channels::Adc1Channel0];
-            self.mux_buffer[MuxDataIndex::Sel2Low] = self.adc_buffer[Adc1_channels::Adc1Channel15];
-            self.mux_buffer[MuxDataIndex::Sel3Low] = self.adc_buffer[Adc1_channels::Adc1Channel5];
-            self.mux_buffer[MuxDataIndex::Sel4Low] = self.adc_buffer[Adc1_channels::Adc1Channel9];
+            self.sel_pins.iter_mut().for_each(|output| output.set_low());
+            self.mux_buffer[MuxDataIndex::Sel1Low as usize] = self.adc_buffer[Adc1Channels::Adc1Channel0 as usize];
+            self.mux_buffer[MuxDataIndex::Sel2Low as usize] = self.adc_buffer[Adc1Channels::Adc1Channel15 as usize];
+            self.mux_buffer[MuxDataIndex::Sel3Low as usize] = self.adc_buffer[Adc1Channels::Adc1Channel5 as usize];
+            self.mux_buffer[MuxDataIndex::Sel4Low as usize] = self.adc_buffer[Adc1Channels::Adc1Channel9 as usize];
             
-            embassy_time::Timer::after_millis(10);
+            embassy_time::Timer::after_millis(10).await;
             self.mux_sel = AdcMuxSel::SelHigh;
         } else {
-            self.sel_pins.into_iter().map(|output | output.set_high());
-            self.mux_buffer[MuxDataIndex::Sel1High] = self.adc_buffer[Adc1_channels::Adc1Channel0];
-            self.mux_buffer[MuxDataIndex::Sel2High] = self.adc_buffer[Adc1_channels::Adc1Channel15];
-            self.mux_buffer[MuxDataIndex::Sel3High] = self.adc_buffer[Adc1_channels::Adc1Channel5];
-            self.mux_buffer[MuxDataIndex::Sel4High] = self.adc_buffer[Adc1_channels::Adc1Channel9];
+            self.sel_pins.iter_mut().for_each(|output| output.set_high());
+            self.mux_buffer[MuxDataIndex::Sel1High as usize] = self.adc_buffer[Adc1Channels::Adc1Channel0 as usize];
+            self.mux_buffer[MuxDataIndex::Sel2High as usize] = self.adc_buffer[Adc1Channels::Adc1Channel15 as usize];
+            self.mux_buffer[MuxDataIndex::Sel3High as usize] = self.adc_buffer[Adc1Channels::Adc1Channel5 as usize];
+            self.mux_buffer[MuxDataIndex::Sel4High as usize] = self.adc_buffer[Adc1Channels::Adc1Channel9 as usize];
 
-            embassy_time::Timer::after_millis(10);
+            embassy_time::Timer::after_millis(10).await;
             self.mux_sel = AdcMuxSel::SelLow;
         }
+    }
+
+    fn getEfuseData(efuse: efuses::Efuse) {
+        
     }
 }
