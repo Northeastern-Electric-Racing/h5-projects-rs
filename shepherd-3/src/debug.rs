@@ -142,3 +142,19 @@ pub async fn segments_debug() {
         }
     }
 }
+
+/// Task that reports fault debug data.
+#[embassy_executor::task]
+pub async fn faults_debug() {
+    use crate::{faults};
+    use embassy_time::{Timer};
+
+    loop {
+        let faults = faults::get_all_faults();
+        for (id, state) in faults.iter() {
+            defmt_monitor::monitor!(["FaultsDebug/{}/State", id], desc = "Whether this fault is set or not.", "{}", *state);
+        } 
+
+        Timer::after_millis(500).await;
+    }
+}

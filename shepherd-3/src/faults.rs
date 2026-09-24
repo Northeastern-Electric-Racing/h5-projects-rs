@@ -29,6 +29,7 @@ mod ids {
     }
     
     #[derive(EnumCount, VariantArray, EnumIter)]
+    #[derive(defmt::Format)]
     #[derive(Copy, Clone)]
     #[repr(u32)]
     pub enum FaultId {
@@ -244,6 +245,7 @@ mod api {
     use super::*;
 
     #[repr(u8)]
+    #[derive(defmt::Format)]
     pub enum FaultState {
         /// This fault is not current active (i.e., everything is normal for this fault).
         Inactive = 0,
