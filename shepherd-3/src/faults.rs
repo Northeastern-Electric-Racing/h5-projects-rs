@@ -43,6 +43,8 @@ mod ids {
         HvPlateCommsFault,
         SegmentCommsFault,
         CellOpenWireFault,
+        FakeFault1,
+        FakeFault2,
     }
     impl FaultId {
         /// Returns this FaultId's config settings.
@@ -63,6 +65,8 @@ mod ids {
                 Self::HvPlateCommsFault              => FaultConfig { timeout: Duration::from_millis(20_000), severity: FaultSeverity::Critical },
                 Self::SegmentCommsFault              => FaultConfig { timeout: Duration::from_millis(20_000), severity: FaultSeverity::NonCritical },
                 Self::CellOpenWireFault              => FaultConfig { timeout: Duration::from_millis(40_000), severity: FaultSeverity::Critical },
+                Self::FakeFault1                     => FaultConfig { timeout: Duration::from_millis(1000), severity: FaultSeverity::NonCritical },
+                Self::FakeFault2                     => FaultConfig { timeout: Duration::from_millis(1000), severity: FaultSeverity::NonCritical },
             }
         }
 
