@@ -20,4 +20,12 @@ static_cell.workspace = true
 
 embassy-net.workspace = true
 rust-mqtt.workspace = true
+cangen.workspace = true
+#statime.workspace = true
+#statime-embassy-net.workspace = true
 sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", version = "0.1.0" }
+embedded-can.workspace = true
+zenoh-nostd = { git = "https://github.com/Northeastern-Electric-Racing/zenoh-nostd", rev = "b2e6c397b212513687c67b7279c7a6fe9aa655b2", features = ["embedded"] }
+zenoh-embassy = { git = "https://github.com/Northeastern-Electric-Racing/zenoh-nostd", rev = "b2e6c397b212513687c67b7279c7a6fe9aa655b2" }
+dyn-utils = { version = "0.1.1", default-features = false, features = ["macros", "const_panic"] }
+getrandom = { version = "0.2", default-features = false, features = ["custom"] }

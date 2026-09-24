@@ -1,5 +1,5 @@
 [workspace]
-members = ["msb-fw-2", "shepherd-3", "lightning", "template-h5"]
+members = ["msb-fw-2", "shepherd-3", "lightning", "cerberus", "template-h5"]
 resolver = "3"
 
 [workspace.dependencies]
@@ -27,10 +27,13 @@ embedded-hal-async = { version = "1" }
 embedded-can = {version = "0.4" }
 bitfield = "0.19"
 bitfield-struct = "0.13"
+cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "02f1d4321df164ebc0a932f033bd437de7c9639b" }
 
 embassy-net = { version = "0.9.1", features = ["udp", "tcp", "medium-ethernet", "ipv4", "icmp-ping-reply", "defmt"] }
 rust-mqtt = { version = "0.5",default-features = false, features = ["defmt", "bump", "v5"]}
 embassy-ptp-driver = "0.1.0"
+#statime = { git = "https://github.com/quartiq/statime", rev = "8860708473481b27dcade5a3505c3a3318cab227", default-features = false}
+#statime-embassy-net = { git = "https://github.com/quartiq/statime", rev = "8860708473481b27dcade5a3505c3a3318cab227", features = ["defmt"] }
 
 [patch.crates-io]
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
