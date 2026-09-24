@@ -155,6 +155,15 @@ impl FaultFlags {
     /// Creates a new fault flags, where all flags are unset.
     pub const fn new() -> Self { Self { flags: AtomicU32::new(0) } }
 
+    /// Gets the status of all faults.
+    pub fn get_all(&self) -> IndexByFaultId<bool> {
+        let flags = self.flags.load(Ordering::Relaxed);
+
+        IndexByFaultId::from_fn(|fault| {
+            flags & (1 << fault as u32) != 0
+        })
+    }
+
     /// Checks whether or not a particular fault flag is set.
     pub fn is_set(&self, fault: FaultId) -> bool { self.flags.load(Ordering::Relaxed) & (1 << fault as u32) != 0 }
 
@@ -234,7 +243,7 @@ static FLAGS: FaultFlags = FaultFlags::new();
 mod api {
     use super::*;
 
-    #[repr(u32)]
+    #[repr(u8)]
     pub enum FaultState {
         /// This fault is not current active (i.e., everything is normal for this fault).
         Inactive = 0,
@@ -244,11 +253,20 @@ mod api {
     impl FaultState {
         /// Returns `true` if this is `FaultState::Active`.
         pub const fn is_active(&self) -> bool { matches!(self, FaultState::Active) }
+
+        /// PRIVATE! Creates a `FaultState` based on a fault flag `bool`.
+        const fn from_bool(flag: bool) -> Self { if flag { Self::Active } else { Self::Inactive } }
     }
 
     /// Gets the state of a particular fault.
     pub fn get_fault(fault: FaultId) -> FaultState {
-        if FLAGS.is_set(fault) { FaultState::Active } else { FaultState::Inactive }
+        FaultState::from_bool(FLAGS.is_set(fault))
+    }
+
+    /// Gets the state of all faults.
+    pub fn get_all_faults() -> IndexByFaultId<FaultState> {
+        let faults = FLAGS.get_all();
+        IndexByFaultId::from_fn(|fault| { FaultState::from_bool(*faults.fault(fault)) })
     }
 
     /// Checks if any critical faults are currently active.
@@ -361,3 +379,4 @@ pub mod task {
         }
     }
 }
+// u_TODO - we should probably have a separate task that reads the fault values for reporting over CAN and such, since we don't want any of that stuff to interfere with the timing and deadline stuff from the current faults task. maybe we also want a broadcast belonging to this internal faults task that can signal every time it runs
