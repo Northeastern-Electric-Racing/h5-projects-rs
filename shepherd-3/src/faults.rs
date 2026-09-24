@@ -1,10 +1,7 @@
 use strum::{EnumCount, VariantArray, EnumIter, EnumIs};
 use embassy_time::{Duration, Instant, Timer};
 use core::sync::atomic::{AtomicU32, Ordering};
-use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex,
-    channel::Channel,
-};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 
 mod ids {
     use super::*;
@@ -23,11 +20,15 @@ mod ids {
     }
     impl FaultConfig {
         /// How long a fault should stay active before expiring.
-        pub const fn timeout(&self) -> Duration { self.timeout }
+        pub const fn timeout(&self) -> Duration {
+            self.timeout
+        }
         /// The severity of a fault.
-        pub const fn severity(&self) -> FaultSeverity { self.severity }
+        pub const fn severity(&self) -> FaultSeverity {
+            self.severity
+        }
     }
-    
+
     #[derive(EnumCount, VariantArray, EnumIter)]
     #[derive(defmt::Format)]
     #[derive(Copy, Clone)]
@@ -71,10 +72,12 @@ mod ids {
         }
 
         /// Checks if this particular fault is configured to be critical or not.
-        pub const fn is_critical(&self) -> bool { *&self.config().severity().is_critical() }
+        pub const fn is_critical(&self) -> bool {
+            *&self.config().severity().is_critical()
+        }
 
         /// Mask of all fault flags that are configured as critical.
-        /// 
+        ///
         /// This is computed at compile time and mainly exists so we can easily check if any critical faults are active via a simple bitwise &.
         pub const CRITICAL_MASK: u32 = {
             let mut mask = 0;
@@ -158,40 +161,48 @@ struct FaultFlags {
 }
 impl FaultFlags {
     /// Creates a new fault flags, where all flags are unset.
-    pub const fn new() -> Self { Self { flags: AtomicU32::new(0) } }
+    pub const fn new() -> Self {
+        Self { flags: AtomicU32::new(0) }
+    }
 
     /// Gets the status of all faults.
     pub fn get_all(&self) -> IndexByFaultId<bool> {
         let flags = self.flags.load(Ordering::Relaxed);
 
-        IndexByFaultId::from_fn(|fault| {
-            flags & (1 << fault as u32) != 0
-        })
+        IndexByFaultId::from_fn(|fault| flags & (1 << fault as u32) != 0)
     }
 
     /// Checks whether or not a particular fault flag is set.
-    pub fn is_set(&self, fault: FaultId) -> bool { self.flags.load(Ordering::Relaxed) & (1 << fault as u32) != 0 }
+    pub fn is_set(&self, fault: FaultId) -> bool {
+        self.flags.load(Ordering::Relaxed) & (1 << fault as u32) != 0
+    }
 
     /// Sets the flag for a fault.
-    pub fn set_fault(&self, fault: FaultId) { self.flags.fetch_or(1 << fault as u32, Ordering::Relaxed); }
+    pub fn set_fault(&self, fault: FaultId) {
+        self.flags.fetch_or(1 << fault as u32, Ordering::Relaxed);
+    }
 
     /// Clears the flag for a fault.
-    pub fn clear_fault(&self, fault: FaultId) { self.flags.fetch_and(!(1 << fault as u32), Ordering::Relaxed); }
+    pub fn clear_fault(&self, fault: FaultId) {
+        self.flags.fetch_and(!(1 << fault as u32), Ordering::Relaxed);
+    }
 
     /// Checks if any critical faults are currently active.
-    pub fn are_critical_faults_active(&self) -> bool { self.flags.load(Ordering::Relaxed) & FaultId::CRITICAL_MASK != 0 }
+    pub fn are_critical_faults_active(&self) -> bool {
+        self.flags.load(Ordering::Relaxed) & FaultId::CRITICAL_MASK != 0
+    }
 }
 
 mod timers {
     use super::*;
 
     /// Current activation/expiration state for a fault and its timer.
-    /// 
-    /// PRIVATE! This tracks the internal 
+    ///
+    /// PRIVATE! This tracks the internal
     #[derive(Copy, Clone)]
     enum FaultTimerState {
         Inactive,
-        Active { deadline: Instant, }
+        Active { deadline: Instant },
     }
 
     pub enum EvaluationResult {
@@ -204,7 +215,9 @@ mod timers {
     }
 
     /// "Timer" for faults stuff.
-    pub struct FaultTimer { state: FaultTimerState }
+    pub struct FaultTimer {
+        state: FaultTimerState,
+    }
     impl FaultTimer {
         /// Creates a new inactive timer. Meant to be called at init time.
         pub const fn new() -> Self {
@@ -232,7 +245,7 @@ mod timers {
         /// Restarts this timer with a new `duration`. This timer will drop whatever its current state
         /// is, and enter the `Active` state with a expiration deadline of `now + duration`.
         pub fn restart(&mut self, duration: Duration) {
-            let deadline= Instant::now().saturating_add(duration);
+            let deadline = Instant::now().saturating_add(duration);
             self.state = FaultTimerState::Active { deadline };
         }
     }
@@ -243,7 +256,7 @@ static FAULT_QUEUE: Channel<ThreadModeRawMutex, FaultId, 10> = Channel::new();
 static FLAGS: FaultFlags = FaultFlags::new();
 
 /// !!!! PUBLIC API !!!!
-/// 
+///
 /// (This is the public API of the faults module).
 mod api {
     use super::*;
@@ -258,10 +271,14 @@ mod api {
     }
     impl FaultState {
         /// Returns `true` if this is `FaultState::Active`.
-        pub const fn is_active(&self) -> bool { matches!(self, FaultState::Active) }
+        pub const fn is_active(&self) -> bool {
+            matches!(self, FaultState::Active)
+        }
 
         /// PRIVATE! Creates a `FaultState` based on a fault flag `bool`.
-        const fn from_bool(flag: bool) -> Self { if flag { Self::Active } else { Self::Inactive } }
+        const fn from_bool(flag: bool) -> Self {
+            if flag { Self::Active } else { Self::Inactive }
+        }
     }
 
     /// Gets the state of a particular fault.
@@ -272,7 +289,7 @@ mod api {
     /// Gets the state of all faults.
     pub fn get_all_faults() -> IndexByFaultId<FaultState> {
         let faults = FLAGS.get_all();
-        IndexByFaultId::from_fn(|fault| { FaultState::from_bool(*faults.fault(fault)) })
+        IndexByFaultId::from_fn(|fault| FaultState::from_bool(*faults.fault(fault)))
     }
 
     /// Checks if any critical faults are currently active.
@@ -281,7 +298,7 @@ mod api {
     }
 
     /// Adds a fault to the fault queue.
-    /// 
+    ///
     /// This is used when you want to trigger a fault.
     pub async fn queue(fault: FaultId) {
         match FAULT_QUEUE.try_send(fault) {
@@ -289,16 +306,16 @@ mod api {
             Err(_) => {
                 defmt::warn!("Faults: Tried to queue a fault, but the faults queue was full. This is not an error, since this function will now .await until the queue is open. However, you should probably increase the size of the faults queue if this is getting printed a lot.");
                 FAULT_QUEUE.send(fault).await;
-            }
+            },
         }
     }
 
     /// Tries to add a fault to the fault queue.
-    /// 
+    ///
     /// If this returns `Err(_)`, then the faults queue was full and the fault couldn't be added. That is a sign to increase the capacity of the faults queue.
     pub fn try_queue(fault: FaultId) -> Result<(), ()> {
         // Throwing away the specific error in map_err is fine here since Err always means "channel was full". This is also what can.rs does
-        FAULT_QUEUE.try_send(fault).map_err(|_| {()})
+        FAULT_QUEUE.try_send(fault).map_err(|_| ())
     }
 }
 pub use api::*;
@@ -313,9 +330,7 @@ pub mod task {
     impl FaultManager {
         /// Initializes the faults manager.
         pub fn new() -> Self {
-            Self {
-                timers: IndexByFaultId::from_fn(|_| { FaultTimer::new() }),
-            }
+            Self { timers: IndexByFaultId::from_fn(|_| FaultTimer::new()) }
         }
 
         /// Triggers a fault.
@@ -363,16 +378,14 @@ pub mod task {
                             // If a soonest_expiration does exist, compare it to this timer's deadline and keep the sooner of the two
                             Some(soonest) => soonest.min(deadline),
                         });
-                    }
+                    },
                 }
             }
 
             // u_TODO do stuff here probably:
-            if FLAGS.are_critical_faults_active() {
+            if FLAGS.are_critical_faults_active() {}
 
-            }
-
-            // Sleep until more faults are queued, or a timer is ready to expire (whichever happens sooner). 
+            // Sleep until more faults are queued, or a timer is ready to expire (whichever happens sooner).
             // If there are no timers counting down, then just sleep until more faults are queued.
             match soonest_expiration {
                 Some(deadline) => {
@@ -380,7 +393,7 @@ pub mod task {
                 },
                 None => {
                     FAULT_QUEUE.ready_to_receive().await;
-                }
+                },
             }
         }
     }

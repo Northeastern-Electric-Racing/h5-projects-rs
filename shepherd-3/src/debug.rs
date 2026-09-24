@@ -157,7 +157,7 @@ pub async fn faults_debug(spawner: Spawner) {
         let faults = faults::get_all_faults();
         for (id, state) in faults.iter() {
             defmt_monitor::monitor!(["FaultsDebug/{}/State", id], desc = "Whether this fault is set or not.", "{}", *state);
-        } 
+        }
 
         Timer::after_millis(500).await;
     }
