@@ -1,7 +1,7 @@
-use embassy_stm32::gpio::Output;
+use embassy_stm32::{gpio::Output};
 use variant_count::VariantCount;
 
-use crate::efuses;
+use crate::efuses::{EfuseId};
 
 #[derive(PartialEq, Eq)]
 enum AdcMuxSel {
@@ -10,7 +10,7 @@ enum AdcMuxSel {
 }
 
 #[derive(VariantCount)]
-enum Adc1Channels {
+pub enum Adc1Channels {
     Adc1Channel3,  // EF_DASH_ADC
     Adc1Channel0,  // Mux 1
     Adc1Channel5,  // Mux 3
@@ -37,7 +37,7 @@ enum MuxDataIndex {
     Sel4Low   // LV_BATT_ADC
 }
 
-struct AdcMux {
+pub struct AdcMux {
     mux_sel: AdcMuxSel,
     mux_buffer: [u16; MuxDataIndex::VARIANT_COUNT],
     sel_pins:[Output<'static>; MuxDataIndex::VARIANT_COUNT / 2], // half the size of the mux data options
@@ -69,9 +69,21 @@ impl AdcMux {
             embassy_time::Timer::after_millis(10).await;
             self.mux_sel = AdcMuxSel::SelLow;
         }
-    }
+    }   
 
-    fn getEfuseData(efuse: efuses::Efuse) {
-        
+    pub fn get_efuse_data(&self, efuse_id: EfuseId) -> Option<u16> {
+        match efuse_id {
+            EfuseId::EfuseDashboard => Some(self.adc_buffer[Adc1Channels::Adc1Channel3 as usize]),
+            EfuseId::EfuseBrake => Some(self.mux_buffer[MuxDataIndex::Sel1High as usize]),
+            EfuseId::EfuseShutdown => Some(self.mux_buffer[MuxDataIndex::Sel3Low as usize]),
+            EfuseId::EfuseLV => Some(self.mux_buffer[MuxDataIndex::Sel3High as usize]),
+            EfuseId::EfuseRadfan => Some(self.mux_buffer[MuxDataIndex::Sel4High as usize]),
+            EfuseId::EfuseFanbatt => Some(self.adc_buffer[Adc1Channels::Adc1Channel6 as usize]),
+            EfuseId::EfusePump1 => Some(self.adc_buffer[Adc1Channels::Adc1Channel2 as usize]),
+            EfuseId::EfusePump2 => Some(self.adc_buffer[Adc1Channels::Adc1Channel13 as usize]),
+            EfuseId::EfuseBattbox => Some(self.mux_buffer[MuxDataIndex::Sel1Low as usize]),
+            EfuseId::EfuseMC => Some(self.adc_buffer[Adc1Channels::Adc1Channel18 as usize]),
+            EfuseId::EfuseSpare => None,
+        }
     }
 }
