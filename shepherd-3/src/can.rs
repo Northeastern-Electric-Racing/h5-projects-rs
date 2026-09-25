@@ -39,12 +39,16 @@ mod api {
     /// Initializes CAN and starts up the CAN handler.
     #[embassy_executor::task]
     pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources) {
-        use embassy_stm32::can::CanConfigurator;
+        use embassy_stm32::can::{CanConfigurator};
+        use embassy_stm32::can::filter::{StandardFilterSlot};
+
+        /// CAN ID for DTI status message. We use this to make sure we are always triggering our CAN interrupt (which this will do because
+        /// this message always gets recieved). We need to do this because it protects against our TX waker from going to sleep forever,
+        /// which happens right now for some reason. Ideally this will be a temporary fix.
+        const DTI_ERPM_STATUS_MESSAGE: u16 = 0x416;
 
         let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
-        let can = handler::NerCan::init(configurator);
-
-        // u_TODO probably should add can fitlers and such here
+        let can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None);
 
         let (tx, rx, props) = can.start();
 
@@ -81,7 +85,7 @@ pub mod types {
     }
     impl AlphaCellDataDebug {
         pub fn as_frame(&self) -> Frame {
-            let frame = cangen::AlphaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b).with_ow_a(self.ow_a).with_ow_b(self.ow_b);
+            let frame = cangen::AlphaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b);
 
             frame.to_can_frame()
         }
@@ -103,7 +107,7 @@ pub mod types {
     }
     impl BetaCellDataDebug {
         pub fn as_frame(&self) -> Frame {
-            let frame = cangen::BetaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b).with_ow_a(self.ow_a).with_ow_b(self.ow_b);
+            let frame = cangen::BetaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b);
 
             frame.to_can_frame()
         }

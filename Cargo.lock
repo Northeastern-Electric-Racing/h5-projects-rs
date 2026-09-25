@@ -207,7 +207,7 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix#16ddc3fef2d232cca9134bfa64b995bc2b97e8dd"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
 dependencies = [
  "bitfield-struct",
  "cangen-macro",
@@ -217,7 +217,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix#16ddc3fef2d232cca9134bfa64b995bc2b97e8dd"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
 dependencies = [
  "definition-rs",
  "heck",
@@ -369,7 +369,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix#16ddc3fef2d232cca9134bfa64b995bc2b97e8dd"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
 dependencies = [
  "proc-macro2",
  "quote",

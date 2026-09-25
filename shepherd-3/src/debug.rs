@@ -1,6 +1,7 @@
 //! Debug data for segments.
 
 use crate::segments;
+use embassy_executor::Spawner;
 
 /// Task that sends out debug segments data.
 ///
@@ -140,5 +141,50 @@ pub async fn segments_debug() {
                 }
             }
         }
+    }
+}
+
+/// Task that reports fault debug data.
+#[embassy_executor::task]
+pub async fn faults_debug(spawner: Spawner) {
+    use crate::{faults};
+    use embassy_time::{Timer, Instant};
+
+    spawner.spawn(faults_queuer_1().expect("Failed to spawn `faults_queuer_1()` debug task."));
+    spawner.spawn(faults_queuer_2().expect("Failed to spawn `faults_queuer_2()` debug task."));
+
+    loop {
+        let faults = faults::get_all_faults();
+        for (id, state) in faults.iter() {
+            let ms = Instant::now().as_millis();
+            defmt_monitor::monitor!(["FaultsDebug/{}/State", id], desc = "Whether this fault is set or not.", "{}", *state);
+            defmt_monitor::monitor!(["FaultsDebug/{}/ms", id], desc = "Current instant this sample was taken.", "{=u64}", ms);
+        }
+
+        Timer::after_millis(100).await;
+    }
+}
+
+/// Thing that queues a failt!
+#[embassy_executor::task]
+pub async fn faults_queuer_1() {
+    use crate::{faults, faults::FaultId};
+    use embassy_time::{Timer};
+
+    loop {
+        faults::queue(FaultId::FakeFault1).await;
+        Timer::after_millis(5000).await;
+    }
+}
+
+/// Thing that queues another fault!
+#[embassy_executor::task]
+pub async fn faults_queuer_2() {
+    use crate::{faults, faults::FaultId};
+    use embassy_time::{Timer};
+
+    loop {
+        faults::queue(FaultId::FakeFault2).await;
+        Timer::after_millis(10000).await;
     }
 }
