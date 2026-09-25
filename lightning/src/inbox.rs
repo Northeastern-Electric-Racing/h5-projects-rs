@@ -2,12 +2,12 @@ pub use self::inbox::FaultframeState;
 pub mod inbox {
     use core::fmt::Debug;
 
-    use defmt::warn;
+    use defmt::{debug, warn};
     use embassy_stm32::can::Frame;
     use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Receiver, mutex::Mutex};
     const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
     // Previously known as IMD_GENERAL_MSG_ID
-    pub const IMD_CAN_ID: u16 = 0x307;
+    pub const IMD_CAN_ID: u16 = 0x037;
 
     // BMS_LIGHTNING_OKAY_MSG_ID
     pub const BMS_CAN_ID: u32 = 0x01E;
@@ -69,7 +69,9 @@ pub mod inbox {
                     }
                 };
             match quetex.lock().await.enqueue(latest) {
-                Ok(_) => {}
+                Ok(v) => {
+                    debug!("Latest: {}", v);
+                }
                 Err(_) => warn!("Could not append to queue. Dropping packet."),
             }
         }

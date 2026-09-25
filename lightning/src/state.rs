@@ -32,7 +32,8 @@ pub mod state_machine {
 
         loop {
             grace_period = !bms_seen && !imd_seen;
-            match quetex.lock().await.dequeue() {
+            let item = quetex.lock().await.dequeue();
+            match item {
                 Some(latest) => {
                     match latest {
                         Some(msg) => {

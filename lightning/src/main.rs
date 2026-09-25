@@ -7,7 +7,7 @@ mod state;
 use crate::hardware::Leds;
 use crate::inbox::FaultframeState;
 use crate::inbox::inbox::{BMS_CAN_ID, IMD_CAN_ID, LATCHING_CAN_ID};
-use can_handler::{NerCan, can_handler};
+use can_handler::{NerCan, can_handler, interrupts::Irqs as IrqsCan};
 use core::fmt::Write;
 use core::num::{NonZeroU8, NonZeroU16};
 use cortex_m::peripheral::SCB;
@@ -29,11 +29,6 @@ use heapless::String;
 use heapless::mpmc::Queue;
 
 use {defmt_rtt as _, panic_probe as _};
-
-bind_interrupts!(struct IrqsCan {
-    FDCAN2_IT0 => can::IT0InterruptHandler<peripherals::FDCAN2>;
-    FDCAN2_IT1 => can::IT1InterruptHandler<peripherals::FDCAN2>;
-});
 
 bind_interrupts!(struct IrqsUsart {
     LPUART1 => usart::InterruptHandler<peripherals::LPUART1>;
@@ -94,7 +89,7 @@ async fn main(_spawner: Spawner) -> ! {
         .add_standard_filter(
             can::filter::StandardFilterSlot::_0,
             LATCHING_CAN_ID,
-            Some(IMD_CAN_ID),
+            None, // Some(IMD_CAN_ID),
         )
         .add_extended_filter(can::filter::ExtendedFilterSlot::_0, BMS_CAN_ID, None);
     // There used to be some configuration here, but I removed it s.t I wouldn't step on NerCan's toes
@@ -123,8 +118,8 @@ async fn main(_spawner: Spawner) -> ! {
     _spawner.spawn(
         can_handler(
             ner_can.can_configurator,
-            TX_CHANNEL.sender(),
-            RX_CHANNEL.receiver(),
+            RX_CHANNEL.sender(),
+            TX_CHANNEL.receiver(),
         )
         .expect("Failed to init candler"),
     );
@@ -147,7 +142,7 @@ async fn main(_spawner: Spawner) -> ! {
         state::state_machine::state_machine(&QUEUTEX, leds).expect("Failed to spawn state machine"),
     );
     loop {
-        debug!("Status: Alive");
+        debug!("I'm not dead yet");
         Timer::after_millis(500).await;
         ticker.next().await;
         watchdog.pet();

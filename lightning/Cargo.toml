@@ -18,4 +18,4 @@ heapless.workspace = true
 panic-probe.workspace = true
 embedded-can.workspace = true
 #static_cell.workspace = true
-can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git" }
+can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "fix/interrupts"}
