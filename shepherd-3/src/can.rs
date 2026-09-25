@@ -81,7 +81,7 @@ pub mod types {
     }
     impl AlphaCellDataDebug {
         pub fn as_frame(&self) -> Frame {
-            let frame = cangen::AlphaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b).with_ow_a(self.ow_a).with_ow_b(self.ow_b);
+            let frame = cangen::AlphaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b);
 
             frame.to_can_frame()
         }
@@ -103,7 +103,7 @@ pub mod types {
     }
     impl BetaCellDataDebug {
         pub fn as_frame(&self) -> Frame {
-            let frame = cangen::BetaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b).with_ow_a(self.ow_a).with_ow_b(self.ow_b);
+            let frame = cangen::BetaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b);
 
             frame.to_can_frame()
         }

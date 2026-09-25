@@ -67,7 +67,7 @@ mod ids {
                 Self::SegmentCommsFault              => FaultConfig { timeout: Duration::from_millis(20_000), severity: FaultSeverity::NonCritical },
                 Self::CellOpenWireFault              => FaultConfig { timeout: Duration::from_millis(40_000), severity: FaultSeverity::Critical },
                 Self::FakeFault1                     => FaultConfig { timeout: Duration::from_millis(1000), severity: FaultSeverity::NonCritical },
-                Self::FakeFault2                     => FaultConfig { timeout: Duration::from_millis(1000), severity: FaultSeverity::NonCritical },
+                Self::FakeFault2                     => FaultConfig { timeout: Duration::from_millis(2500), severity: FaultSeverity::NonCritical },
             }
         }
 
