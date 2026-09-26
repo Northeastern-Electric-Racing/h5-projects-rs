@@ -345,7 +345,7 @@ impl Segments {
 
 /// "Jobs" to help the Segments task. Basically a collection of helper functions and blocks of work the segments task has to do.
 pub mod jobs {
-    use crate::job_diagnostics::JobDiagnosticsContainer;
+    use crate::job_diagnostics::{self, JobDiagnosticsContainer};
     use crate::segments::cache::UpdateError;
     use crate::segments::cache;
     use super::Segments;
@@ -365,7 +365,7 @@ pub mod jobs {
             self.service.api().adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
             cache::CACHE.update_redundant_aux(self.service.api()).await?;
 
-            crate::log_job_diagnostics!("Segments", "job_update_redundant_aux", run.finish());
+            job_diagnostics::log_job_diagnostics!("Segments", "job_update_redundant_aux", run.finish());
 
             Ok(())
         }
@@ -393,7 +393,7 @@ pub mod jobs {
 
             self.service.api().command(commands::snapshot::unsnap()).await.map_err(UpdateError::UnsnapError)?;
 
-            crate::log_job_diagnostics!("Segments", "job_update_snap_registers", run.finish());
+            job_diagnostics::log_job_diagnostics!("Segments", "job_update_snap_registers", run.finish());
 
             Ok(())
         }
@@ -413,7 +413,7 @@ pub mod jobs {
             cache::CACHE.update_status_a(self.service.api()).await?;
             cache::CACHE.update_status_b(self.service.api()).await?;
 
-            crate::log_job_diagnostics!("Segments", "job_update_aux_registers", run.finish());
+            job_diagnostics::log_job_diagnostics!("Segments", "job_update_aux_registers", run.finish());
 
             Ok(())
         }
@@ -425,7 +425,7 @@ pub mod jobs {
 
             cache::CACHE.update_pwm(self.service.api()).await?;
 
-            crate::log_job_diagnostics!("Segments", "job_update_pwm_registers", run.finish());
+            job_diagnostics::log_job_diagnostics!("Segments", "job_update_pwm_registers", run.finish());
 
             Ok(())
         }

@@ -19,4 +19,3 @@ pub const fn cache() -> &'static CacheData {
 // Re-exports
 pub use core::task::{hv_plate_task, signal::HV_PLATE_FRESH_DATA_SIGNAL};
 pub use cache::{CacheData, RegisterCacheData, UpdateError, accumulated, aux, current_voltage, flag, status, voltages};
-pub use board::{SHUNT_THERMISTOR_CHANNEL, TS_VOLTAGE_CHANNEL};

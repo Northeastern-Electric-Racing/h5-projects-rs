@@ -146,7 +146,6 @@ impl Drop for JobRun<'_> {
 }
 
 /// Publishes a job's [`JobDiagnostics`] to `defmt_monitor` under `"<Subsystem>/JobDiagnostics/<job>()/<field>"`.
-#[macro_export]
 macro_rules! log_job_diagnostics {
     ($subsystem:literal, $job:literal, $diagnostics:expr) => {{
         let diagnostics = &$diagnostics;
@@ -156,3 +155,5 @@ macro_rules! log_job_diagnostics {
         ::defmt_monitor::monitor!([$subsystem, "/JobDiagnostics/", $job, "()/error_count"], desc = "Number of times this job has had to return early due to an error.", "{=usize}", diagnostics.error_count());
     }};
 }
+
+pub(crate) use log_job_diagnostics;

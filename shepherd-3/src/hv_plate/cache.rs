@@ -1,17 +1,10 @@
 //! Module for caching SPI reads to the HV plate's ADBMS2950B chip.
 //!
-//! Same shape as `segments::cache`, simplified by the hardware:
+//! A failed read leaves the cache untouched, so staleness shows up as `last_successful_read`
+//! not advancing. Device health (command counter, PEC tallies) lives in
+//! [`adbms2950::api::DeviceState`], reachable via `HvPlate::device()`.
 //!
-//! - **One device, so no `IndexByChip`.** A cached entry is a single decoded group, not an array.
-//! - **No per-reading metadata at all.** `segments` hangs a `PecStatus` off each `Reading`
-//!   because with a daisy chain you need to know *which* chip's PEC failed. Here a PEC failure
-//!   is just `Err` from the driver: the cache is left untouched and `last_successful_read`
-//!   carries the staleness. The command counter and PEC tallies live in
-//!   [`adbms2950::api::DeviceState`], reachable via `HvPlate::device()`, which is where device
-//!   health belongs rather than bolted onto individual register readings.
-//!
-//! (this module uses `Cell` for the same reason `segments::cache` does: the cache can be read by
-//! any task at any time, and `RefCell` could panic)
+//! Uses `Cell` rather than `RefCell` because the cache can be read by any task at any time.
 
 use adbms2950::chip::registers::{
     ReadableGroup,
@@ -30,10 +23,6 @@ use super::core::alias;
 pub(super) static CACHE: CacheData = CacheData::new();
 
 /// A driver error, carrying the concrete SPI error type.
-///
-/// This is `Error<SpiError>` rather than the `ErrorKind`-erased form: `SpiError` is already
-/// `Copy + defmt::Format`, so erasing it bought nothing and only forced a `to_kind()` call at
-/// every call site. `segments::cache::UpdateError` holds the concrete type for the same reason.
 pub type LineError = Error<alias::SpiError>;
 
 /// Errors that may occur when trying to update a value in the cache.
@@ -218,12 +207,11 @@ pub mod accumulated {
         }
     }
 
-    /// The accumulator registers, left as raw sums on purpose.
+    /// The accumulator registers, as raw sums.
     ///
-    /// These are **sums of `ACCN` conversions, not averages**, and this module never clears
-    /// them. Consumers integrate by diffing against their own previous value, which keeps the
-    /// result insensitive to how often they happen to poll. Divide by `ACCN` (from the `acci`
-    /// field of CFGA) if you want an average instead.
+    /// These are sums of `ACCN` conversions, not averages, and are never cleared here. Divide
+    /// by `ACCN` (from CFGA's `acci`) for an average; diff against your own previous value to
+    /// integrate.
     pub struct NiceData {
         /// Summed shunt voltage, in microvolts.
         pub current_sum_microvolts: i32,
@@ -495,11 +483,11 @@ pub mod status {
     pub struct NiceData {
         /// The whole STATUS register: ADC init flags, GPO/GPIO readbacks, revision.
         pub status: Status,
-        /// The overcurrent results, left as raw codes.
+        /// The overcurrent results, as raw codes.
         ///
-        /// Converting these to volts needs the matching `OCxGC` gain bit from CFGB (5 mV per
-        /// code at gain 1, 2.5 mV at gain 2). The `Api` caches `ConfigB`, so use
-        /// `Api::overcurrent_microvolts(code, channel)` rather than plumbing the gain yourself.
+        /// Scaling depends on the channel's `OCxGC` gain bit in CFGB: 5 mV per code at gain 1,
+        /// 2.5 mV at gain 2. Use `Api::overcurrent_microvolts(code, channel)`, which reads the
+        /// gain from the cached `ConfigB`.
         pub overcurrent: OverCurrentResults,
     }
 
