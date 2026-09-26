@@ -120,19 +120,19 @@ impl<R: ReadableGroup> RegisterCache<R> {
             match (responses.line_error(LineId::A), responses.line_error(LineId::B)) {
                 // Both lines failed.
                 (Some(linea_err), Some(lineb_err)) => {
-                    defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read on both Line A and Line B failed. Errors: linea_err={}, lineb_err={}", linea_err, lineb_err);
+                    defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read of `{=str}` on both Line A and Line B failed. Errors: linea_err={}, lineb_err={}", core::any::type_name::<R>(), linea_err, lineb_err);
                     return Err(UpdateError::BothLinesFailed { linea_err: *linea_err, lineb_err: *lineb_err });
                 },
 
                 // Line A failed, but not Line B.
                 (Some(linea_err), None) => {
-                    defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read on Line A failed. Error: {}", linea_err);
+                    defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read of `{=str}` on Line A failed. Error: {}", core::any::type_name::<R>(), linea_err);
                     return Err(UpdateError::LineAFailed(*linea_err));
                 },
 
                 // Line B failed, but not Line A.
                 (None, Some(lineb_err)) => {
-                    defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read on Line B failed. Error: {}", lineb_err);
+                    defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read of `{=str}` on Line B failed. Error: {}", core::any::type_name::<R>(), lineb_err);
                     return Err(UpdateError::LineBFailed(*lineb_err));
                 },
 
