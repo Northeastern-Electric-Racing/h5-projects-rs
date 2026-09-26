@@ -11,11 +11,13 @@ use embassy_time::{Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 pub mod segments;
+pub mod hv_plate;
 pub mod hardfault;
 pub mod can;
 pub mod clocks;
 pub mod units;
 pub mod broadcast;
+pub mod job_diagnostics;
 pub mod debug;
 
 use assign_resources::assign_resources;
@@ -52,6 +54,25 @@ assign_resources! {
         lineb_tx_dma: GPDMA1_CH2,
         lineb_rx_dma: GPDMA1_CH3,
     }
+    /// Resources for HvPlate
+    hv_plate: HvPlateResources {
+        // Line A on SPI3
+        linea_spi: SPI3,
+        linea_sck: PC10,
+        linea_mosi: PD6,
+        linea_miso: PC11,
+        linea_cs: PA4,
+        linea_tx_dma: GPDMA1_CH4,
+        linea_rx_dma: GPDMA1_CH5,
+        // Line B on SPI4
+        lineb_spi: SPI4,
+        lineb_sck: PE2,
+        lineb_mosi: PE14,
+        lineb_miso: PE5,
+        lineb_cs: PE4,
+        lineb_tx_dma: GPDMA1_CH6,
+        lineb_rx_dma: GPDMA1_CH7,
+    }
 }
 
 #[embassy_executor::main]
@@ -67,7 +88,9 @@ async fn main(spawner: Spawner) {
     spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
+    spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
+    spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
 }
 
 /// pet the dog beat the heart
