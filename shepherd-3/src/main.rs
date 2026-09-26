@@ -11,14 +11,17 @@ use embassy_time::{Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 pub mod segments;
+pub mod hv_plate;
 pub mod hardfault;
 pub mod can;
 pub mod clocks;
 pub mod units;
 pub mod broadcast;
+pub mod job_diagnostics;
 pub mod debug;
 
 use assign_resources::assign_resources;
+#[cfg(not(feature = "hil"))]
 assign_resources! {
     /// Resources for default task.
     default: DefaultResources {
@@ -52,6 +55,56 @@ assign_resources! {
         lineb_tx_dma: GPDMA1_CH2,
         lineb_rx_dma: GPDMA1_CH3,
     }
+    /// Resources for HvPlate
+    hv_plate: HvPlateResources {
+        // Line A on SPI3
+        linea_spi: SPI3,
+        linea_sck: PC10,
+        linea_mosi: PD6,
+        linea_miso: PC11,
+        linea_cs: PA4,
+        linea_tx_dma: GPDMA1_CH4,
+        linea_rx_dma: GPDMA1_CH5,
+        // Line B on SPI4
+        lineb_spi: SPI4,
+        lineb_sck: PE2,
+        lineb_mosi: PE14,
+        lineb_miso: PE5,
+        lineb_cs: PE4,
+        lineb_tx_dma: GPDMA1_CH6,
+        lineb_rx_dma: GPDMA1_CH7,
+    }
+}
+
+#[cfg(feature = "hil")]
+assign_resources! {
+    /// Resources for default task.
+    default: DefaultResources {
+        watchdog: IWDG,
+    }
+    /// Resources for CAN.
+    can: CanResources {
+        can: FDCAN2,
+        can_tx: PB13,
+        can_rx: PD9,
+    }
+    /// HIL battery emulator connection.
+    segment_isospi_linea: SegmentIsoSpiLineAResources {
+        uart: UART9,
+        tx: PD15,
+        rx: PD14,
+        tx_dma: GPDMA1_CH4,
+        rx_dma: GPDMA1_CH5,
+    }
+    // Preserve the task signature without reserving line-B hardware.
+    segment_isospi_lineb: SegmentIsoSpiLineBResources {}
+    hv_plate: HvPlateResources {
+        uart: UART4,
+        tx: PD12,
+        rx: PD11,
+        tx_dma: GPDMA1_CH6,
+        rx_dma: GPDMA1_CH7,
+    }
 }
 
 #[embassy_executor::main]
@@ -67,7 +120,10 @@ async fn main(spawner: Spawner) {
     spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
+    spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
+    #[cfg(not(feature = "hil"))]
+    spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
 }
 
 /// pet the dog beat the heart

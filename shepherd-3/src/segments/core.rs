@@ -4,6 +4,7 @@ use static_cell::StaticCell;
 use embassy_time::{Timer};
 use super::chips::ADBMS6830B_NUM_CHIPS;
 
+#[cfg(not(feature = "hil"))]
 embassy_stm32::bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
     GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
@@ -12,8 +13,11 @@ embassy_stm32::bind_interrupts!(struct Irqs {
 });
 
 pub mod alias {
+    #[cfg(not(feature = "hil"))]
     use embedded_hal_bus::spi::ExclusiveDevice;
+    #[cfg(not(feature = "hil"))]
     use embassy_time::Delay;
+    #[cfg(not(feature = "hil"))]
     use embassy_stm32::{
         mode::Async,
         gpio::Output,
@@ -23,6 +27,9 @@ pub mod alias {
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     /// This is just a single SPI controller with a CS pin.
+    #[cfg(feature = "hil")]
+    pub type SpiDevice = super::super::hil::HilDevice;
+    #[cfg(not(feature = "hil"))]
     pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 
     /// The error type our `SpiDevice` produces.
@@ -44,6 +51,8 @@ pub mod alias {
 /// Guy in charge of the segments.
 pub(super) struct Segments {
     pub(super) service: &'static mut alias::Service,
+    #[cfg(feature = "hil")]
+    hil_initialized: bool,
 }
 impl Segments {
     /// Initializes our `Segments`. AKA inits the two isoSPI lines. Doesn't start up the task or set any runtime config registers though.
@@ -52,22 +61,33 @@ impl Segments {
     /// - `r_linea`: pins and other hardware resources for Line A
     /// - `r_lineb`: pins and other hardware resources for Line B
     pub fn new(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) -> Self {
+        #[cfg(not(feature = "hil"))]
         use embedded_hal_bus::spi::ExclusiveDevice;
+        #[cfg(not(feature = "hil"))]
         use embassy_time::{Delay};
         use adbms6830b::turnkey::service::service_config::{ServiceConfig, SEGMENT_ISOSPI_EVAL_PERIOD_MS, SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS, SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS, SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL, SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW, SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT, SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS};
 
-        let mut spi_config = embassy_stm32::spi::Config::default();
-        spi_config.frequency = embassy_stm32::time::mhz(1);
+        #[cfg(not(feature = "hil"))]
+        let (line_a, line_b) = {
+            let mut spi_config = embassy_stm32::spi::Config::default();
+            spi_config.frequency = embassy_stm32::time::mhz(1);
 
-        let linea_spi = embassy_stm32::spi::Spi::new(r_linea.linea_spi, r_linea.linea_sck, r_linea.linea_mosi, r_linea.linea_miso, r_linea.linea_tx_dma, r_linea.linea_rx_dma, Irqs, spi_config);
-        let linea_cs = embassy_stm32::gpio::Output::new(r_linea.linea_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-        let linea_spi = ExclusiveDevice::new(linea_spi, linea_cs, Delay).unwrap();
-        let line_a: alias::Line = adbms6830b::line::Line::new(linea_spi);
+            let linea_spi = embassy_stm32::spi::Spi::new(r_linea.linea_spi, r_linea.linea_sck, r_linea.linea_mosi, r_linea.linea_miso, r_linea.linea_tx_dma, r_linea.linea_rx_dma, Irqs, spi_config);
+            let linea_cs = embassy_stm32::gpio::Output::new(r_linea.linea_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
+            let linea_spi = ExclusiveDevice::new(linea_spi, linea_cs, Delay).unwrap();
+            let line_a: alias::Line = adbms6830b::line::Line::new(linea_spi);
 
-        let lineb_spi = embassy_stm32::spi::Spi::new(r_lineb.lineb_spi, r_lineb.lineb_sck, r_lineb.lineb_mosi, r_lineb.lineb_miso, r_lineb.lineb_tx_dma, r_lineb.lineb_rx_dma, Irqs, spi_config);
-        let lineb_cs = embassy_stm32::gpio::Output::new(r_lineb.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-        let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
-        let line_b: alias::Line = adbms6830b::line::Line::new(lineb_spi);
+            let lineb_spi = embassy_stm32::spi::Spi::new(r_lineb.lineb_spi, r_lineb.lineb_sck, r_lineb.lineb_mosi, r_lineb.lineb_miso, r_lineb.lineb_tx_dma, r_lineb.lineb_rx_dma, Irqs, spi_config);
+            let lineb_cs = embassy_stm32::gpio::Output::new(r_lineb.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
+            let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
+            let line_b: alias::Line = adbms6830b::line::Line::new(lineb_spi);
+            (line_a, line_b)
+        };
+        #[cfg(feature = "hil")]
+        let (line_a, line_b) = {
+            let _ = r_lineb;
+            (alias::Line::new(super::hil::HilDevice::new(r_linea)), alias::Line::new(super::hil::HilDevice::disabled()))
+        };
 
         static SERVICE: StaticCell<alias::Service> = StaticCell::new();
         let service: &'static mut alias::Service = SERVICE.init(alias::Service::new(
@@ -85,42 +105,46 @@ impl Segments {
             },
         ));
 
-        Self { service }
+        Self {
+            service,
+            #[cfg(feature = "hil")]
+            hil_initialized: false,
+        }
     }
 
     /// Wrapper function to run the service and handle diagnostics.
     pub async fn run_service(&mut self) {
-        // u_TODO: it would be cleaner if the on_startup async closure could be stored directly on the `Service` struct and defined via Service::new() rather than passed into service.run, since technically you shouldn't be able to change the startup routine each time you pass it into .run(). So possibly a good idea to look into that
-        let diagnostics = self
-            .service
-            .run(
-                // ADBMS6830B Service startup sequence! this gets called by the service at boot time, and whenever the service needs to restart the chips (isospi recovery or sleep detection)
-                async |api, _reason| {
-                    use adbms6830b::chip::registers::{
-                        config_a::{
-                            ConfigA,
-                            types::{ReferenceOn, ComparisonThresholdVoltage, SoakTimeOn, SoakTimeRange, OpenWireSoakTimeMultiplier, GpioPullDownConfig, IirFilterConfig},
-                        },
-                        config_b::{
-                            ConfigB,
-                            types::{OvervoltageThreshold, UndervoltageThreshold, DischargeTimerMonitor, DischargeTimerStatus, DischargeTimerRange, DischargeCellConfig},
-                        },
-                    };
-                    use adbms6830b::chip::{
-                        commands,
-                        commands::adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire},
-                    };
-                    use adbms6830b::turnkey::service::StartupResult;
+        // HIL runs the same startup once, bypassing service discovery/sleep/split recovery.
+        #[cfg(feature = "hil")]
+        if self.hil_initialized {
+            return;
+        }
+        let startup = async |api: &mut alias::Api, _reason| {
+            use adbms6830b::chip::registers::{
+                config_a::{
+                    ConfigA,
+                    types::{ReferenceOn, ComparisonThresholdVoltage, SoakTimeOn, SoakTimeRange, OpenWireSoakTimeMultiplier, GpioPullDownConfig, IirFilterConfig},
+                },
+                config_b::{
+                    ConfigB,
+                    types::{OvervoltageThreshold, UndervoltageThreshold, DischargeTimerMonitor, DischargeTimerStatus, DischargeTimerRange, DischargeCellConfig},
+                },
+            };
+            use adbms6830b::chip::{
+                commands,
+                commands::adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire},
+            };
+            use adbms6830b::turnkey::service::StartupResult;
 
-                    // Reset chips to blank state.
-                    if let Err(err) = api.reset().await {
-                        defmt::error!("Segments: Failed to call `api.reset()` during ADBMS6830B Service startup. Error: {}", err.to_kind());
-                        return StartupResult::Incomplete;
-                    }
+            // Reset chips to blank state.
+            if let Err(err) = api.reset().await {
+                defmt::error!("Segments: Failed to call `api.reset()` during ADBMS6830B Service startup. Error: {}", err.to_kind());
+                return StartupResult::Incomplete;
+            }
 
-                    // Set up ConfigA.
-                    let config_a = const {
-                        ConfigA::new()
+            // Set up ConfigA.
+            let config_a = const {
+                ConfigA::new()
                     .with_refon(ReferenceOn::On)
                     .with_cth(ComparisonThresholdVoltage::Mv25_05)
                     // not going to do `clear_diagnostic_flags()` like the C code since they are all cleared via ConfigA::new() and if were to manually re-clear them here it would have to be 8 separate calls for each flag
@@ -141,75 +165,81 @@ impl Segments {
                     // set outputs, 9=iso led 10=bal LED. false=lit up
                     .with_gpio9(GpioPullDownConfig::PullDownOff)
                     .with_gpio10(GpioPullDownConfig::PullDownOff)
-                    };
-                    if let Err(err) = api.set_configa(&[config_a; super::chips::ADBMS6830B_NUM_CHIPS]).await {
-                        defmt::error!("Segments: Failed to write ConfigA during ADBMS6830B Service startup. Error: {}", err);
-                        return StartupResult::Incomplete;
-                    }
+            };
+            if let Err(err) = api.set_configa(&[config_a; super::chips::ADBMS6830B_NUM_CHIPS]).await {
+                defmt::error!("Segments: Failed to write ConfigA during ADBMS6830B Service startup. Error: {}", err);
+                return StartupResult::Incomplete;
+            }
 
-                    // Set up ConfigB.
-                    let config_b = const {
-                        /// VOV setting from microvolts.
-                        const VOV: OvervoltageThreshold = const {
-                            const MICROVOLTS: i32 = 4_200_000; // 4.2 volts
-                            OvervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VOV.")
-                        };
+            // Set up ConfigB.
+            let config_b = const {
+                /// VOV setting from microvolts.
+                const VOV: OvervoltageThreshold = const {
+                    const MICROVOLTS: i32 = 4_200_000; // 4.2 volts
+                    OvervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VOV.")
+                };
 
-                        /// VUV setting from microvolts.
-                        const VUV: UndervoltageThreshold = const {
-                            const MICROVOLTS: i32 = 2_500_000; // 2.5 volts
-                            UndervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VUV.")
-                        };
+                /// VUV setting from microvolts.
+                const VUV: UndervoltageThreshold = const {
+                    const MICROVOLTS: i32 = 2_500_000; // 2.5 volts
+                    UndervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VUV.")
+                };
 
-                        ConfigB::new()
-                            .with_vov(VOV)
-                            .with_vuv(VUV)
-                            .with_dtmen(DischargeTimerMonitor::Disabled)
-                            .with_dcto(DischargeTimerStatus::new().with_increments(0))
-                            .with_dtrng(DischargeTimerRange::ShortRange)
-                            .with_dcc1(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc2(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc3(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc4(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc5(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc6(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc7(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc8(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc9(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc10(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc11(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc12(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc13(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc14(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
-                            .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
-                    };
-                    if let Err(err) = api.set_configb(&[config_b; ADBMS6830B_NUM_CHIPS]).await {
-                        defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
-                        return StartupResult::Incomplete;
-                    }
+                ConfigB::new()
+                    .with_vov(VOV)
+                    .with_vuv(VUV)
+                    .with_dtmen(DischargeTimerMonitor::Disabled)
+                    .with_dcto(DischargeTimerStatus::new().with_increments(0))
+                    .with_dtrng(DischargeTimerRange::ShortRange)
+                    .with_dcc1(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc2(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc3(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc4(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc5(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc6(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc7(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc8(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc9(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc10(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc11(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc12(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc13(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc14(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
+                    .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
+            };
+            if let Err(err) = api.set_configb(&[config_b; ADBMS6830B_NUM_CHIPS]).await {
+                defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
+                return StartupResult::Incomplete;
+            }
 
-                    // Disable balancing on init.
-                    if let Err(err) = api.command(commands::discharge::mute()).await {
-                        defmt::error!("Segments: Failed to send `mute()` command to disable balancing during ADBMS6830B Service startup. Error = {}", err.to_kind());
-                        return StartupResult::Incomplete;
-                    }
+            // Disable balancing on init.
+            if let Err(err) = api.command(commands::discharge::mute()).await {
+                defmt::error!("Segments: Failed to send `mute()` command to disable balancing during ADBMS6830B Service startup. Error = {}", err.to_kind());
+                return StartupResult::Incomplete;
+            }
 
-                    // Start the ADCV conversions.
-                    if let Err(err) = api.command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::Continuous, ResetFilter::Reset, OpenWire::OffForAll)).await {
-                        defmt::error!("Segments: Failed to send command to start adcv() conversions during ADBMS6830B Service startup. Error = {}", err.to_kind());
-                        return StartupResult::Incomplete;
-                    }
+            // Start the ADCV conversions.
+            if let Err(err) = api.command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::Continuous, ResetFilter::Reset, OpenWire::OffForAll)).await {
+                defmt::error!("Segments: Failed to send command to start adcv() conversions during ADBMS6830B Service startup. Error = {}", err.to_kind());
+                return StartupResult::Incomplete;
+            }
 
-                    // okay startup is complete now
-                    // we have to delay after init is successful for 500ms to wait for ADC to start up (this is what the C code does)
-                    Timer::after_millis(500).await;
-                    StartupResult::Complete
-                },
-            )
-            .await;
+            // okay startup is complete now
+            // we have to delay after init is successful for 500ms to wait for ADC to start up (this is what the C code does)
+            Timer::after_millis(500).await;
+            StartupResult::Complete
+        };
+        #[cfg(feature = "hil")]
+        {
+            let startup = startup;
+            self.hil_initialized = !startup(self.service.api(), adbms6830b::turnkey::service::StartupReason::FromSleep).await.is_incomplete();
+        }
+        #[cfg(not(feature = "hil"))]
+        let diagnostics = self.service.run(startup).await;
 
         // handle diagnostics
+        #[cfg(not(feature = "hil"))]
         {
             // u_TODO: eventually this should probably go into its own (flaggable) task, since it doesn't do any SPI transactions itself. it never awaits as of rn so it's probably fine for now.
 
@@ -345,268 +375,101 @@ impl Segments {
 
 /// "Jobs" to help the Segments task. Basically a collection of helper functions and blocks of work the segments task has to do.
 pub mod jobs {
-    use embassy_sync::blocking_mutex::{Mutex, raw::ThreadModeRawMutex};
-    use embassy_time::{Duration, Instant};
+    use crate::job_diagnostics::JobDiagnosticsContainer;
     use crate::segments::cache::UpdateError;
     use crate::segments::cache;
     use super::Segments;
 
-    pub struct JobDiagnosticsContainer {
-        inner: Mutex<ThreadModeRawMutex, JobDiagnostics>,
-    }
-    impl JobDiagnosticsContainer {
-        /// Initializes the JobDiagnostics to its defaults. Meant to be called only once at init time.
-        const fn new() -> Self {
-            Self { inner: Mutex::new(JobDiagnostics::new()) }
-        }
-
-        /// Updates the JobDiagnostics with new data after a successful job run has completed.
-        /// This should be called right at the end of the job when you are about to return (i.e., where it is no longer possible for errors to occur and the job is known to have been successful).
-        ///
-        /// ### Parameters
-        /// - `start_time`: The instant at which the job started. The caller should save this at the top of their job function. This function will then grab the current `Instant::now()` as `end_time` and calculate the duration the job took.
-        fn update_with_successful_run(&self, start_time: Instant) {
-            let end_time = Instant::now();
-            let job_duration: Duration = end_time.saturating_duration_since(start_time);
-
-            // SAFETY: this call doesn't nest calls to another lock or lock_mut closure
-            unsafe {
-                self.inner.lock_mut(|data| {
-                    data.last_job_duration = job_duration;
-
-                    if data.last_job_duration > data.max_job_duration {
-                        data.max_job_duration = data.last_job_duration;
-                    }
-
-                    if data.last_job_duration < data.min_job_duration {
-                        data.min_job_duration = data.last_job_duration;
-                    }
-                });
-            }
-        }
-
-        /// Updates the JobDiagnostics after a failure has occured.
-        /// This should be called whenever a job has to return early due to a failure. This doesn't record any duration metrics, and just increments the error count.
-        /// This doesn't record the specific error or anything, so it is up to the job to do any more specific logging via defmt and such. JobDiagnostics mainly just keeps a log
-        /// to ensure the history isn't lost.
-        fn update_with_failure(&self) {
-            // SAFETY: this call doesn't nest calls to another lock or lock_mut closure
-            unsafe {
-                self.inner.lock_mut(|data| {
-                    data.error_count += 1;
-                })
-            }
-        }
-
-        /// Copies out the current inner `JobDiagnostics`.
-        fn copy_inner(&self) -> JobDiagnostics {
-            self.inner.lock(|inner| *inner)
-        }
-    }
-
-    /// Diagnostic data for a segments job, mainly just used to track timing stuff (i.e., how long SPI reads and cache updates take).
-    #[derive(Copy, Clone)]
-    pub struct JobDiagnostics {
-        /// How long the job took to run the last time it was ran.
-        last_job_duration: Duration,
-        /// The maximum time it took the job to run recorded so far.
-        max_job_duration: Duration,
-        /// The minimum time it took the job to run recorded so far.
-        min_job_duration: Duration,
-        /// Times this job was unable to run to completion due to an error.
-        error_count: usize,
-    }
-    impl JobDiagnostics {
-        /// Initializes the JobDiagnostics to its defaults. Meant to be called only once at init time.
-        const fn new() -> Self {
-            Self {
-                last_job_duration: Duration::MIN,
-                max_job_duration: Duration::MIN,
-                min_job_duration: Duration::MAX,
-                error_count: 0,
-            }
-        }
-
-        /// How long the job took to run the last time it was ran.
-        pub const fn last_job_duration(&self) -> Duration {
-            self.last_job_duration
-        }
-        /// The maximum time it took the job to run recorded so far.
-        pub const fn max_job_duration(&self) -> Duration {
-            self.max_job_duration
-        }
-        /// The minimum time it took the job to run recorded so far.
-        pub const fn min_job_duration(&self) -> Duration {
-            self.min_job_duration
-        }
-        /// Times this job was unable to run to completion due to an error.
-        pub const fn error_count(&self) -> usize {
-            self.error_count
-        }
-    }
-
     /// Helper "jobs" that update the register caches and do stuff with SPI.
     impl Segments {
         /// Updates RedundantAux cache. Triggers a conversion, polls it, and then reads the result over SPI into the cache.
-        pub async fn job_update_redundant_aux(&mut self) -> Result<JobDiagnostics, UpdateError> {
+        pub async fn job_update_redundant_aux(&mut self) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands::adc::Aux2InputSelection;
 
-            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
-
-            let start_time = Instant::now();
-
             /// Autoconvert timeout in ms.
+            #[cfg(not(feature = "hil"))]
             const TIMEOUT_MS: u64 = 100;
 
-            // trigger the conversion and poll it until done
-            if let Err(err) = self.service.api().adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await {
-                defmt::error!("Segments: Inside `job_update_redundant_aux()`: call to `adax2_autoconvert()` resulted in an error. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(UpdateError::PollError(err));
-            }
+            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
 
-            // actually read them
-            if let Err(err) = cache::CACHE.update_redundant_aux(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_redundant_aux()`: cache update via call to `update_redundant_aux()` failed. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            #[cfg(feature = "hil")]
+            self.service.api().command(adbms6830b::chip::commands::adc::adax2(Aux2InputSelection::All)).await.map_err(UpdateError::PollError)?;
+            #[cfg(not(feature = "hil"))]
+            self.service.api().adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
+            cache::CACHE.update_redundant_aux(self.service.api()).await?;
 
-            DIAGNOSTICS.update_with_successful_run(start_time);
-            Ok(DIAGNOSTICS.copy_inner())
+            crate::log_job_diagnostics!("Segments", "job_update_redundant_aux", run.finish());
+
+            Ok(())
         }
 
         /// Updates the registers that require the SNAP command. This includes the following registers: CellVoltages, AverageCellVoltages, FilteredCellVoltages, SVotlages, StatusC, StatusD.
         ///
         /// This is done as a single job so there is only one SNAP window. This allows the data from the registers to be compared coherently.
-        pub async fn job_update_snap_registers(&mut self) -> Result<JobDiagnostics, UpdateError> {
+        pub async fn job_update_snap_registers(&mut self) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands;
 
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
 
-            let start_time = Instant::now();
+            // When this job returns early it doesn't unsnap the registers first. That is fine
+            // because this job covers every register affected by SNAP, so other jobs can still
+            // run as normal.
+            self.service.api().command(commands::snapshot::snap()).await.map_err(UpdateError::SnapError)?;
 
-            // when this job returns early, it doesn't unsnap the registers before doing so. this is fine because this job contains all the registers that are affected by SNAP. so other jobs
-            // can still run as normal.
+            cache::CACHE.update_cell_voltages(self.service.api()).await?;
+            #[cfg(not(feature = "hil"))]
+            cache::CACHE.update_average_cell_voltages(self.service.api()).await?;
+            cache::CACHE.update_filtered_cell_voltages(self.service.api()).await?;
+            cache::CACHE.update_s_voltages(self.service.api()).await?;
+            #[cfg(not(feature = "hil"))]
+            cache::CACHE.update_status_c(self.service.api()).await?;
+            #[cfg(not(feature = "hil"))]
+            cache::CACHE.update_status_d(self.service.api()).await?;
 
-            // Snap the registers before doing anything!
-            if let Err(err) = self.service.api().command(commands::snapshot::snap()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to send the SNAP command. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(UpdateError::SnapError(err));
-            }
+            self.service.api().command(commands::snapshot::unsnap()).await.map_err(UpdateError::UnsnapError)?;
 
-            // Update cell voltages.
-            if let Err(err) = cache::CACHE.update_cell_voltages(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_cell_voltages()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            crate::log_job_diagnostics!("Segments", "job_update_snap_registers", run.finish());
 
-            // Update average cell voltages.
-            if let Err(err) = cache::CACHE.update_average_cell_voltages(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_average_cell_voltages()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Update filtered cell voltages.
-            if let Err(err) = cache::CACHE.update_filtered_cell_voltages(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_filtered_cell_voltages()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Update S voltages.
-            if let Err(err) = cache::CACHE.update_s_voltages(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_s_voltages()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Update StatusC.
-            if let Err(err) = cache::CACHE.update_status_c(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_status_c()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Update StatusD.
-            if let Err(err) = cache::CACHE.update_status_d(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to call `update_status_d()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            // Unsnap.
-            if let Err(err) = self.service.api().command(commands::snapshot::unsnap()).await {
-                defmt::error!("Segments: Inside `job_update_snap_registers()`: Failed to send the UNSNAP command. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(UpdateError::UnsnapError(err));
-            }
-
-            DIAGNOSTICS.update_with_successful_run(start_time);
-            Ok(DIAGNOSTICS.copy_inner())
+            Ok(())
         }
 
         /// Update the Auxillary registers cache. Triggers a conversion, polls it, and then reads the result over SPI into the cache.
-        pub async fn job_update_aux_registers(&mut self) -> Result<JobDiagnostics, UpdateError> {
+        pub async fn job_update_aux_registers(&mut self) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands::adc::{Aux1InputSelection, OpenWireAux, Pull};
 
-            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
-
-            let start_time = Instant::now();
-
             /// Autoconvert timeout in ms.
+            #[cfg(not(feature = "hil"))]
             const TIMEOUT_MS: u64 = 100;
 
-            // need to run autoconvert to update the data we read
-            if let Err(err) = self.service.api().adax_autoconvert(OpenWireAux::Off, Pull::PullDown, Aux1InputSelection::All, TIMEOUT_MS).await {
-                defmt::error!("Segments: Inside `job_update_aux_registers()`: call to `adax_autoconvert()` resulted in an error. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(UpdateError::PollError(err));
-            }
+            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
 
-            // Update AuxillaryA through D.
-            if let Err(err) = cache::CACHE.update_aux(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_aux_registers()`: Failed to call `update_aux()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            #[cfg(feature = "hil")]
+            self.service.api().command(adbms6830b::chip::commands::adc::adax(OpenWireAux::Off, Pull::PullDown, Aux1InputSelection::All)).await.map_err(UpdateError::PollError)?;
+            #[cfg(not(feature = "hil"))]
+            self.service.api().adax_autoconvert(OpenWireAux::Off, Pull::PullDown, Aux1InputSelection::All, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
+            cache::CACHE.update_aux(self.service.api()).await?;
+            cache::CACHE.update_status_a(self.service.api()).await?;
+            #[cfg(not(feature = "hil"))]
+            cache::CACHE.update_status_b(self.service.api()).await?;
 
-            // Update StatusA.
-            if let Err(err) = cache::CACHE.update_status_a(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_aux_registers()`: Failed to call `update_status_a()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            crate::log_job_diagnostics!("Segments", "job_update_aux_registers", run.finish());
 
-            // Update StatusB.
-            if let Err(err) = cache::CACHE.update_status_b(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_aux_registers()`: Failed to call `update_status_b()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
-
-            DIAGNOSTICS.update_with_successful_run(start_time);
-            Ok(DIAGNOSTICS.copy_inner())
+            Ok(())
         }
 
         /// Update the PWM registers cache.
-        pub async fn job_update_pwm_registers(&mut self) -> Result<JobDiagnostics, UpdateError> {
+        pub async fn job_update_pwm_registers(&mut self) -> Result<(), UpdateError> {
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
 
-            let start_time = Instant::now();
+            cache::CACHE.update_pwm(self.service.api()).await?;
 
-            // Update PwmA and PwmB.
-            if let Err(err) = cache::CACHE.update_pwm(self.service.api()).await {
-                defmt::error!("Segments: Inside `job_update_pwm_registers()`: Failed to call `update_pwm()`. Error: {}", err);
-                DIAGNOSTICS.update_with_failure();
-                return Err(err);
-            }
+            crate::log_job_diagnostics!("Segments", "job_update_pwm_registers", run.finish());
 
-            DIAGNOSTICS.update_with_successful_run(start_time);
-            Ok(DIAGNOSTICS.copy_inner())
+            Ok(())
         }
     }
 }
@@ -681,72 +544,34 @@ pub mod task {
         loop {
             let start_time = Instant::now();
 
-            // Run the segments service. (this handles isoSPI detection/recovery and sleep detection).
+            // Run the segments service.
             segments.run_service().await;
 
             // Do the SPI transactions to update the register caches.
-            '_cacheupdates: {
-                let mut all_successful: bool = true;
+            let mut all_successful: bool = true;
 
-                // Run update aux registers job.
-                match segments.job_update_aux_registers().await {
-                    Ok(diagnostics) => {
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_aux_registers()/last_job_duration", desc = "Time (in milliseconds) it took for this job to run the last time it ran.", "{=u64}", diagnostics.last_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_aux_registers()/max_job_duration", desc = "Maximum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.max_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_aux_registers()/min_job_duration", desc = "Minimum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.min_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_aux_registers()/error_count", desc = "Number of times this job has had to return early due to an error.", "{=usize}", diagnostics.error_count());
-                    },
-                    Err(err) => {
-                        defmt::error!("Segments: Inside `segments_task()`: Failed to call `job_update_aux_registers()`. Error: {}", err);
-                        all_successful = false;
-                    },
-                }
+            if let Err(err) = segments.job_update_aux_registers().await {
+                defmt::error!("Segments: Inside `segments_task()`: `job_update_aux_registers()` failed. Error: {}", err);
+                all_successful = false;
+            }
 
-                // Run update snap registers job.
-                match segments.job_update_snap_registers().await {
-                    Ok(diagnostics) => {
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_snap_registers()/last_job_duration", desc = "Time (in milliseconds) it took for this job to run the last time it ran.", "{=u64}", diagnostics.last_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_snap_registers()/max_job_duration", desc = "Maximum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.max_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_snap_registers()/min_job_duration", desc = "Minimum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.min_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_snap_registers()/error_count", desc = "Number of times this job has had to return early due to an error.", "{=usize}", diagnostics.error_count());
-                    },
-                    Err(err) => {
-                        defmt::error!("Segments: Inside `segments_task()`: Failed to call `job_update_snap_registers()`. Error: {}", err);
-                        all_successful = false;
-                    },
-                }
+            if let Err(err) = segments.job_update_snap_registers().await {
+                defmt::error!("Segments: Inside `segments_task()`: `job_update_snap_registers()` failed. Error: {}", err);
+                all_successful = false;
+            }
 
-                // Run update redundant aux registers job.
-                match segments.job_update_redundant_aux().await {
-                    Ok(diagnostics) => {
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_redundant_aux()/last_job_duration", desc = "Time (in milliseconds) it took for this job to run the last time it ran.", "{=u64}", diagnostics.last_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_redundant_aux()/max_job_duration", desc = "Maximum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.max_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_redundant_aux()/min_job_duration", desc = "Minimum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.min_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_redundant_aux()/error_count", desc = "Number of times this job has had to return early due to an error.", "{=usize}", diagnostics.error_count());
-                    },
-                    Err(err) => {
-                        defmt::error!("Segments: Inside `segments_task()`: Failed to call `job_update_redundant_aux()`. Error: {}", err);
-                        all_successful = false;
-                    },
-                }
+            if let Err(err) = segments.job_update_redundant_aux().await {
+                defmt::error!("Segments: Inside `segments_task()`: `job_update_redundant_aux()` failed. Error: {}", err);
+                all_successful = false;
+            }
 
-                // Run update PWM registers job.
-                match segments.job_update_pwm_registers().await {
-                    Ok(diagnostics) => {
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_pwm_registers()/last_job_duration", desc = "Time (in milliseconds) it took for this job to run the last time it ran.", "{=u64}", diagnostics.last_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_pwm_registers()/max_job_duration", desc = "Maximum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.max_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_pwm_registers()/min_job_duration", desc = "Minimum time (in milliseconds) we have observed this job taking to run so far.", "{=u64}", diagnostics.min_job_duration().as_millis());
-                        defmt_monitor::monitor!("Segments/JobDiagnostics/job_update_pwm_registers()/error_count", desc = "Number of times this job has had to return early due to an error.", "{=usize}", diagnostics.error_count());
-                    },
-                    Err(err) => {
-                        defmt::error!("Segments: Inside `segments_task()`: Failed to call `job_update_pwm_registers()`. Error: {}", err);
-                        all_successful = false;
-                    },
-                }
+            if let Err(err) = segments.job_update_pwm_registers().await {
+                defmt::error!("Segments: Inside `segments_task()`: `job_update_pwm_registers()` failed. Error: {}", err);
+                all_successful = false;
+            }
 
-                if all_successful {
-                    signal::SEGMENTS_FRESH_DATA_SIGNAL.signal();
-                }
+            if all_successful {
+                signal::SEGMENTS_FRESH_DATA_SIGNAL.signal();
             }
 
             diagnostics.update(start_time);
