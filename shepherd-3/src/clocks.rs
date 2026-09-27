@@ -49,6 +49,8 @@ pub fn rcc_config() -> embassy_stm32::Config {
     config.rcc.mux.fdcan12sel = mux::Fdcansel::Pll2Q;
     config.rcc.mux.spi1sel = mux::Spi1sel::Pll2P;
     config.rcc.mux.spi2sel = mux::Spi2sel::Pll2P;
+    config.rcc.mux.spi3sel = mux::Spi3sel::Pll2P;
+    config.rcc.mux.spi4sel = mux::Spi4sel::Pll2Q;
 
     config
 }
