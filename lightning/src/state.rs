@@ -21,13 +21,12 @@ pub mod state_machine {
         mut leds: Leds,
     ) -> ! {
         let mut state: State = State::Startup;
-        let boot_time = Instant::now(); // This might crash after a few hours; it is probably fine
         let mut grace_period: bool = true;
         let mut bms_seen: bool = false;
         let mut imd_seen: bool = false;
         // Note that this always waits slightly longer than the grace period
         leds.set_all_off();
-        embassy_time::Timer::after(GRACE_PERIOD_DURATION).await; //Wait untill the end of the grace
+        embassy_time::Timer::after(GRACE_PERIOD_DURATION).await; //Wait until the end of the grace
         //period
 
         loop {
@@ -37,7 +36,6 @@ pub mod state_machine {
                 Some(latest) => {
                     match latest {
                         Some(msg) => {
-                            warn!("We got a msg: {:#?}", msg);
                             match msg {
                                 BMSFault | IMDFault => {
                                     if !grace_period {

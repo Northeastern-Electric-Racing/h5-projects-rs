@@ -107,6 +107,8 @@ async fn main(_spawner: Spawner) -> ! {
         usart_config,
     )
     .unwrap();
+
+    // Not actualy deprecated. Just not thread safe, which is fine
     #[expect(deprecated)]
     static FFS_QUEUE: Queue<Option<FaultframeState>, 32> = Queue::new();
     // A mutex that isn't a mutex. Contains a mpmc queue that is neither multi producer nor multi
