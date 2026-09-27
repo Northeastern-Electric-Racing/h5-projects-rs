@@ -6,6 +6,9 @@ pub mod inbox {
     use embassy_stm32::can::Frame;
     use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Receiver, mutex::Mutex};
     const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
+
+    pub const GRACE_PERIOD_DURATION: Duration = Duration::from_secs(5); // Needs to be public such
+    // that state can read it
     // Previously known as IMD_GENERAL_MSG_ID
     pub const IMD_CAN_ID: u16 = 0x037;
 
@@ -20,11 +23,11 @@ pub mod inbox {
         Id::Standard(StandardId::new(LATCHING_CAN_ID).expect("Invalid ID"));
     const BMS_CAN_ID_PROCESSED: Id = Id::Extended(ExtendedId::new(BMS_CAN_ID).expect("Invalid ID"));
 
-    use embassy_time::{Duration, WithTimeout};
+    use embassy_time::{Duration, Instant, WithTimeout};
     use embedded_can::{ExtendedId, Id, StandardId};
     use heapless::mpmc::Queue;
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, defmt::Format)]
     pub enum FaultframeState {
         BMSFault,
         BMSOk,
@@ -42,14 +45,23 @@ pub mod inbox {
         receiver: Receiver<'static, ThreadModeRawMutex, Frame, 16>,
         quetex: &'static Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>>,
     ) -> ! {
+        let boot_time: Instant = Instant::now();
+        receiver.clear(); // The IMD goes a bit crazy on init, this gets rid of the frame.
         loop {
             let latest: Option<FaultframeState> =
                 match receiver.receive().with_timeout(CAN_RECV_TIMEOUT).await {
                     Ok(frame) => match frame.id() {
-                        &IMD_CAN_ID_PROCESSED => match frame.data().iter().any(|&b| b != 0) {
-                            false => Some(FaultframeState::IMDOk),
-                            true => Some(FaultframeState::IMDFault),
-                        },
+                        &IMD_CAN_ID_PROCESSED => {
+                            // Only the 4th and 5th bits mean there is an error on the IMD
+                            match (u16::from_le_bytes([frame.data()[4], frame.data()[5]]) & 0x07FF)
+                            {
+                                0 => Some(FaultframeState::IMDOk),
+                                _ => {
+                                    debug!("IMD Fault data: {}", frame.data());
+                                    Some(FaultframeState::IMDFault)
+                                }
+                            }
+                        }
                         &BMS_CAN_ID_PROCESSED => match frame.data()[0] & 0x80 {
                             0 => Some(FaultframeState::BMSOk),
                             _ => Some(FaultframeState::BMSFault),
@@ -64,15 +76,18 @@ pub mod inbox {
                         }
                     },
                     Err(e) => {
-                        warn!("Did not receive CAN Frame. Error: {}", e);
+                        // warn!("Did not receive CAN Frame. Error: {}", e);
                         None
                     }
                 };
-            match quetex.lock().await.enqueue(latest) {
-                Ok(v) => {
-                    debug!("Latest: {}", v);
+            debug!("latest: {}", latest);
+            if latest.is_some()
+                && (embassy_time::Instant::now() - boot_time) > GRACE_PERIOD_DURATION
+            {
+                match quetex.lock().await.enqueue(latest) {
+                    Ok(_) => {}
+                    Err(_) => warn!("Could not append to queue. Dropping packet."),
                 }
-                Err(_) => warn!("Could not append to queue. Dropping packet."),
             }
         }
     }

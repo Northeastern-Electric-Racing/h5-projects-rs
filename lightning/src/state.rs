@@ -1,6 +1,7 @@
 pub mod state_machine {
     use crate::hardware::Leds;
     use crate::inbox::FaultframeState::{self, BMSFault, BMSOk, IMDFault, IMDOk, ResetRequested};
+    use crate::inbox::inbox::GRACE_PERIOD_DURATION;
     #[derive(Debug, PartialEq, Eq)]
     enum State {
         Red,
@@ -9,7 +10,6 @@ pub mod state_machine {
         _Invalid, // Never constructed. Kept for future use
     }
 
-    const GRACE_PERIOD_DURATION: Duration = Duration::from_secs(3);
     use defmt::{error, warn};
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::mutex::Mutex;
@@ -37,6 +37,7 @@ pub mod state_machine {
                 Some(latest) => {
                     match latest {
                         Some(msg) => {
+                            warn!("We got a msg: {:#?}", msg);
                             match msg {
                                 BMSFault | IMDFault => {
                                     if !grace_period {

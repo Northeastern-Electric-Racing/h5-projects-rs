@@ -91,7 +91,9 @@ async fn main(_spawner: Spawner) -> ! {
             LATCHING_CAN_ID,
             None, // Some(IMD_CAN_ID),
         )
-        .add_extended_filter(can::filter::ExtendedFilterSlot::_0, BMS_CAN_ID, None);
+        .add_extended_filter(can::filter::ExtendedFilterSlot::_1, BMS_CAN_ID, None)
+        .add_standard_filter(can::filter::StandardFilterSlot::_2, IMD_CAN_ID, None);
+
     // There used to be some configuration here, but I removed it s.t I wouldn't step on NerCan's toes
     let mut usart_config = usart::Config::default();
     usart_config.swap_rx_tx = true;
