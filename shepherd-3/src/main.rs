@@ -93,6 +93,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
     spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
+    spawner.spawn(debug::state_machine_debug().expect("Failed to spawn debug::state_machine_debug()."));
 }
 
 /// pet the dog beat the heart

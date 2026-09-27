@@ -203,6 +203,11 @@ pub mod api {
         BmsState::from_repr(super::STATE.load(Ordering::Relaxed)).unwrap_or(BmsState::Faulted)
     }
 
+    /// How many transition requests are queued but not yet applied (only really useful for diagnostics).
+    pub fn pending_transition_requests() -> usize {
+        super::TRANSITION_REQUESTS.len()
+    }
+
     /// Asks the state machine to move to `next`. Callable from any task.
     pub fn request_transition(next: BmsState) {
         if super::TRANSITION_REQUESTS.try_send(next).is_err() {
