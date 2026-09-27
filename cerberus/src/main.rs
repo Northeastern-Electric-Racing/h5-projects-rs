@@ -18,6 +18,7 @@ use {defmt_rtt as _, panic_probe as _};
 mod adc;
 mod can;
 mod efuses;
+mod rtds;
 
 use adc::{Adc1Resources, adc1_task};
 use can::CanPins;
@@ -147,6 +148,12 @@ async fn main(spawner: Spawner) -> ! {
         })
         .expect("Failed to spawn efuses::efuse_task()."),
     );
+
+    // RTDS
+    // TODO: don't know the rtds pin yet, swap PXX for the real one from the schematic and uncomment.
+    // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now
+    // let rtds_pin = Output::new(p.PXX, Level::Low, Speed::Low);
+    // spawner.spawn(rtds::rtds_task(rtds_pin, rtds::is_shutdown_closed_placeholder).expect("Failed to spawn rtds::rtds_task()."));
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1000000);
