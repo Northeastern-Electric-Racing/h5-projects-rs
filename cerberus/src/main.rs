@@ -17,8 +17,11 @@ use {defmt_rtt as _, panic_probe as _};
 
 mod efuses;
 mod adc;
+mod can;
 
+use can::CanPins;
 use efuses::{EfusePins, efuse_task};
+use ner_can::{can_rx, can_tx};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -73,6 +76,20 @@ async fn main(spawner: Spawner) -> ! {
     // initials Debug LEDs
     let mut red_led = Output::new(p.PE3, Level::Low, Speed::Low);
     let mut green_led = Output::new(p.PE4, Level::Low, Speed::Low);
+
+    // CAN
+    let (can_tx_half, can_rx_half) = can::init(CanPins {
+        can: p.FDCAN2,
+        rx: p.PB5,
+        tx: p.PB6,
+    });
+    spawner.spawn(
+        can_tx(can_tx_half, can::OUTGOING.dyn_receiver(), can::OUTGOING.dyn_sender())
+            .expect("Failed to spawn ner_can::can_tx()."),
+    );
+    spawner.spawn(
+        can_rx(can_rx_half, can::INCOMING.dyn_sender()).expect("Failed to spawn ner_can::can_rx()."),
+    );
 
     // eFuses
     spawner.spawn(efuse_task(EfusePins {
