@@ -186,6 +186,9 @@ pub async fn faults_queuer_2() {
     loop {
         faults::queue(FaultId::FakeFault2).await;
         Timer::after_millis(10000).await;
+    }
+}
+
 /// Task that sends out debug HV plate data.
 /// Lowk sends way too much stuff but we can use it for verification of life for now.
 #[embassy_executor::task]
