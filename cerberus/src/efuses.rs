@@ -1,9 +1,11 @@
+use defmt::info;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
 use embassy_time::Timer;
 use variant_count::VariantCount;
 
-use crate::adc::AdcMux;
+use crate::adc::{self, AdcMuxData};
+use crate::efuses;
 
 const V_REF: f32 = 3.3;
 const MAX_TWELVE_BIT_RESOUTION: u16 = 4095;
@@ -252,8 +254,8 @@ impl Efuse {
         self.control_state
     }
 
-    pub fn get_data(&self, adc_mux: &AdcMux) -> Option<(f32, f32)> {
-        if let Some(data) = adc_mux.get_efuse_data(self.efuse_id) {
+    pub fn get_data(&self, adc_data: &AdcMuxData) -> Option<(f32, f32)> {
+        if let Some(data) = adc_data.get_efuse_data(self.efuse_id) {
             let voltage = (data / MAX_TWELVE_BIT_RESOUTION) as f32 * V_REF;
             let current = voltage * self.scale;
             Some((voltage, current))
@@ -338,6 +340,11 @@ pub async fn efuse_task(pins: EfusePins) {
             }
         }
 
-        Timer::after_millis(EFUSE_PERIOD_MS).await;
+        let adc = adc::data().await; // lock, copy, unlock
+        for efuse in &_efuses {
+            if let Some((voltage, current)) = efuse.get_data(&adc) {
+                info!("Voltage: {}, Current: {}", voltage, current);
+            }
+        }
     }
 }

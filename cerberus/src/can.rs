@@ -1,8 +1,4 @@
 //! CAN bring-up for Cerberus.
-//!
-//! FDCAN2 on PB5 (RX) / PB6 (TX), matching `Cerberus-2.0` — see
-//! `Core/Src/stm32h5xx_hal_msp.c:603-613`, which configures `GPIO_PIN_5|GPIO_PIN_6`
-//! on GPIOB with `GPIO_AF9_FDCAN2`.
 
 use embassy_stm32::can::{
     CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,

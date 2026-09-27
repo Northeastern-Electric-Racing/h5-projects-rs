@@ -19,6 +19,7 @@ mod adc;
 mod can;
 mod efuses;
 
+use adc::{Adc1Resources, adc1_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
 use ner_can::{can_rx, can_tx};
@@ -94,6 +95,28 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(
         can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
+    );
+
+    // ADC1 + analog mux
+    spawner.spawn(
+        adc1_task(Adc1Resources {
+            adc: p.ADC1,
+            dma: p.GPDMA1_CH0,
+            dash: p.PA6,
+            mux1: p.PA0,
+            mux3: p.PB1,
+            mux4: p.PB0,
+            fanbatt: p.PF12,
+            pump1: p.PF11,
+            pump2: p.PC3,
+            mc: p.PA4,
+            mux2: p.PA3,
+            sel1: p.PC6,
+            sel2: p.PC7,
+            sel3: p.PC8,
+            sel4: p.PC9,
+        })
+        .expect("Failed to spawn adc::adc1_task()."),
     );
 
     // eFuses
