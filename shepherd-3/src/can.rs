@@ -54,6 +54,7 @@ mod api {
 
         spawner.spawn(handler::can_tx(tx).expect("Failed to spawn can_handler::can_tx()."));
         spawner.spawn(handler::can_rx(rx).expect("Failed to spawn can_handler::can_rx()."));
+        spawner.spawn(handler::can_rx_processer().expect("Failed to spawn can_handler::can_rx_processer()."));
 
         #[cfg(defmt_monitor)]
         spawner.spawn(handler::can_props(props).expect("Failed to spawn can_handler::can_props()."));
@@ -130,9 +131,13 @@ mod interrupts {
             // Clear IR.TCF (transmission cancellation finished) interrupt flag.
             // We need to do this because we enable this interrupt manually and embassy doesn't clear this in its internal interrupt handler.
             let regs = embassy_stm32::pac::FDCAN2;
-            if regs.ir().read().tcf() {
-                regs.ir().write(|w| w.set_tcf(true));
-            }
+            // if we don't clear all interrupts we enable it is over
+            let ir = regs.ir().read();
+            if ir.tcf() { regs.ir().write(|w| w.set_tcf(true)); }
+            if ir.tsw() { regs.ir().write(|w| w.set_tsw(true)); }
+            if ir.pea() { regs.ir().write(|w| w.set_pea(true)); }
+            if ir.ped() { regs.ir().write(|w| w.set_ped(true)); }
+
 
             IT0_IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
         }
@@ -209,6 +214,14 @@ mod handler {
             regs.txbcie().write(|w| w.0 = 0xffff_ffff);
             regs.ie().modify(|w| w.set_tcfe(true));
 
+            // Enable timestamp wraparound interrupt.
+            regs.ie().modify(|w| {
+                w.set_tswe(true);
+                w.set_peae(true);
+                w.set_pede(true);
+            });
+
+
             split
         }
 
@@ -264,19 +277,45 @@ mod handler {
     /// Drains the outgoing channel onto the bus.
     #[embassy_executor::task]
     pub async fn can_tx(mut tx: CanTx<'static>) -> ! {
+        use embassy_time::Timer;
+        use embassy_futures::select::{select, Either};
+
         let mut send_count: u32 = 0;
+        let mut dropped_due_to_outgoing_full_count: u32 = 0;
+        let mut dropped_due_to_stalled_tx_count: u32 = 0;
 
         loop {
             let frame = super::channels::OUTGOING.receive().await;
 
-            match tx.write(&frame).await {
-                Some(frame) => {
-                    crate::can::send(frame).await;
-                },
-                None => send_count += 1,
+            match select(tx.write(&frame), Timer::after_millis(50)).await {
+                // Case: frame was dropped
+                Either::First(Some(dropped)) => {
+                    // If we dropped a frame, try to send it back to OUTGOING so it can get sent again.
+                    // We can't do a normal `send().await` since this task is the one that drains OUTGOING, so doing
+                    // that could probably cause a deadlock somehow.
+                    match super::channels::OUTGOING.try_send(dropped) {
+                        Ok(_) => (),
+                        Err(_) => {
+                            dropped_due_to_outgoing_full_count += 1;
+                            warn!("Had to drop an outgoing CAN frame because OUTGOING was full! Not good.");
+                        }
+                    }
+                }
+                
+                // Case: frame was sent successfully
+                Either::First(None) => { send_count += 1; },
+
+                // Case: The Timer::after await returned before tx.write(), so CAN TX has stalled and we drop the frame.
+                // the "stall" shouldn't be a permanant thing, we just need to make sure this task can't sleep forever.
+                Either::Second(_) => {
+                    dropped_due_to_stalled_tx_count += 1;
+                    warn!("Had to drop an outgoing CAN frame because CAN TX stalled! Probably not good.");
+                }
             }
 
             defmt_monitor::monitor!("CanDebug/send_count", desc = "Send count", "{}", send_count);
+            defmt_monitor::monitor!("CanDebug/dropped_due_to_outgoing_full_count", desc = "Frames dropped due to the OUTGOING channel being full.", "{}", dropped_due_to_outgoing_full_count);
+            defmt_monitor::monitor!("CanDebug/dropped_due_to_stalled_tx_count", desc = "Frames dropped due to TX stalling.", "{}", dropped_due_to_stalled_tx_count);
         }
     }
 
@@ -300,6 +339,14 @@ mod handler {
 
             defmt_monitor::monitor!("CanDebug/rx_count", desc = "RX count", "{}", rx_count);
             defmt_monitor::monitor!("CanDebug/rx_err_count", desc = "RX err count", "{}", rx_err_count);
+        }
+    }
+
+    /// Reads incoming CAN frames from the software queue.
+    #[embassy_executor::task]
+    pub async fn can_rx_processer() -> ! {
+        loop {
+            let _frame = super::channels::INCOMING.receive().await;
         }
     }
 
