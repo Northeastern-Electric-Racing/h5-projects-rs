@@ -25,10 +25,11 @@ pub mod state_machine {
         let mut bms_seen: bool = false;
         let mut imd_seen: bool = false;
         // Note that this always waits slightly longer than the grace period
-        leds.set_all_off();
+        leds.set_all_off(); // TODO: Change this to set_all_on when lamp check hardware allows
         embassy_time::Timer::after(GRACE_PERIOD_DURATION).await; //Wait until the end of the grace
         //period
 
+        leds.set_all_off();
         loop {
             grace_period = !bms_seen && !imd_seen;
             let item = quetex.lock().await.dequeue();
