@@ -1,7 +1,6 @@
 # rustfmt settings for shepherd-3 (the other workspace crates keep rustfmt defaults).
 max_width = 400
-fn_call_width = 400
-chain_width = 400
+use_small_heuristics = "Max"
 struct_lit_width = 70
 reorder_imports = false
 reorder_modules = false
