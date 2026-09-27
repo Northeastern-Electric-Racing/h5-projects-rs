@@ -18,8 +18,10 @@ use {defmt_rtt as _, panic_probe as _};
 mod efuses;
 mod adc;
 
+use efuses::{EfusePins, efuse_task};
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> ! {
     info!("Initializing project...");
 
     // Clock
@@ -71,6 +73,32 @@ async fn main(_spawner: Spawner) -> ! {
     // initials Debug LEDs
     let mut red_led = Output::new(p.PE3, Level::Low, Speed::Low);
     let mut green_led = Output::new(p.PE4, Level::Low, Speed::Low);
+
+    // eFuses
+    spawner.spawn(efuse_task(EfusePins {
+        dashboard_en: p.PD0,
+        dashboard_er: p.PD1,
+        brake_en: p.PD8,
+        brake_er: p.PD9,
+        shutdown_en: p.PG6,
+        shutdown_er: p.PG7,
+        lv_en: p.PD6,
+        lv_er: p.PD7,
+        radfan_en: p.PG4,
+        radfan_er: p.PG5,
+        fanbatt_en: p.PD10,
+        fanbatt_er: p.PD11,
+        pump1_en: p.PD12,
+        pump1_er: p.PD13,
+        pump2_en: p.PD14,
+        pump2_er: p.PD15,
+        battbox_en: p.PF2,
+        battbox_er: p.PF3,
+        mc_en: p.PF4,
+        mc_er: p.PF5,
+        spare_en: p.PG10,
+        spare_er: p.PG11,
+    }).expect("Failed to spawn efuses::efuse_task()."));
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1000000);
