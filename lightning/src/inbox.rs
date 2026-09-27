@@ -53,7 +53,10 @@ pub mod inbox {
                     Ok(frame) => match frame.id() {
                         &IMD_CAN_ID_PROCESSED => {
                             // Only the 4th and 5th bits mean there is an error on the IMD
-                            match (u16::from_le_bytes([frame.data()[4], frame.data()[5]]) & 0x07FF)
+                            match (u16::from_le_bytes([
+                                *frame.data().get(4).unwrap_or(&1),
+                                *frame.data().get(4).unwrap_or(&1),
+                            ]) & 0x07FF)
                             {
                                 0 => Some(FaultframeState::IMDOk),
                                 _ => {
@@ -80,7 +83,7 @@ pub mod inbox {
                         None
                     }
                 };
-            debug!("latest: {}", latest);
+            // debug!("latest: {}", latest);
             if latest.is_some()
                 && (embassy_time::Instant::now() - boot_time) > GRACE_PERIOD_DURATION
             {
