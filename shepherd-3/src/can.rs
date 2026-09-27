@@ -133,11 +133,18 @@ mod interrupts {
             let regs = embassy_stm32::pac::FDCAN2;
             // if we don't clear all interrupts we enable it is over
             let ir = regs.ir().read();
-            if ir.tcf() { regs.ir().write(|w| w.set_tcf(true)); }
-            if ir.tsw() { regs.ir().write(|w| w.set_tsw(true)); }
-            if ir.pea() { regs.ir().write(|w| w.set_pea(true)); }
-            if ir.ped() { regs.ir().write(|w| w.set_ped(true)); }
-
+            if ir.tcf() {
+                regs.ir().write(|w| w.set_tcf(true));
+            }
+            if ir.tsw() {
+                regs.ir().write(|w| w.set_tsw(true));
+            }
+            if ir.pea() {
+                regs.ir().write(|w| w.set_pea(true));
+            }
+            if ir.ped() {
+                regs.ir().write(|w| w.set_ped(true));
+            }
 
             IT0_IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
         }
@@ -221,7 +228,6 @@ mod handler {
                 w.set_pede(true);
             });
 
-
             split
         }
 
@@ -298,19 +304,21 @@ mod handler {
                         Err(_) => {
                             dropped_due_to_outgoing_full_count += 1;
                             warn!("Had to drop an outgoing CAN frame because OUTGOING was full! Not good.");
-                        }
+                        },
                     }
-                }
-                
+                },
+
                 // Case: frame was sent successfully
-                Either::First(None) => { send_count += 1; },
+                Either::First(None) => {
+                    send_count += 1;
+                },
 
                 // Case: The Timer::after await returned before tx.write(), so CAN TX has stalled and we drop the frame.
                 // the "stall" shouldn't be a permanant thing, we just need to make sure this task can't sleep forever.
                 Either::Second(_) => {
                     dropped_due_to_stalled_tx_count += 1;
                     warn!("Had to drop an outgoing CAN frame because CAN TX stalled! Probably not good.");
-                }
+                },
             }
 
             defmt_monitor::monitor!("CanDebug/send_count", desc = "Send count", "{}", send_count);
