@@ -15,9 +15,9 @@ use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-mod efuses;
 mod adc;
 mod can;
+mod efuses;
 
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
@@ -36,7 +36,7 @@ async fn main(spawner: Spawner) -> ! {
         config.rcc.hsi48 = Some(Default::default());
         config.rcc.hse = Some(Hse {
             freq: Hertz::mhz(25),
-                              mode: HseMode::Oscillator,
+            mode: HseMode::Oscillator,
         });
         config.rcc.pll1 = Some(Pll {
             source: PllSource::Hse,
@@ -72,7 +72,7 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     let p = embassy_stm32::init(config);
-    
+
     // initials Debug LEDs
     let mut red_led = Output::new(p.PE3, Level::Low, Speed::Low);
     let mut green_led = Output::new(p.PE4, Level::Low, Speed::Low);
@@ -84,38 +84,46 @@ async fn main(spawner: Spawner) -> ! {
         tx: p.PB6,
     });
     spawner.spawn(
-        can_tx(can_tx_half, can::OUTGOING.dyn_receiver(), can::OUTGOING.dyn_sender())
-            .expect("Failed to spawn ner_can::can_tx()."),
+        can_tx(
+            can_tx_half,
+            can::OUTGOING.dyn_receiver(),
+            can::OUTGOING.dyn_sender(),
+        )
+        .expect("Failed to spawn ner_can::can_tx()."),
     );
     spawner.spawn(
-        can_rx(can_rx_half, can::INCOMING.dyn_sender()).expect("Failed to spawn ner_can::can_rx()."),
+        can_rx(can_rx_half, can::INCOMING.dyn_sender())
+            .expect("Failed to spawn ner_can::can_rx()."),
     );
 
     // eFuses
-    spawner.spawn(efuse_task(EfusePins {
-        dashboard_en: p.PD0,
-        dashboard_er: p.PD1,
-        brake_en: p.PD8,
-        brake_er: p.PD9,
-        shutdown_en: p.PG6,
-        shutdown_er: p.PG7,
-        lv_en: p.PD6,
-        lv_er: p.PD7,
-        radfan_en: p.PG4,
-        radfan_er: p.PG5,
-        fanbatt_en: p.PD10,
-        fanbatt_er: p.PD11,
-        pump1_en: p.PD12,
-        pump1_er: p.PD13,
-        pump2_en: p.PD14,
-        pump2_er: p.PD15,
-        battbox_en: p.PF2,
-        battbox_er: p.PF3,
-        mc_en: p.PF4,
-        mc_er: p.PF5,
-        spare_en: p.PG10,
-        spare_er: p.PG11,
-    }).expect("Failed to spawn efuses::efuse_task()."));
+    spawner.spawn(
+        efuse_task(EfusePins {
+            dashboard_en: p.PD0,
+            dashboard_er: p.PD1,
+            brake_en: p.PD8,
+            brake_er: p.PD9,
+            shutdown_en: p.PG6,
+            shutdown_er: p.PG7,
+            lv_en: p.PD6,
+            lv_er: p.PD7,
+            radfan_en: p.PG4,
+            radfan_er: p.PG5,
+            fanbatt_en: p.PD10,
+            fanbatt_er: p.PD11,
+            pump1_en: p.PD12,
+            pump1_er: p.PD13,
+            pump2_en: p.PD14,
+            pump2_er: p.PD15,
+            battbox_en: p.PF2,
+            battbox_er: p.PF3,
+            mc_en: p.PF4,
+            mc_er: p.PF5,
+            spare_en: p.PG10,
+            spare_er: p.PG11,
+        })
+        .expect("Failed to spawn efuses::efuse_task()."),
+    );
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1000000);

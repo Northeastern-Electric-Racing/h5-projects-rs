@@ -12,7 +12,7 @@ const MAX_TWELVE_BIT_RESOUTION: u16 = 4095;
 pub enum EfuseControlState {
     EfuseOn,
     EfuseOff,
-    EfuseAuto
+    EfuseAuto,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, VariantCount)]
@@ -35,7 +35,7 @@ enum PredicateOperation {
     LESS,
     GREQ,
     LEQ,
-    EQ
+    EQ,
 }
 
 pub struct AutoPredicate {
@@ -51,7 +51,7 @@ pub struct Efuse {
     scale: f32,
     control_state: EfuseControlState,
     auto_on_predicate: Option<AutoPredicate>,
-    auto_off_predicate: Option<AutoPredicate>
+    auto_off_predicate: Option<AutoPredicate>,
 }
 
 const GAIN_IMON: f32 = 27.9e-6;
@@ -86,13 +86,28 @@ pub struct EfusePins {
     pub spare_er: Peri<'static, peripherals::PG11>,
 }
 
-
 const ER_PULL: Pull = Pull::Up;
 const EN_SPEED: Speed = Speed::Low;
 
 impl Efuse {
-    pub fn new(efuse_id: EfuseId, en_pin: Output<'static>, er_pin: Input<'static>, scale_factor: f32,  default_state: EfuseControlState, auto_on_predicate: Option<AutoPredicate>, auto_off_predicate: Option<AutoPredicate>) -> Self {
-        Efuse { efuse_id: efuse_id, en_pin: en_pin, er_pin: er_pin, scale: scale(scale_factor), control_state: default_state, auto_on_predicate, auto_off_predicate }
+    pub fn new(
+        efuse_id: EfuseId,
+        en_pin: Output<'static>,
+        er_pin: Input<'static>,
+        scale_factor: f32,
+        default_state: EfuseControlState,
+        auto_on_predicate: Option<AutoPredicate>,
+        auto_off_predicate: Option<AutoPredicate>,
+    ) -> Self {
+        Efuse {
+            efuse_id: efuse_id,
+            en_pin: en_pin,
+            er_pin: er_pin,
+            scale: scale(scale_factor),
+            control_state: default_state,
+            auto_on_predicate,
+            auto_off_predicate,
+        }
     }
 
     pub fn init_all(pins: EfusePins) -> [Efuse; EfuseId::VARIANT_COUNT] {
@@ -104,7 +119,7 @@ impl Efuse {
                 39.0,
                 EfuseControlState::EfuseOn,
                 None,
-                None
+                None,
             ),
             Efuse::new(
                 EfuseId::EfuseBrake,
@@ -112,8 +127,16 @@ impl Efuse {
                 Input::new(pins.brake_er, ER_PULL),
                 200.0,
                 EfuseControlState::EfuseAuto,
-                Some(AutoPredicate { value1: 0.0, value2: 0.0, operation: PredicateOperation::EQ }),
-                Some(AutoPredicate { value1: 0.0, value2: 0.0, operation: PredicateOperation::EQ })
+                Some(AutoPredicate {
+                    value1: 0.0,
+                    value2: 0.0,
+                    operation: PredicateOperation::EQ,
+                }),
+                Some(AutoPredicate {
+                    value1: 0.0,
+                    value2: 0.0,
+                    operation: PredicateOperation::EQ,
+                }),
             ),
             Efuse::new(
                 EfuseId::EfuseShutdown,
@@ -122,7 +145,7 @@ impl Efuse {
                 110.0,
                 EfuseControlState::EfuseOn,
                 None,
-                None
+                None,
             ),
             Efuse::new(
                 EfuseId::EfuseLV,
@@ -131,7 +154,7 @@ impl Efuse {
                 39.0,
                 EfuseControlState::EfuseOn,
                 None,
-                None
+                None,
             ),
             Efuse::new(
                 EfuseId::EfuseRadfan,
@@ -140,7 +163,7 @@ impl Efuse {
                 56.0,
                 EfuseControlState::EfuseAuto,
                 None,
-                None
+                None,
             ),
             Efuse::new(
                 EfuseId::EfuseFanbatt,
@@ -149,7 +172,7 @@ impl Efuse {
                 27.0,
                 EfuseControlState::EfuseAuto,
                 None,
-                None
+                None,
             ),
             Efuse::new(
                 EfuseId::EfusePump1,
@@ -158,7 +181,7 @@ impl Efuse {
                 47.0,
                 EfuseControlState::EfuseAuto,
                 None,
-                None
+                None,
             ),
             Efuse::new(
                 EfuseId::EfusePump2,
@@ -167,7 +190,7 @@ impl Efuse {
                 47.0,
                 EfuseControlState::EfuseAuto,
                 None,
-                None
+                None,
             ),
             Efuse::new(
                 EfuseId::EfuseBattbox,
@@ -176,7 +199,7 @@ impl Efuse {
                 56.0,
                 EfuseControlState::EfuseOn,
                 None,
-                None
+                None,
             ),
             Efuse::new(
                 EfuseId::EfuseMC,
@@ -185,7 +208,7 @@ impl Efuse {
                 56.0,
                 EfuseControlState::EfuseOn,
                 None,
-                None
+                None,
             ),
             // Spare has no IMON sense resistor and no ADC channel, so its scale
             // is never used: `AdcMux::get_efuse_data` returns None for it.
@@ -195,8 +218,16 @@ impl Efuse {
                 Input::new(pins.spare_er, ER_PULL),
                 0.0,
                 EfuseControlState::EfuseAuto,
-                Some(AutoPredicate { value1: 0.0, value2: 0.0, operation: PredicateOperation::EQ }),
-                Some(AutoPredicate { value1: 0.0, value2: 0.0, operation: PredicateOperation::EQ })
+                Some(AutoPredicate {
+                    value1: 0.0,
+                    value2: 0.0,
+                    operation: PredicateOperation::EQ,
+                }),
+                Some(AutoPredicate {
+                    value1: 0.0,
+                    value2: 0.0,
+                    operation: PredicateOperation::EQ,
+                }),
             ),
         ]
     }
@@ -205,7 +236,7 @@ impl Efuse {
         self.efuse_id
     }
 
-    pub fn enable(&mut self)  {
+    pub fn enable(&mut self) {
         self.en_pin.set_high();
     }
 
@@ -247,75 +278,63 @@ pub async fn efuse_task(pins: EfusePins) {
     let mut _efuses: [Efuse; _] = Efuse::init_all(pins);
 
     loop {
-
         for efuse in &mut _efuses {
             match efuse.get_control_state() {
                 EfuseControlState::EfuseOff => {
                     efuse.disable();
-                },
+                }
                 EfuseControlState::EfuseOn => {
                     efuse.enable();
-                },
-                EfuseControlState::EfuseAuto => { 
-                    
+                }
+                EfuseControlState::EfuseAuto => {
                     let turn_on = match &efuse.auto_on_predicate {
-                        Some(auto_mode_predicate) => {
-                            match auto_mode_predicate.operation {
-                                PredicateOperation::LESS => {
-                                    auto_mode_predicate.value1 < auto_mode_predicate.value2
-                                }
-                                PredicateOperation::GREATER => {
-                                    auto_mode_predicate.value1 > auto_mode_predicate.value2
-                                }
-                                PredicateOperation::GREQ => {
-                                    auto_mode_predicate.value1 >= auto_mode_predicate.value2
-                                }
-                                PredicateOperation::LEQ => {
-                                    auto_mode_predicate.value1 <= auto_mode_predicate.value2
-
-                                }
-                                PredicateOperation::EQ => {
-                                    auto_mode_predicate.value1 == auto_mode_predicate.value2
-                                }
+                        Some(auto_mode_predicate) => match auto_mode_predicate.operation {
+                            PredicateOperation::LESS => {
+                                auto_mode_predicate.value1 < auto_mode_predicate.value2
                             }
-                        }
-                        None => {
-                            true
-                        }
+                            PredicateOperation::GREATER => {
+                                auto_mode_predicate.value1 > auto_mode_predicate.value2
+                            }
+                            PredicateOperation::GREQ => {
+                                auto_mode_predicate.value1 >= auto_mode_predicate.value2
+                            }
+                            PredicateOperation::LEQ => {
+                                auto_mode_predicate.value1 <= auto_mode_predicate.value2
+                            }
+                            PredicateOperation::EQ => {
+                                auto_mode_predicate.value1 == auto_mode_predicate.value2
+                            }
+                        },
+                        None => true,
                     };
 
                     let turn_off = match &efuse.auto_off_predicate {
-                        Some(auto_mode_predicate) => {
-                            match auto_mode_predicate.operation {
-                                PredicateOperation::LESS => {
-                                    auto_mode_predicate.value1 < auto_mode_predicate.value2
-                                }
-                                PredicateOperation::GREATER => {
-                                    auto_mode_predicate.value1 > auto_mode_predicate.value2
-                                }
-                                PredicateOperation::GREQ => {
-                                    auto_mode_predicate.value1 >= auto_mode_predicate.value2
-                                }
-                                PredicateOperation::LEQ => {
-                                    auto_mode_predicate.value1 <= auto_mode_predicate.value2
-
-                                }
-                                PredicateOperation::EQ => {
-                                    auto_mode_predicate.value1 == auto_mode_predicate.value2
-                                }
+                        Some(auto_mode_predicate) => match auto_mode_predicate.operation {
+                            PredicateOperation::LESS => {
+                                auto_mode_predicate.value1 < auto_mode_predicate.value2
                             }
-                        }
-                        None => {
-                            true
-                        }
+                            PredicateOperation::GREATER => {
+                                auto_mode_predicate.value1 > auto_mode_predicate.value2
+                            }
+                            PredicateOperation::GREQ => {
+                                auto_mode_predicate.value1 >= auto_mode_predicate.value2
+                            }
+                            PredicateOperation::LEQ => {
+                                auto_mode_predicate.value1 <= auto_mode_predicate.value2
+                            }
+                            PredicateOperation::EQ => {
+                                auto_mode_predicate.value1 == auto_mode_predicate.value2
+                            }
+                        },
+                        None => true,
                     };
-                    
+
                     if turn_on {
                         efuse.enable();
                     } else if turn_off {
                         efuse.disable();
                     }
-                },
+                }
             }
         }
 

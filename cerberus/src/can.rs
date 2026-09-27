@@ -4,7 +4,9 @@
 //! `Core/Src/stm32h5xx_hal_msp.c:603-613`, which configures `GPIO_PIN_5|GPIO_PIN_6`
 //! on GPIOB with `GPIO_AF9_FDCAN2`.
 
-use embassy_stm32::can::{CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler};
+use embassy_stm32::can::{
+    CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,
+};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
