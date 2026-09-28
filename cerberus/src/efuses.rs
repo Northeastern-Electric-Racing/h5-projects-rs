@@ -1,21 +1,27 @@
+use cangen::ToCanFrame;
 use defmt::info;
+use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
 use embassy_time::Timer;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
+use crate::can;
 
 const V_REF: f32 = 3.3;
 const MAX_TWELVE_BIT_RESOUTION: u16 = 4095;
 
+/// Discriminants match the `control_state` encoding in the CAN spec.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum EfuseControlState {
-    EfuseOn,
-    EfuseOff,
-    EfuseAuto,
+    EfuseOn = 0, // Hard set on
+    EfuseAuto = 1, // Hard set off
+    EfuseOff = 2, // Turns on and off under a specific predicate condition
 }
 
+/// ENUM for all Efuses on the car
 #[derive(Clone, Copy, PartialEq, Eq, VariantCount)]
 pub enum EfuseId {
     EfuseDashboard,
@@ -31,6 +37,7 @@ pub enum EfuseId {
     EfuseSpare,
 }
 
+/// Operations to perform on a predicate
 enum PredicateOperation {
     GREATER,
     LESS,
@@ -39,12 +46,14 @@ enum PredicateOperation {
     EQ,
 }
 
+/// Predicate to use to determine state of an AUTO Efuse
 pub struct AutoPredicate {
     value1: f32,
     value2: f32,
     operation: PredicateOperation,
 }
 
+/// Data corresponding to an Efuse
 pub struct Efuse {
     efuse_id: EfuseId,
     en_pin: Output<'static>,
@@ -53,6 +62,58 @@ pub struct Efuse {
     control_state: EfuseControlState,
     auto_on_predicate: Option<AutoPredicate>,
     auto_off_predicate: Option<AutoPredicate>,
+    to_frame: fn(&EfuseTelemetry) -> Frame,
+}
+
+/// One snapshot of everything an efuse CAN message carries.
+pub struct EfuseTelemetry {
+    pub adc: u16,
+    pub voltage: f32,
+    pub current: f32,
+    pub faulted: bool,
+    pub enabled: bool,
+    pub control_state: EfuseControlState,
+}
+
+/// Common shape of every `<Name>Efuse` cangen message.
+trait EfuseMsg: ToCanFrame {
+    fn build(t: &EfuseTelemetry) -> Self;
+}
+
+// macro for a single function to build an EFUSE CAN Frame
+macro_rules! impl_efuse_msg {
+    ($($ty:ident),* $(,)?) => {$(
+        impl EfuseMsg for cangen::$ty {
+            fn build(t: &EfuseTelemetry) -> Self {
+                cangen::$ty::new()
+                    .with_ADC(t.adc)
+                    .with_voltage(t.voltage)
+                    .with_current(t.current)
+                    .with_is_faulted(t.faulted as u8)
+                    .with_is_enabled(t.enabled as u8)
+                    .with_control_state(t.control_state as u8)
+            }
+        }
+    )*};
+}
+
+impl_efuse_msg!(
+    DashboardEfuse,
+    BrakeEfuse,
+    ShutdownEfuse,
+    LvEfuse,
+    RadfanEfuse,
+    FanbattEfuse,
+    PumponeEfuse,
+    PumptwoEfuse,
+    BattboxEfuse,
+    McEfuse,
+    SpareEfuse,
+);
+
+/// Builder pattern for convertering EfuseMsg into a frame
+fn frame_for<M: EfuseMsg>(t: &EfuseTelemetry) -> Frame {
+    M::build(t).to_can_frame()
 }
 
 const GAIN_IMON: f32 = 27.9e-6;
@@ -99,6 +160,7 @@ impl Efuse {
         default_state: EfuseControlState,
         auto_on_predicate: Option<AutoPredicate>,
         auto_off_predicate: Option<AutoPredicate>,
+        to_frame: fn(&EfuseTelemetry) -> Frame,
     ) -> Self {
         Efuse {
             efuse_id: efuse_id,
@@ -108,6 +170,7 @@ impl Efuse {
             control_state: default_state,
             auto_on_predicate,
             auto_off_predicate,
+            to_frame,
         }
     }
 
@@ -121,6 +184,7 @@ impl Efuse {
                 EfuseControlState::EfuseOn,
                 None,
                 None,
+                frame_for::<cangen::DashboardEfuse>,
             ),
             Efuse::new(
                 EfuseId::EfuseBrake,
@@ -138,6 +202,7 @@ impl Efuse {
                     value2: 0.0,
                     operation: PredicateOperation::EQ,
                 }),
+                frame_for::<cangen::BrakeEfuse>,
             ),
             Efuse::new(
                 EfuseId::EfuseShutdown,
@@ -147,6 +212,7 @@ impl Efuse {
                 EfuseControlState::EfuseOn,
                 None,
                 None,
+                frame_for::<cangen::ShutdownEfuse>,
             ),
             Efuse::new(
                 EfuseId::EfuseLV,
@@ -156,6 +222,7 @@ impl Efuse {
                 EfuseControlState::EfuseOn,
                 None,
                 None,
+                frame_for::<cangen::LvEfuse>,
             ),
             Efuse::new(
                 EfuseId::EfuseRadfan,
@@ -165,6 +232,7 @@ impl Efuse {
                 EfuseControlState::EfuseAuto,
                 None,
                 None,
+                frame_for::<cangen::RadfanEfuse>,
             ),
             Efuse::new(
                 EfuseId::EfuseFanbatt,
@@ -174,6 +242,7 @@ impl Efuse {
                 EfuseControlState::EfuseAuto,
                 None,
                 None,
+                frame_for::<cangen::FanbattEfuse>,
             ),
             Efuse::new(
                 EfuseId::EfusePump1,
@@ -183,6 +252,7 @@ impl Efuse {
                 EfuseControlState::EfuseAuto,
                 None,
                 None,
+                frame_for::<cangen::PumponeEfuse>,
             ),
             Efuse::new(
                 EfuseId::EfusePump2,
@@ -192,6 +262,7 @@ impl Efuse {
                 EfuseControlState::EfuseAuto,
                 None,
                 None,
+                frame_for::<cangen::PumptwoEfuse>,
             ),
             Efuse::new(
                 EfuseId::EfuseBattbox,
@@ -201,6 +272,7 @@ impl Efuse {
                 EfuseControlState::EfuseOn,
                 None,
                 None,
+                frame_for::<cangen::BattboxEfuse>,
             ),
             Efuse::new(
                 EfuseId::EfuseMC,
@@ -210,6 +282,7 @@ impl Efuse {
                 EfuseControlState::EfuseOn,
                 None,
                 None,
+                frame_for::<cangen::McEfuse>,
             ),
             // Spare has no IMON sense resistor and no ADC channel, so its scale
             // is never used: `AdcMux::get_efuse_data` returns None for it.
@@ -229,6 +302,7 @@ impl Efuse {
                     value2: 0.0,
                     operation: PredicateOperation::EQ,
                 }),
+                frame_for::<cangen::SpareEfuse>,
             ),
         ]
     }
@@ -255,7 +329,7 @@ impl Efuse {
 
     pub fn get_data(&self, adc_data: &AdcMuxData) -> Option<(f32, f32)> {
         if let Some(data) = adc_data.get_efuse_data(self.efuse_id) {
-            let voltage = (data / MAX_TWELVE_BIT_RESOUTION) as f32 * V_REF;
+            let voltage = data as f32 / MAX_TWELVE_BIT_RESOUTION as f32 * V_REF;
             let current = voltage * self.scale;
             Some((voltage, current))
         } else {
@@ -269,6 +343,22 @@ impl Efuse {
 
     pub fn is_faulted(&self) -> bool {
         self.er_pin.is_low()
+    }
+
+    pub fn telemetry(&self, adc_data: &AdcMuxData) -> EfuseTelemetry {
+        let (voltage, current) = self.get_data(adc_data).unwrap_or((0.0, 0.0));
+        EfuseTelemetry {
+            adc: adc_data.get_efuse_data(self.efuse_id).unwrap_or(0),
+            voltage,
+            current,
+            faulted: self.is_faulted(),
+            enabled: self.is_enabled(),
+            control_state: self.control_state,
+        }
+    }
+
+    pub fn to_frame(&self, adc_data: &AdcMuxData) -> Frame {
+        (self.to_frame)(&self.telemetry(adc_data))
     }
 }
 
@@ -339,11 +429,13 @@ pub async fn efuse_task(pins: EfusePins) {
             }
         }
 
-        let adc = adc::data().await; // lock, copy, unlock
+        let adc = adc::data().await;
+
+        // send oout CAN messages for each EFUSE
         for efuse in &_efuses {
-            if let Some((voltage, current)) = efuse.get_data(&adc) {
-                info!("Voltage: {}, Current: {}", voltage, current);
-            }
+            can::OUTGOING.send(efuse.to_frame(&adc)).await;
         }
+
+        Timer::after_millis(EFUSE_PERIOD_MS).await
     }
 }
