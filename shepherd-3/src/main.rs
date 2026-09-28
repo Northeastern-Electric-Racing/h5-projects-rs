@@ -100,7 +100,7 @@ async fn main(spawner: Spawner) {
 #[embassy_executor::task]
 pub async fn default_task(r: DefaultResources) -> ! {
     /// Period between heartbeats. should be a good amount under `WATCHDOG_TIMEOUT_US`.
-    const HEARTBEAT_PERIOD_MS: u64 = 100;
+    const HEARTBEAT_PERIOD_MS: u64 = 500;
     /// Watchdog timeout in micros. if we stop petting for this long, the chip resets.
     const WATCHDOG_TIMEOUT_US: u32 = 1_000_000;
 
