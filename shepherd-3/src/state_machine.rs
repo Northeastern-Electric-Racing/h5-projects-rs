@@ -86,7 +86,6 @@ mod sm {
         pub charger_connected: bool,
         pub max_cell_voltage: Voltage,
         pub max_ocv: Voltage,
-        pub ocv_measured_at: Instant,
     }
 
     /// What the state machine owns and mutates.
@@ -171,7 +170,7 @@ mod sm {
         pub fn tick_charging(inputs: &Inputs, ctx: &mut Ctx) -> BmsState {
             let now = inputs.now;
 
-            ctx.charger.tick(inputs.max_cell_voltage, inputs.max_ocv, inputs.ocv_measured_at, now);
+            ctx.charger.tick(inputs.max_cell_voltage, inputs.max_ocv, now);
 
             if ctx.charger.stage().charging_allowed() {
                 if ctx.charger_message_deadline.is_none_or(|deadline| now >= deadline) {
@@ -209,7 +208,6 @@ mod charging {
     const LONG_CHARGE: Duration = Duration::from_secs(15 * 60);
     const SHORT_CHARGE: Duration = Duration::from_secs(20);
     const SETTLE: Duration = Duration::from_secs(60);
-    const OCV_WAIT_GRACE: Duration = Duration::from_secs(60);
 
     pub const CHARGING_CURRENT: f32 = 5.0;
     pub const CONTROL_CHARGE: u8 = 0x00;
@@ -240,11 +238,6 @@ mod charging {
             matches!(self, Self::LongChargeUp | Self::ShortChargeUp)
         }
 
-        /// Whether this stage is a rest period, during which the OCV is expected to refresh.
-        const fn is_settle(self) -> bool {
-            matches!(self, Self::LongSettle | Self::ShortSettle)
-        }
-
         /// How long the stage runs before it times out, or `None` if it has no timer.
         const fn duration(self) -> Option<Duration> {
             match self {
@@ -256,11 +249,11 @@ mod charging {
         }
 
         /// The whole stage graph
-        const fn next(self, loaded_full: bool, settled_full: bool, expired: bool, ocv_fresh: bool) -> Self {
+        const fn next(self, loaded_full: bool, settled_full: bool, expired: bool) -> Self {
             match self {
                 Self::LongChargeUp if loaded_full => Self::ShortSettle,
                 Self::LongChargeUp if expired => Self::LongSettle,
-                Self::LongSettle if expired && ocv_fresh => {
+                Self::LongSettle if expired => {
                     if settled_full {
                         Self::Done
                     } else {
@@ -268,7 +261,7 @@ mod charging {
                     }
                 },
                 Self::ShortChargeUp if loaded_full || expired => Self::ShortSettle,
-                Self::ShortSettle if expired && ocv_fresh => {
+                Self::ShortSettle if expired => {
                     if settled_full {
                         Self::Done
                     } else {
@@ -285,10 +278,6 @@ mod charging {
     pub struct Charger {
         stage: ChargeStage,
         deadline: Option<Instant>,
-        /// When the current stage began.
-        entered_at: Option<Instant>,
-        /// When this settle first found itself expired with a stale OCV.
-        stale_since: Option<Instant>,
     }
 
     impl Charger {
@@ -305,36 +294,15 @@ mod charging {
         }
 
         /// Advances one cycle.
-        pub fn tick(&mut self, max_cell_voltage: Voltage, max_ocv: Voltage, ocv_measured_at: Instant, now: Instant) {
+        pub fn tick(&mut self, max_cell_voltage: Voltage, max_ocv: Voltage, now: Instant) {
             if max_cell_voltage.get::<volt>() >= MAX_CHARGE_VOLT_FLT || max_ocv.get::<volt>() >= MAX_CHARGE_VOLT_FLT {
                 self.set_stage(ChargeStage::Fault, now);
                 return;
             }
 
             let expired = self.deadline.is_some_and(|deadline| now >= deadline);
-            let ocv_fresh = self.entered_at.is_some_and(|entered| ocv_measured_at >= entered);
 
-            if expired && !ocv_fresh && self.stage.is_settle() {
-                let since = match self.stale_since {
-                    Some(since) => since,
-                    None => {
-                        defmt::warn!("Charge: {} expired but its OCV predates the rest; holding.", self.stage);
-                        self.stale_since = Some(now);
-                        now
-                    },
-                };
-
-                if now >= since + OCV_WAIT_GRACE {
-                    defmt::error!("Charge: still no rested OCV after {=u64} s; abandoning the charge.", OCV_WAIT_GRACE.as_secs());
-                    self.set_stage(ChargeStage::Fault, now);
-                }
-
-                return;
-            }
-
-            self.stale_since = None;
-
-            let next = self.stage.next(max_cell_voltage.get::<volt>() >= MAX_CHARGE_VOLT, max_ocv.get::<volt>() >= MAX_CHARGE_VOLT, expired, ocv_fresh);
+            let next = self.stage.next(max_cell_voltage.get::<volt>() >= MAX_CHARGE_VOLT, max_ocv.get::<volt>() >= MAX_CHARGE_VOLT, expired);
 
             self.set_stage(next, now);
         }
@@ -351,9 +319,7 @@ mod charging {
 
         /// Starts the current stage's timer, if it has one.
         fn arm(&mut self, now: Instant) {
-            self.entered_at = Some(now);
             self.deadline = self.stage.duration().map(|d| now + d);
-            self.stale_since = None;
         }
     }
 }
@@ -442,7 +408,6 @@ mod task {
             // u_TODO: read from somewhere
             max_cell_voltage: Voltage::new::<volt>(0.0),
             max_ocv: Voltage::new::<volt>(0.0),
-            ocv_measured_at: Instant::MIN,
         }
     }
 
