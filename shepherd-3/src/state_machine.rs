@@ -6,48 +6,6 @@ mod sm {
     use super::api;
     use super::charging::Charger;
 
-    pub struct StateMachine {
-        current: BmsState,
-    }
-
-    impl StateMachine {
-        /// Starts the machine in `initial`. Does **not** run `initial`'s entry action.
-        pub const fn new(initial: BmsState) -> Self {
-            Self { current: initial }
-        }
-
-        /// Runs the initial state's entry action and publishes it.
-        pub fn start(&mut self, inputs: &Inputs, ctx: &mut Ctx) {
-            api::publish_state(self.current);
-            self.current.on_enter(inputs, ctx);
-        }
-
-        /// Runs this tick's handler, and transitions if it asked for one.
-        pub fn tick(&mut self, inputs: &Inputs, ctx: &mut Ctx) {
-            let next = self.current.on_tick(inputs, ctx);
-            self.transition_to(next, inputs, ctx);
-        }
-
-        /// The only path that changes `self.current`, whether the request came from a handler's
-        /// return value or from the task forcing one.
-        pub fn transition_to(&mut self, next: BmsState, inputs: &Inputs, ctx: &mut Ctx) {
-            if next == self.current {
-                return;
-            }
-
-            if !self.current.transition_allowed(next) {
-                defmt::error!("State machine: illegal transition {} -> {}, refused.", self.current, next);
-                return;
-            }
-
-            defmt::info!("State machine: {} -> {}", self.current, next);
-
-            self.current = next;
-            api::publish_state(next);
-            next.on_enter(inputs, ctx);
-        }
-    }
-
     /// The operating state of the pack.
     #[derive(Copy, Clone, PartialEq, Eq, FromRepr, defmt::Format)]
     #[repr(u8)]
@@ -92,101 +50,121 @@ mod sm {
     pub struct Ctx {
         /// The charge algorithm.
         pub charger: Charger,
-        /// Limits the charge frame to 1 Hz. `None` means not sent yet
-        pub charger_message_deadline: Option<Instant>,
     }
 
     impl BmsState {
         pub fn on_enter(self, inputs: &Inputs, ctx: &mut Ctx) {
             match self {
-                BmsState::Boot => handlers::enter_boot(inputs, ctx),
-                BmsState::Ready => handlers::enter_ready(inputs, ctx),
-                BmsState::Charging => handlers::enter_charging(inputs, ctx),
-                BmsState::Faulted => handlers::enter_faulted(inputs, ctx),
+                Self::Boot => handlers::enter_boot(inputs, ctx),
+                Self::Ready => handlers::enter_ready(inputs, ctx),
+                Self::Charging => handlers::enter_charging(inputs, ctx),
+                Self::Faulted => handlers::enter_faulted(inputs, ctx),
             }
         }
 
         pub fn on_tick(self, inputs: &Inputs, ctx: &mut Ctx) -> Self {
             match self {
-                BmsState::Boot => handlers::tick_boot(inputs, ctx),
-                BmsState::Ready => handlers::tick_ready(inputs, ctx),
-                BmsState::Charging => handlers::tick_charging(inputs, ctx),
-                BmsState::Faulted => handlers::tick_faulted(inputs, ctx),
+                Self::Boot => handlers::tick_boot(inputs, ctx),
+                Self::Ready => handlers::tick_ready(inputs, ctx),
+                Self::Charging => handlers::tick_charging(inputs, ctx),
+                Self::Faulted => handlers::tick_faulted(inputs, ctx),
             }
         }
     }
 
     // u_TODO: Complete all of these (actually fully port from C code)
-    /// Per-state entry actions and tick handlers.
+    /// Per-state entry actions and tick handlers
     mod handlers {
-        use embassy_time::Duration;
-
         use super::*;
         use crate::state_machine::api;
-        use crate::state_machine::charging::{CHARGE_TARGET_VOLTS, CHARGING_CURRENT, CONTROL_CHARGE, CONTROL_STOP};
 
-        /// How often the charge frame goes out while charging.
-        const CHARGE_FRAME_PERIOD: Duration = Duration::from_secs(1);
-
-        /// Drives the BMS side of the shutdown circuit
+        /// Helper to drive the BMS side of the shutdown circuit
         fn set_fault(_faulted: bool) {}
 
-        /// Queues a `BMS Charge Message Send` frame.
-        fn send_charge_frame(charge_volts: f32, charge_current: f32, enable_charging: u8) {
-            let frame = crate::can::types::BmsChargeMessageSend { charge_volts, charge_current, enable_charging }.as_frame();
+        // Boot
 
-            if crate::can::try_send(frame).is_err() {
-                defmt::warn!("Charge frame dropped: the outgoing CAN channel was full.");
-            }
-        }
-
-        pub fn enter_boot(_inputs: &Inputs, ctx: &mut Ctx) {
+        pub fn enter_boot(_inputs: &Inputs, _ctx: &mut Ctx) {
             api::set_charger_connected(false);
-            ctx.charger_message_deadline = None;
-        }
-
-        pub fn enter_ready(_inputs: &Inputs, _ctx: &mut Ctx) {
-            set_fault(false);
-        }
-
-        pub fn enter_charging(inputs: &Inputs, ctx: &mut Ctx) {
-            ctx.charger.restart(inputs.now);
-        }
-
-        pub fn enter_faulted(_inputs: &Inputs, _ctx: &mut Ctx) {
-            set_fault(true);
-            send_charge_frame(0.0, 0.0, CONTROL_STOP);
         }
 
         pub fn tick_boot(_inputs: &Inputs, _ctx: &mut Ctx) -> BmsState {
             BmsState::Ready
         }
 
+        // Ready
+
+        pub fn enter_ready(_inputs: &Inputs, _ctx: &mut Ctx) {
+            set_fault(false);
+        }
+
         pub fn tick_ready(inputs: &Inputs, _ctx: &mut Ctx) -> BmsState {
             if inputs.charger_connected { BmsState::Charging } else { BmsState::Ready }
         }
 
+        // Charging
+
+        pub fn enter_charging(inputs: &Inputs, ctx: &mut Ctx) {
+            ctx.charger.restart(inputs.now);
+        }
+
         pub fn tick_charging(inputs: &Inputs, ctx: &mut Ctx) -> BmsState {
-            let now = inputs.now;
-
-            ctx.charger.tick(inputs.max_cell_voltage, inputs.max_ocv, now);
-
-            if ctx.charger.stage().charging_allowed() {
-                if ctx.charger_message_deadline.is_none_or(|deadline| now >= deadline) {
-                    send_charge_frame(CHARGE_TARGET_VOLTS, CHARGING_CURRENT, CONTROL_CHARGE);
-                    ctx.charger_message_deadline = Some(now + CHARGE_FRAME_PERIOD);
-                }
-            } else {
-                send_charge_frame(0.0, 0.0, CONTROL_STOP);
-            }
+            ctx.charger.tick(inputs.max_cell_voltage, inputs.max_ocv, inputs.now);
 
             BmsState::Charging
+        }
+
+        // Faulted
+
+        pub fn enter_faulted(_inputs: &Inputs, _ctx: &mut Ctx) {
+            set_fault(true);
         }
 
         pub fn tick_faulted(inputs: &Inputs, _ctx: &mut Ctx) -> BmsState {
             set_fault(true);
 
             if inputs.critical_fault_active { BmsState::Faulted } else { BmsState::Boot }
+        }
+    }
+
+    pub struct StateMachine {
+        current: BmsState,
+    }
+
+    impl StateMachine {
+        /// Starts the machine in `initial`. Does **not** run `initial`'s entry action.
+        pub const fn new(initial: BmsState) -> Self {
+            Self { current: initial }
+        }
+
+        /// Runs the initial state's entry action and publishes it.
+        pub fn start(&mut self, inputs: &Inputs, ctx: &mut Ctx) {
+            api::publish_state(self.current);
+            self.current.on_enter(inputs, ctx);
+        }
+
+        /// Runs this tick's handler, and transitions if it asked for one.
+        pub fn tick(&mut self, inputs: &Inputs, ctx: &mut Ctx) {
+            let next = self.current.on_tick(inputs, ctx);
+            self.transition_to(next, inputs, ctx);
+        }
+
+        /// The only path that changes `self.current`, whether the request came from a handler's
+        /// return value or from the task forcing one.
+        pub fn transition_to(&mut self, next: BmsState, inputs: &Inputs, ctx: &mut Ctx) {
+            if next == self.current {
+                return;
+            }
+
+            if !self.current.transition_allowed(next) {
+                defmt::error!("State machine: illegal transition {} -> {}, refused.", self.current, next);
+                return;
+            }
+
+            defmt::info!("State machine: {} -> {}", self.current, next);
+
+            self.current = next;
+            api::publish_state(next);
+            next.on_enter(inputs, ctx);
         }
     }
 }
@@ -196,7 +174,6 @@ pub use sm::BmsState;
 mod charging {
     use embassy_time::{Duration, Instant};
 
-    use crate::segments::{ADBMS6830B_NUM_CELLS_PER_CHIP, ADBMS6830B_NUM_CHIPS};
     use crate::units::{Voltage, volt};
 
     /// Cell voltage that ends a charge phase.
@@ -207,12 +184,6 @@ mod charging {
     const LONG_CHARGE: Duration = Duration::from_secs(15 * 60);
     const SHORT_CHARGE: Duration = Duration::from_secs(20);
     const SETTLE: Duration = Duration::from_secs(60);
-
-    pub const CHARGING_CURRENT: f32 = 5.0;
-    pub const CONTROL_CHARGE: u8 = 0x00;
-    pub const CONTROL_STOP: u8 = 0xFF;
-
-    pub const CHARGE_TARGET_VOLTS: f32 = MAX_CHARGE_VOLT * (ADBMS6830B_NUM_CHIPS * ADBMS6830B_NUM_CELLS_PER_CHIP) as f32;
 
     #[derive(Copy, Clone, PartialEq, Eq, Default, defmt::Format)]
     pub enum ChargeStage {

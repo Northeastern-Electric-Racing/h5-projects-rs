@@ -92,23 +92,6 @@ pub mod types {
         }
     }
 
-    /// `BMS Charge Message Send`, CAN id 0x1806E5F4. What the BMS asks the charger box for.
-    pub struct BmsChargeMessageSend {
-        /// Pack voltage to charge up to, in volts.
-        pub charge_volts: f32,
-        /// Current to charge at, in amps.
-        pub charge_current: f32,
-        /// 0x00 to charge, 0xFF to stop. Anything else is undefined by the charger.
-        pub enable_charging: u8,
-    }
-    impl BmsChargeMessageSend {
-        pub fn as_frame(&self) -> Frame {
-            let frame = cangen::BmsChargeMessageSend::new().with_charge_volts(self.charge_volts).with_charge_current(self.charge_current).with_enable_charging(self.enable_charging);
-
-            frame.to_can_frame()
-        }
-    }
-
     pub struct BetaCellDataDebug {
         pub therm: f32,
         pub voltage_a: f32,
