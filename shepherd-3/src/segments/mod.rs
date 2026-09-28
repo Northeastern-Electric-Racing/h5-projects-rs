@@ -14,8 +14,9 @@ pub const fn cache() -> &'static CacheData {
 // Re-exports
 pub use core::task::{segments_task, signal::SEGMENTS_FRESH_DATA_SIGNAL};
 pub use chips::{
-    ChipId, IndexByChip, ChipKind, SegmentId,
+    ChipId, IndexByChip, ChipKind,
     cells::{CellId, IndexByCell},
     gpios::{GpioId, IndexByGpio},
+    segments::{SegmentId, IndexBySegment}
 };
 pub use cache::{CacheData, RegisterCacheData, Reading, fault_counts, redundant_aux, cell_voltages, average_cell_voltages, filtered_cell_voltages, s_voltages, status_c, status_d, aux, status_a, status_b, pwm};

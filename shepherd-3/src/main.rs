@@ -20,6 +20,7 @@ pub mod broadcast;
 pub mod job_diagnostics;
 pub mod debug;
 pub mod faults;
+pub mod pack;
 
 use assign_resources::assign_resources;
 assign_resources! {

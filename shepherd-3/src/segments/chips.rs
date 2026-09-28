@@ -208,18 +208,18 @@ impl ChipId {
     }
 
     /// Indicates what segment this chip is on.
-    pub const fn segment(&self) -> SegmentId {
+    pub const fn segment(&self) -> segments::SegmentId {
         match self {
-            ChipId::Chip0 => SegmentId::Segment0,
-            ChipId::Chip1 => SegmentId::Segment0,
-            ChipId::Chip2 => SegmentId::Segment1,
-            ChipId::Chip3 => SegmentId::Segment1,
-            ChipId::Chip4 => SegmentId::Segment2,
-            ChipId::Chip5 => SegmentId::Segment2,
-            ChipId::Chip6 => SegmentId::Segment3,
-            ChipId::Chip7 => SegmentId::Segment3,
-            ChipId::Chip8 => SegmentId::Segment4,
-            ChipId::Chip9 => SegmentId::Segment4,
+            ChipId::Chip0 => segments::SegmentId::Segment0,
+            ChipId::Chip1 => segments::SegmentId::Segment0,
+            ChipId::Chip2 => segments::SegmentId::Segment1,
+            ChipId::Chip3 => segments::SegmentId::Segment1,
+            ChipId::Chip4 => segments::SegmentId::Segment2,
+            ChipId::Chip5 => segments::SegmentId::Segment2,
+            ChipId::Chip6 => segments::SegmentId::Segment3,
+            ChipId::Chip7 => segments::SegmentId::Segment3,
+            ChipId::Chip8 => segments::SegmentId::Segment4,
+            ChipId::Chip9 => segments::SegmentId::Segment4,
         }
     }
 }
@@ -234,45 +234,133 @@ pub enum ChipKind {
     Beta,
 }
 
-/// ID for each segment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(usize)]
-#[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
-#[derive(defmt::Format)]
-pub enum SegmentId {
-    Segment0,
-    Segment1,
-    Segment2,
-    Segment3,
-    Segment4,
-}
-impl SegmentId {
-    /// Lets you iterate over each segment.
-    pub fn iter() -> <Self as IntoEnumIterator>::Iterator {
-        <Self as IntoEnumIterator>::iter()
-    }
+pub mod segments {
+    use super::*;
 
-    /// This `SegmentId` represented as a raw u8.
-    pub fn as_u8(&self) -> u8 {
-        *self as u8
-    }
-
-    /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
-    /// of two.
+    /// Number of segments we have. Each segment has two ADBMS6830B chips.
     ///
-    /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
-    pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)>
-    where
-        Self: Copy,
-    {
-        Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
+    /// (this is just an alais for the SegmentId count, but it kind of reads better like this)
+    pub const NUM_SEGMENTS: usize = const { SegmentId::COUNT };
+
+    /// ID for each segment.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(usize)]
+    #[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
+    #[derive(defmt::Format)]
+    pub enum SegmentId {
+        Segment0,
+        Segment1,
+        Segment2,
+        Segment3,
+        Segment4,
+    }
+    impl SegmentId {
+        /// Lets you iterate over each segment.
+        pub fn iter() -> <Self as IntoEnumIterator>::Iterator {
+            <Self as IntoEnumIterator>::iter()
+        }
+
+        /// This `SegmentId` represented as a raw u8.
+        pub fn as_u8(&self) -> u8 {
+            *self as u8
+        }
+
+        /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
+        /// of two.
+        ///
+        /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
+        pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)>
+        where
+            Self: Copy,
+        {
+            Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
+        }
+
+        /// Returns the variant directly after `&self`. If `&self` is the last variant, this returns `None`.
+        pub fn next(&self) -> Option<Self> {
+            let i: usize = *self as usize;
+            let next = i + 1;
+            Self::from_repr(next)
+        }
     }
 
-    /// Returns the variant directly after `&self`. If `&self` is the last variant, this returns `None`.
-    pub fn next(&self) -> Option<Self> {
-        let i: usize = *self as usize;
-        let next = i + 1;
-        Self::from_repr(next)
+    #[derive(Copy, Clone, Debug)]
+    pub struct IndexBySegment<T> {
+        data: [T; NUM_SEGMENTS],
+    }
+    pub type SegmentIds = core::iter::Copied<core::slice::Iter<'static, SegmentId>>;
+    pub type Iter<'borrow, T> = core::iter::Zip<SegmentIds, core::slice::Iter<'borrow, T>>;
+    pub type IterMut<'borrow, T> = core::iter::Zip<SegmentIds, core::slice::IterMut<'borrow, T>>;
+    pub type IntoIter<T> = core::iter::Zip<SegmentIds, core::array::IntoIter<T, { NUM_SEGMENTS }>>;
+
+    impl<T> IndexBySegment<T> {
+        /// Creates a new `IndexBySegment` directly from an array.
+        pub const fn new(data: [T; NUM_SEGMENTS]) -> Self {
+            Self { data }
+        }
+
+        /// Retrives the data for `segment`.
+        pub const fn get(&self, segment: SegmentId) -> &T {
+            let i: usize = segment as usize;
+            &self.data[i]
+        }
+
+        /// Retrives the data for `segment`.
+        ///
+        /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
+        pub const fn segment(&self, segment: SegmentId) -> &T {
+            self.get(segment)
+        }
+
+        /// Retrieves a mutable reference to the data for `segment`.
+        pub const fn get_mut(&mut self, segment: SegmentId) -> &mut T {
+            let i: usize = segment as usize;
+            &mut self.data[i]
+        }
+
+        pub fn from_fn(mut f: impl FnMut(SegmentId) -> T) -> Self {
+            Self { data: core::array::from_fn(|i| f(SegmentId::VARIANTS[i])) }
+        }
+
+        pub fn iter(&self) -> Iter<'_, T> {
+            SegmentId::VARIANTS.iter().copied().zip(self.data.iter())
+        }
+
+        pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+            SegmentId::VARIANTS.iter().copied().zip(self.data.iter_mut())
+        }
+
+        /// Converts this back into its inner array.
+        pub fn into_array(self) -> [T; NUM_SEGMENTS] {
+            self.data
+        }
+    }
+
+    impl<T> IntoIterator for IndexBySegment<T> {
+        type Item = (SegmentId, T);
+        type IntoIter = IntoIter<T>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            SegmentId::VARIANTS.iter().copied().zip(self.data)
+        }
+    }
+
+    impl<'borrow, T> IntoIterator for &'borrow IndexBySegment<T> {
+        type Item = (SegmentId, &'borrow T);
+        type IntoIter = Iter<'borrow, T>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.iter()
+        }
+    }
+
+    impl<'borrow, T> IntoIterator for &'borrow mut IndexBySegment<T> {
+        type Item = (SegmentId, &'borrow mut T);
+        type IntoIter = IterMut<'borrow, T>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.iter_mut()
+        }
     }
 }
 
