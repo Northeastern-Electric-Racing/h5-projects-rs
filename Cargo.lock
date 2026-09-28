@@ -242,11 +242,34 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2#5b2f5cb04e94e80a3f3eec0e2d3a5cb72d0c72c7"
+dependencies = [
+ "bitfield-struct",
+ "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2)",
+ "embedded-can",
+]
+
+[[package]]
+name = "cangen"
+version = "0.1.0"
 source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix#16ddc3fef2d232cca9134bfa64b995bc2b97e8dd"
 dependencies = [
  "bitfield-struct",
- "cangen-macro",
+ "cangen-macro 0.1.0 (git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix)",
  "embedded-can",
+]
+
+[[package]]
+name = "cangen-macro"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2#5b2f5cb04e94e80a3f3eec0e2d3a5cb72d0c72c7"
+dependencies = [
+ "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2)",
+ "heck",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -254,7 +277,7 @@ name = "cangen-macro"
 version = "0.1.0"
 source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix#16ddc3fef2d232cca9134bfa64b995bc2b97e8dd"
 dependencies = [
- "definition-rs",
+ "definition-rs 0.1.0 (git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix)",
  "heck",
  "proc-macro2",
  "quote",
@@ -277,6 +300,7 @@ name = "cerberus"
 version = "0.1.0"
 dependencies = [
  "can-handler",
+ "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2)",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",
@@ -429,6 +453,17 @@ dependencies = [
  "serde_json",
  "toml",
  "yaml-rust2",
+]
+
+[[package]]
+name = "definition-rs"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2#5b2f5cb04e94e80a3f3eec0e2d3a5cb72d0c72c7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "schemars",
+ "serde",
 ]
 
 [[package]]
@@ -1577,7 +1612,7 @@ dependencies = [
  "adbms2950",
  "adbms6830b",
  "assign-resources",
- "cangen",
+ "cangen 0.1.0 (git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix)",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",

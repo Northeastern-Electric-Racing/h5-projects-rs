@@ -5,7 +5,6 @@ use embassy_time::Timer;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
-use crate::efuses;
 
 const V_REF: f32 = 3.3;
 const MAX_TWELVE_BIT_RESOUTION: u16 = 4095;
