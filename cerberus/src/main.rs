@@ -1,9 +1,10 @@
 #![no_std]
 #![no_main]
 
+mod idle_trace;
+
 use core::num::NonZeroU8;
 use core::num::NonZeroU16;
-use core::str::FromStr;
 
 use cangen::SecondVcuTestMessage;
 use cangen::TemperatureSensor;
@@ -22,7 +23,6 @@ use embassy_stm32::Config;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::can;
 use embassy_stm32::dma;
-use embassy_stm32::eth::StationManagement;
 use embassy_stm32::gpio::Level;
 use embassy_stm32::gpio::Output;
 use embassy_stm32::gpio::Speed;
@@ -49,20 +49,6 @@ bind_interrupts!(struct IrqsI2c {
     GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
-
-fn setup_plca(sm: &mut impl StationManagement, reg: u16, val: u16) {
-    // enable vendor specific access and address write
-    sm.smi_write(0, 0x0D, 0x1F);
-
-    // write address
-    sm.smi_write(0, 0x0E, reg);
-
-    // write normal data, keep vendor specific location
-    sm.smi_write(0, 0x0D, 0x1F | 1 << 14);
-
-    // write payload
-    sm.smi_write(0, 0x0E, val);
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -194,6 +180,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     loop {
         debug!("Status: Alive");
+        info!("Sleep/WFE: {}%", idle_trace::sleep_percent());
         red_led.set_high();
         green_led.set_low();
         Timer::after_millis(500).await;

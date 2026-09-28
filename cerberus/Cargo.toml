@@ -9,7 +9,7 @@ cortex-m-rt.workspace = true
 defmt.workspace = true
 defmt-rtt.workspace = true
 embassy-embedded-hal.workspace = true
-embassy-executor.workspace = true
+embassy-executor = { workspace = true, features = ["trace"] }
 embassy-stm32 = { workspace = true }
 embassy-sync.workspace = true
 embassy-time.workspace = true
@@ -17,6 +17,7 @@ embassy-futures.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 static_cell.workspace = true
+portable-atomic = "1"
 
 embassy-net.workspace = true
 rust-mqtt.workspace = true
