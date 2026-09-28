@@ -80,6 +80,7 @@ mod sm {
 
     /// What the state machine reads, snapshotted once per tick by value.
     pub struct Inputs {
+        pub data_ready: bool,
         pub now: Instant,
         pub critical_fault_active: bool,
         pub charger_connected: bool,
@@ -159,8 +160,8 @@ mod sm {
             send_charge_frame(0.0, 0.0, CONTROL_STOP);
         }
 
-        pub fn tick_boot(_inputs: &Inputs, _ctx: &mut Ctx) -> BmsState {
-            BmsState::Ready
+        pub fn tick_boot(inputs: &Inputs, _ctx: &mut Ctx) -> BmsState {
+            if inputs.data_ready { BmsState::Ready } else { BmsState::Boot }
         }
 
         pub fn tick_ready(inputs: &Inputs, _ctx: &mut Ctx) -> BmsState {
@@ -429,11 +430,14 @@ mod task {
     /// Reads every published value the state machine depends on, once and saves it to an `Inputs`.
     fn snapshot() -> Inputs {
         Inputs {
+            // u_TODO: true once every producer below has published at least once
+            data_ready: false,
             now: Instant::now(),
-            charger_connected: api::charger_connected(),
 
             // u_TODO: crate::faults::are_critical_faults_active(), once faults.rs merges.
             critical_fault_active: false,
+
+            charger_connected: api::charger_connected(),
 
             // u_TODO: read from somewhere
             max_cell_voltage: Voltage::new::<volt>(0.0),
