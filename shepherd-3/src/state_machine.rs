@@ -441,16 +441,12 @@ mod task {
     }
 
     fn run_cycle(sm: &mut StateMachine, ctx: &mut Ctx, inputs: Inputs) {
-        // At most one queued request per cycle
-        if let Some(next) = api::take_transition_request() {
-            sm.transition_to(next, ctx);
-        }
+        let requested = api::take_transition_request();
+        let target = if inputs.critical_fault_active { Some(BmsState::Faulted) } else { requested };
 
-        // Guard clause to put sm into faulted if critical faults are active
-        if inputs.critical_fault_active {
-            sm.transition_to(BmsState::Faulted, ctx);
+        if let Some(target) = target {
+            sm.transition_to(target, ctx);
         }
-
         sm.tick(&inputs, ctx);
     }
 
