@@ -17,20 +17,20 @@ mod sm {
         }
 
         /// Runs the initial state's entry action and publishes it.
-        pub fn start(&mut self, ctx: &mut Ctx) {
+        pub fn start(&mut self, inputs: &Inputs, ctx: &mut Ctx) {
             api::publish_state(self.current);
-            self.current.on_enter(ctx);
+            self.current.on_enter(inputs, ctx);
         }
 
         /// Runs this tick's handler, and transitions if it asked for one.
         pub fn tick(&mut self, inputs: &Inputs, ctx: &mut Ctx) {
             let next = self.current.on_tick(inputs, ctx);
-            self.transition_to(next, ctx);
+            self.transition_to(next, inputs, ctx);
         }
 
         /// The only path that changes `self.current`, whether the request came from a handler's
         /// return value or from the task forcing one.
-        pub fn transition_to(&mut self, next: BmsState, ctx: &mut Ctx) {
+        pub fn transition_to(&mut self, next: BmsState, inputs: &Inputs, ctx: &mut Ctx) {
             if next == self.current {
                 return;
             }
@@ -44,7 +44,7 @@ mod sm {
 
             self.current = next;
             api::publish_state(next);
-            next.on_enter(ctx);
+            next.on_enter(inputs, ctx);
         }
     }
 
@@ -80,6 +80,7 @@ mod sm {
 
     /// What the state machine reads, snapshotted once per tick by value.
     pub struct Inputs {
+        pub now: Instant,
         pub critical_fault_active: bool,
         pub charger_connected: bool,
         pub max_cell_voltage: Voltage,
@@ -97,12 +98,12 @@ mod sm {
     }
 
     impl BmsState {
-        pub fn on_enter(self, ctx: &mut Ctx) {
+        pub fn on_enter(self, inputs: &Inputs, ctx: &mut Ctx) {
             match self {
-                BmsState::Boot => handlers::enter_boot(ctx),
-                BmsState::Ready => handlers::enter_ready(ctx),
-                BmsState::Charging => handlers::enter_charging(ctx),
-                BmsState::Faulted => handlers::enter_faulted(ctx),
+                BmsState::Boot => handlers::enter_boot(inputs, ctx),
+                BmsState::Ready => handlers::enter_ready(inputs, ctx),
+                BmsState::Charging => handlers::enter_charging(inputs, ctx),
+                BmsState::Faulted => handlers::enter_faulted(inputs, ctx),
             }
         }
 
@@ -119,13 +120,13 @@ mod sm {
     // u_TODO: Complete all of these (actually fully port from C code)
     /// Per-state entry actions and tick handlers.
     mod handlers {
-        use embassy_time::{Duration, Instant};
+        use embassy_time::Duration;
 
         use super::*;
         use crate::state_machine::api;
         use crate::state_machine::charging::{CHARGE_TARGET_VOLTS, CHARGING_CURRENT, CONTROL_CHARGE, CONTROL_STOP};
 
-        /// How often the charge frame goes out while charging. C uses 1 s (`state_machine.c:140`).
+        /// How often the charge frame goes out while charging.
         const CHARGE_FRAME_PERIOD: Duration = Duration::from_secs(1);
 
         /// Drives the BMS side of the shutdown circuit
@@ -140,20 +141,20 @@ mod sm {
             }
         }
 
-        pub fn enter_boot(ctx: &mut Ctx) {
+        pub fn enter_boot(_inputs: &Inputs, ctx: &mut Ctx) {
             api::set_charger_connected(false);
             ctx.charger_message_deadline = None;
         }
 
-        pub fn enter_ready(_ctx: &mut Ctx) {
+        pub fn enter_ready(_inputs: &Inputs, _ctx: &mut Ctx) {
             set_fault(false);
         }
 
-        pub fn enter_charging(ctx: &mut Ctx) {
-            ctx.charger.restart(Instant::now());
+        pub fn enter_charging(inputs: &Inputs, ctx: &mut Ctx) {
+            ctx.charger.restart(inputs.now);
         }
 
-        pub fn enter_faulted(_ctx: &mut Ctx) {
+        pub fn enter_faulted(_inputs: &Inputs, _ctx: &mut Ctx) {
             set_fault(true);
             send_charge_frame(0.0, 0.0, CONTROL_STOP);
         }
@@ -167,7 +168,7 @@ mod sm {
         }
 
         pub fn tick_charging(inputs: &Inputs, ctx: &mut Ctx) -> BmsState {
-            let now = Instant::now();
+            let now = inputs.now;
 
             ctx.charger.tick(inputs.max_cell_voltage, inputs.max_ocv, inputs.ocv_measured_at, now);
 
@@ -428,6 +429,7 @@ mod task {
     /// Reads every published value the state machine depends on, once and saves it to an `Inputs`.
     fn snapshot() -> Inputs {
         Inputs {
+            now: Instant::now(),
             charger_connected: api::charger_connected(),
 
             // u_TODO: crate::faults::are_critical_faults_active(), once faults.rs merges.
@@ -445,7 +447,7 @@ mod task {
         let target = if inputs.critical_fault_active { Some(BmsState::Faulted) } else { requested };
 
         if let Some(target) = target {
-            sm.transition_to(target, ctx);
+            sm.transition_to(target, &inputs, ctx);
         }
         sm.tick(&inputs, ctx);
     }
@@ -459,7 +461,7 @@ mod task {
         let mut sm = StateMachine::new(BmsState::Boot);
 
         let mut ctx = Ctx::default();
-        sm.start(&mut ctx);
+        sm.start(&snapshot(), &mut ctx);
 
         loop {
             // Cycle the statemachine
