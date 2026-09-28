@@ -1,13 +1,24 @@
-# This config provides two commands for flashing/running:
+# This config provides three commands for flashing/running:
 #
-# `cargo run`:      normal probe-rs run, with `defmt_monitor::monitor!()` calls disabled
-# `cargo monitor`   flashes with the defmt-monitor TUI, with `defmt_monitor::monitor!()` calls enabled
+# `cargo run`:           normal probe-rs run, with `defmt_monitor::monitor!()` calls disabled
+# `cargo monitor`:       flashes with the defmt-monitor TUI, with `defmt_monitor::monitor!()` calls enabled
+# `cargo monitorattach`: same as `cargo monitor`, but attaches to a board that is already running instead
+#                        of reflashing it
+#
+# `cargo monitorattach` still builds, because the TUI needs the ELF to decode defmt frames. Pass it the same
+# flags you flashed with (e.g. `--release`), otherwise the decoder gets a different ELF than the one actually
+# on the chip and the output will be nonsense.
 
 [alias]
 monitor = [
     "run",
     "--config", "env.DEFMT_MONITOR='on'",
     "--config", "target.thumbv8m.main-none-eabihf.runner='./.scripts/run.sh monitor'",
+]
+monitorattach = [
+    "run",
+    "--config", "env.DEFMT_MONITOR='on'",
+    "--config", "target.thumbv8m.main-none-eabihf.runner='./.scripts/run.sh monitor --attach'",
 ]
 embed2 = "embed --config-file=../Embed.toml"
 
