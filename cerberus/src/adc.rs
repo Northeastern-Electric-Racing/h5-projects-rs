@@ -23,7 +23,7 @@ const MUX_SETTLE_MS: u64 = 10;
 
 /// Sample time for every ADC1 channel except the LFIU mux input.
 const SAMPLE_TIME: SampleTime = SampleTime::Cycles475;
-/// Sample time for the LFIU mux input, which needs longer to charge.
+/// Sample time for the LFIU mux input, which needs longer to change.
 const SAMPLE_TIME_MUX2: SampleTime = SampleTime::Cycles2475;
 
 #[derive(PartialEq, Eq)]
@@ -191,13 +191,17 @@ pub struct Adc1Resources {
     pub dma: Peri<'static, peripherals::GPDMA1_CH0>,
 
     pub dash: Peri<'static, peripherals::PA6>, // INP3,  EF_DASH_ADC
+    /// High: BREALIGHT, Low: BATTBOX
     pub mux1: Peri<'static, peripherals::PA0>, // INP0,  Mux 1
+    /// High: LV, Low: SHUTDOWN
     pub mux3: Peri<'static, peripherals::PB1>, // INP5,  Mux 3
+    /// High: RADFAN, Low: LV_BAT
     pub mux4: Peri<'static, peripherals::PB0>, // INP9,  Mux 4
     pub fanbatt: Peri<'static, peripherals::PF12>, // INP6,  EF_FANBATT_ADC
     pub pump1: Peri<'static, peripherals::PF11>, // INP2,  EF_PUMP1_ADC
     pub pump2: Peri<'static, peripherals::PC3>, // INP13, EF_PUMP2_ADC
     pub mc: Peri<'static, peripherals::PA4>,   // INP18, EF_MC_ADC
+    /// High: LFIU_CURRENT_1, Low: LFIU_CURRENT_2
     pub mux2: Peri<'static, peripherals::PA3>, // INP15, Mux 2
 
     pub sel1: Peri<'static, peripherals::PC6>,
