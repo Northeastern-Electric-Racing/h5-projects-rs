@@ -152,8 +152,8 @@ async fn main(spawner: Spawner) -> ! {
     // RTDS
     // TODO: don't know the rtds pin yet, swap PXX for the real one from the schematic and uncomment.
     // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now
-    // let rtds_pin = Output::new(p.PXX, Level::Low, Speed::Low);
-    // spawner.spawn(rtds::rtds_task(rtds_pin, rtds::is_shutdown_closed_placeholder).expect("Failed to spawn rtds::rtds_task()."));
+    let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
+    spawner.spawn(rtds::rtds_task(rtds_pin, rtds::is_shutdown_closed_placeholder).expect("Failed to spawn rtds::rtds_task()."));
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1000000);
