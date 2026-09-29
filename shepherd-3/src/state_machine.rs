@@ -45,7 +45,7 @@ mod sm {
         pub max_ocv: Voltage,
     }
 
-    /// What the state machine owns and mutates.
+    /// The state a handler is allowed to mutate.
     #[derive(Default)]
     pub struct Ctx {
         /// The charge algorithm.
@@ -53,22 +53,81 @@ mod sm {
     }
 
     impl BmsState {
-        pub fn on_enter(self, inputs: &Inputs, ctx: &mut Ctx) {
+        /// Dispatch to each states enter handlers
+        pub fn on_init(&self, inputs: &Inputs, ctx: &mut Ctx) {
             match self {
-                Self::Boot => handlers::enter_boot(inputs, ctx),
-                Self::Ready => handlers::enter_ready(inputs, ctx),
-                Self::Charging => handlers::enter_charging(inputs, ctx),
-                Self::Faulted => handlers::enter_faulted(inputs, ctx),
+                Self::Boot => handlers::init_boot(inputs, ctx),
+                Self::Ready => handlers::init_ready(inputs, ctx),
+                Self::Charging => handlers::init_charging(inputs, ctx),
+                Self::Faulted => handlers::init_faulted(inputs, ctx),
             }
         }
 
-        pub fn on_tick(self, inputs: &Inputs, ctx: &mut Ctx) -> Self {
+        /// Dispatch to each states tick handlers
+        pub fn on_tick(&self, inputs: &Inputs, ctx: &mut Ctx) -> Self {
             match self {
                 Self::Boot => handlers::tick_boot(inputs, ctx),
                 Self::Ready => handlers::tick_ready(inputs, ctx),
                 Self::Charging => handlers::tick_charging(inputs, ctx),
                 Self::Faulted => handlers::tick_faulted(inputs, ctx),
             }
+        }
+    }
+
+    /// What a transition request did. Returned by every path that can move the machine.
+    #[must_use]
+    #[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
+    pub enum Transition {
+        NoChange,
+        Changed { from: BmsState, to: BmsState },
+        Refused { from: BmsState, to: BmsState },
+    }
+
+    pub struct BmsStateMachine {
+        ctx: Ctx,
+        current: BmsState,
+    }
+
+    impl BmsStateMachine {
+        /// Starts the machine in `initial`. Does **not** run `initial`'s entry action.
+        pub fn new(initial: BmsState) -> Self {
+            Self { ctx: Ctx::default(), current: initial }
+        }
+
+        /// Store the state and run the `on_init` fn for the initial state
+        pub fn start(&mut self, inputs: Inputs) {
+            api::store_state(self.current);
+            self.current.on_init(&inputs, &mut self.ctx);
+        }
+
+        /// One cycle: exactly one tick handler, then at most one entry action.
+        pub fn tick(&mut self, inputs: Inputs) -> Transition {
+            // The current state runs and proposes what it wants to be next.
+            let next = self.current.on_tick(&inputs, &mut self.ctx);
+
+            // A critical fault outranks whatever the handler wanted.
+            let next = if inputs.critical_fault_active { BmsState::Faulted } else { next };
+
+            self.transition_to(next, &inputs)
+        }
+
+        /// The only path that changes `self.current`.
+        fn transition_to(&mut self, next: BmsState, inputs: &Inputs) -> Transition {
+            let prev = self.current;
+
+            if next == prev {
+                return Transition::NoChange;
+            }
+
+            if !prev.transition_allowed(next) {
+                return Transition::Refused { from: prev, to: next };
+            }
+
+            self.current = next;
+            api::store_state(next);
+            next.on_init(inputs, &mut self.ctx);
+
+            Transition::Changed { from: prev, to: next }
         }
     }
 
@@ -83,8 +142,8 @@ mod sm {
 
         // Boot
 
-        pub fn enter_boot(_inputs: &Inputs, _ctx: &mut Ctx) {
-            api::set_charger_connected(false);
+        pub fn init_boot(_inputs: &Inputs, _ctx: &mut Ctx) {
+            api::clear_charger_connected();
         }
 
         pub fn tick_boot(_inputs: &Inputs, _ctx: &mut Ctx) -> BmsState {
@@ -93,7 +152,7 @@ mod sm {
 
         // Ready
 
-        pub fn enter_ready(_inputs: &Inputs, _ctx: &mut Ctx) {
+        pub fn init_ready(_inputs: &Inputs, _ctx: &mut Ctx) {
             set_fault(false);
         }
 
@@ -103,7 +162,7 @@ mod sm {
 
         // Charging
 
-        pub fn enter_charging(inputs: &Inputs, ctx: &mut Ctx) {
+        pub fn init_charging(inputs: &Inputs, ctx: &mut Ctx) {
             ctx.charger.restart(inputs.now);
         }
 
@@ -115,7 +174,7 @@ mod sm {
 
         // Faulted
 
-        pub fn enter_faulted(_inputs: &Inputs, _ctx: &mut Ctx) {
+        pub fn init_faulted(_inputs: &Inputs, _ctx: &mut Ctx) {
             set_fault(true);
         }
 
@@ -125,50 +184,8 @@ mod sm {
             if inputs.critical_fault_active { BmsState::Faulted } else { BmsState::Boot }
         }
     }
-
-    pub struct StateMachine {
-        current: BmsState,
-    }
-
-    impl StateMachine {
-        /// Starts the machine in `initial`. Does **not** run `initial`'s entry action.
-        pub const fn new(initial: BmsState) -> Self {
-            Self { current: initial }
-        }
-
-        /// Runs the initial state's entry action and publishes it.
-        pub fn start(&mut self, inputs: &Inputs, ctx: &mut Ctx) {
-            api::publish_state(self.current);
-            self.current.on_enter(inputs, ctx);
-        }
-
-        /// Runs this tick's handler, and transitions if it asked for one.
-        pub fn tick(&mut self, inputs: &Inputs, ctx: &mut Ctx) {
-            let next = self.current.on_tick(inputs, ctx);
-            self.transition_to(next, inputs, ctx);
-        }
-
-        /// The only path that changes `self.current`, whether the request came from a handler's
-        /// return value or from the task forcing one.
-        pub fn transition_to(&mut self, next: BmsState, inputs: &Inputs, ctx: &mut Ctx) {
-            if next == self.current {
-                return;
-            }
-
-            if !self.current.transition_allowed(next) {
-                defmt::error!("State machine: illegal transition {} -> {}, refused.", self.current, next);
-                return;
-            }
-
-            defmt::info!("State machine: {} -> {}", self.current, next);
-
-            self.current = next;
-            api::publish_state(next);
-            next.on_enter(inputs, ctx);
-        }
-    }
 }
-pub use sm::BmsState;
+pub use sm::{BmsState, Transition};
 
 /// The charge algorithm that runs while the pack is in `Charging`.
 mod charging {
@@ -255,7 +272,7 @@ mod charging {
             self.stage
         }
 
-        /// Starts the algorithm over. Called from `enter_charging`, so re-entering `Charging`
+        /// Starts the algorithm over. Called from `init_charging`, so re-entering `Charging`
         /// always begins a fresh bulk phase rather than resuming a stale one.
         pub fn restart(&mut self, now: Instant) {
             self.stage = ChargeStage::default();
@@ -296,62 +313,45 @@ mod charging {
 
 // u_TODO: complete all of these too
 /// Public api for state machine and also internal api
+///
+/// Other tasks report conditions, but never force the machine to transition,
+/// instead the machine will request and handle transitions.
 mod api {
     use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-    use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
     use super::sm::BmsState;
 
     static STATE: AtomicU8 = AtomicU8::new(BmsState::Boot as u8);
 
-    const TRANSITION_QUEUE_DEPTH: usize = 4;
-    static TRANSITION_REQUESTS: Channel<ThreadModeRawMutex, BmsState, TRANSITION_QUEUE_DEPTH> = Channel::new();
-
-    // Called by other tasks so they are exported assuch
+    // Called by other tasks, so they are exported as such.
 
     /// The current BMS state.
     pub fn bms_state() -> BmsState {
         BmsState::from_repr(STATE.load(Ordering::Relaxed)).unwrap_or(BmsState::Faulted)
     }
 
-    /// How many transition requests are queued but not yet applied (only really useful for diagnostics).
-    pub fn pending_transition_requests() -> usize {
-        TRANSITION_REQUESTS.len()
-    }
-
-    /// Whether a charger box has announced itself.
+    /// Latched by the first charger frame, cleared only by `init_boot`.
     static CHARGER_CONNECTED: AtomicBool = AtomicBool::new(false);
 
-    /// Reports that a charger box frame arrived.
-    pub fn charger_message_received() {
-        set_charger_connected(true);
-        request_transition(BmsState::Charging);
+    /// Reports that a charger box frame arrived. Called from CAN Task when charger message is recieved.
+    pub fn charger_frame_received() {
+        CHARGER_CONNECTED.store(true, Ordering::Relaxed);
     }
 
-    /// Asks the state machine to move to `next`. Callable from any task.
-    pub fn request_transition(next: BmsState) {
-        if TRANSITION_REQUESTS.try_send(next).is_err() {
-            defmt::warn!("State machine: transition request to {} dropped, queue full.", next);
-        }
-    }
+    // Helpers for the state machine to reach its own storage.
 
-    // The state machine reaching its own storage. `pub(super)` rather than `pub` on purpose
-
-    /// Publishes `state` for [`bms_state`]. Called only by the driver on an accepted transition.
-    pub(super) fn publish_state(state: BmsState) {
+    /// Publishes `state` for [`bms_state`]. Called only on an accepted transition.
+    pub(super) fn store_state(state: BmsState) {
         STATE.store(state as u8, Ordering::Relaxed);
     }
 
-    /// Takes one queued request, if there is one. Called only by the task loop.
-    pub(super) fn take_transition_request() -> Option<BmsState> {
-        TRANSITION_REQUESTS.try_receive().ok()
-    }
-
+    /// Whether a charger has announced itself since the last pass through `Boot`.
     pub(super) fn charger_connected() -> bool {
         CHARGER_CONNECTED.load(Ordering::Relaxed)
     }
 
-    pub(super) fn set_charger_connected(connected: bool) {
-        CHARGER_CONNECTED.store(connected, Ordering::Relaxed);
+    /// Drops the charger latch. Called only by `init_boot`.
+    pub(super) fn clear_charger_connected() {
+        CHARGER_CONNECTED.store(false, Ordering::Relaxed);
     }
 }
 pub use api::*;
@@ -363,7 +363,7 @@ mod task {
     use super::*;
     use super::sm::*;
 
-    /// Reads every published value the state machine depends on, once and saves it to an `Inputs`.
+    /// Reads every value the state machine depends on, once, into an [`Inputs`].
     fn snapshot() -> Inputs {
         Inputs {
             now: Instant::now(),
@@ -375,31 +375,21 @@ mod task {
         }
     }
 
-    fn run_cycle(sm: &mut StateMachine, ctx: &mut Ctx, inputs: Inputs) {
-        let requested = api::take_transition_request();
-        let target = if inputs.critical_fault_active { Some(BmsState::Faulted) } else { requested };
-
-        if let Some(target) = target {
-            sm.transition_to(target, &inputs, ctx);
-        }
-        sm.tick(&inputs, ctx);
-    }
-
     /// Main state machine task.
     #[embassy_executor::task]
     pub async fn state_machine_task() -> ! {
         const TICK_PERIOD_MS: u64 = 20;
 
         let mut ticker = Ticker::every(Duration::from_millis(TICK_PERIOD_MS));
-        let mut sm = StateMachine::new(BmsState::Boot);
+        let mut sm = BmsStateMachine::new(BmsState::Boot);
 
-        let mut ctx = Ctx::default();
-        sm.start(&snapshot(), &mut ctx);
-
+        sm.start(snapshot());
         loop {
-            // Cycle the statemachine
-            let inputs = snapshot();
-            run_cycle(&mut sm, &mut ctx, inputs);
+            match sm.tick(snapshot()) {
+                Transition::NoChange => {},
+                Transition::Changed { from, to } => defmt::info!("State machine: {} -> {}", from, to),
+                Transition::Refused { from, to } => defmt::warn!("State machine: illegal transition refused {} -> {}!", from, to),
+            }
 
             ticker.next().await;
         }

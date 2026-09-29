@@ -313,8 +313,6 @@ pub async fn state_machine_debug() {
         ticker.next().await;
 
         let state = state_machine::bms_state();
-        #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let pending = state_machine::pending_transition_requests();
 
         // Times are measured from when this task *observed* the change.
         if state != last_state {
@@ -328,7 +326,6 @@ pub async fn state_machine_debug() {
             defmt_monitor::monitor!("StateMachine/State", desc = "Current BMS state: Boot, Ready, Charging or Faulted.", "{}", state);
             defmt_monitor::monitor!("StateMachine/StateCode", desc = "Current BMS state as its discriminant, for plotting. 0 Boot, 1 Ready, 2 Charging, 3 Faulted.", "{=u8}", state as u8);
             defmt_monitor::monitor!("StateMachine/TimeInStateMs", desc = "Milliseconds since this task observed the machine enter its current state. Late by up to the debug period.", "{=u64}", entered_at.elapsed().as_millis());
-            defmt_monitor::monitor!("StateMachine/PendingTransitionRequests", desc = "Transition requests queued by other tasks but not yet applied. Sitting at the queue depth means requests are being dropped.", "{=u8}", pending as u8);
         }
     }
 }
