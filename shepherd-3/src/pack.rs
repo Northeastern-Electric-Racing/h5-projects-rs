@@ -195,7 +195,9 @@ use super::*;
             self.avg_temp = Temperature::new::<degree_celsius>(total_temp / NUM_CELLS_TOTAL as f32);
         }
 
-        /// Corrects the ... u_TODO finish this
+        /// Doesn't really actually do that much calculating. Basically just moves data into `self.cell_voltages`, choosing the source
+        /// register depending on if we are charging or not. Also has to do some post-processing corrections for 25A specifically (since this was in TSECU-Shepherd code).
+        /// This doesn't modify anything in the cache itself (since that's raw reads), this just initializes (and post-processes) the Analyzer's cell voltage data.
         fn calc_cell_voltages(&mut self, data: &CacheData) {
             let state = state_machine::bms_state();
 
@@ -204,24 +206,21 @@ use super::*;
                     let Ok(data) = data.get_cell_voltages().try_nice() else { 
                         return; 
                     };
-                    data
+                    data.into()
+                },
+
+                _ => {
+                    let Ok(data) = data.get_filtered_cell_voltages().try_nice() else {
+                        return;
+                    };
+                    data.into()
                 }
-            }
+            };
 
             for chip in ChipId::iter() {
                 // Store the cell voltages from the correct registers depending on if we are charging or not
-                match state {
-                    BmsState::Charging => {
-                        let voltages
-                        for cell in CellId::iter() {
-                            self.cell_voltages[chip][cell] = 
-                        }
-                    }
-                }
                 for cell in CellId::iter() {
-                    self.cell_voltages[chip][cell] = match state {
-                        BmsState::Charging => data
-                    }
+                    self.cell_voltages[chip][cell] = voltages[chip][cell];
                 }
 
                 // Constants and comments from TSECU-Shepherd
@@ -255,7 +254,7 @@ use super::*;
                 };
 
                 // I*R is the way
-                voltages[cell] += curr_bal * res;
+                self.cell_voltages[chip][cell] += curr_bal * res;
             }
         }
     }
@@ -264,10 +263,8 @@ use super::*;
         pub fn analyze(&mut self) {
             let cache = crate::segments::cache();
 
-            let Ok(voltages) = cache.get_cell_voltages().try_nice() else { return; };
-
             self.calc_pack_temps(cache);
-            self.correct_cell_voltages_25a(&mut voltages);
+            self.calc_cell_voltages(cache);
         }
     }
 }

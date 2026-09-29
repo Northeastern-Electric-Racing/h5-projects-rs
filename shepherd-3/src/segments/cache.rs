@@ -756,8 +756,7 @@ pub mod cell_voltages {
 
     impl From<NiceData> for IndexByChip<IndexByCell<Voltage>> {
         fn from(nice: NiceData) -> Self {
-            let bycell = nice.inner;
-            let bycell = bycell.inner;
+            // at least on release mode this should be zero cost
             IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
         }
     }
@@ -1033,6 +1032,13 @@ pub mod filtered_cell_voltages {
                     })
                 },
             })
+        }
+    }
+
+    impl From<NiceData> for IndexByChip<IndexByCell<Voltage>> {
+        fn from(nice: NiceData) -> Self {
+            // at least on release mode this should be zero cost
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
         }
     }
 
