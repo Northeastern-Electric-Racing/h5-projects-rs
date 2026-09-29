@@ -2,9 +2,13 @@
 # Cargo runner for this firmware.
 #
 # This is invoked as:
-#     run.sh <console|monitor> <path-to-elf>
+#     run.sh <console|monitor> [tool-args...] <path-to-elf>
 #
 # Cargo appends the built ELF as the final argument when this is used in `cargo run`. so that's how that works
+#
+# Anything between the mode and the ELF is handed straight to the underlying tool. `cargo monitorattach` uses
+# this to pass `--attach`, which tells defmt-monitor-tui to connect to a target that is already running rather
+# than flashing it first.
 #
 # If `console` is passed in, this will run via probe-rs. If `monitor` is passed in, this will run via defmt-monitor-tui.
 # If the respective tool isn't installed, this will prompt you to download it via `cargo install` (will be compiled on your host).
@@ -25,7 +29,7 @@ HOST="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p')" || HOST=""
 }
 
 mode="${1:-}"
-[ -n "$mode" ] || { echo "usage: run.sh <console|monitor> <elf>" >&2; exit 2; }
+[ -n "$mode" ] || { echo "usage: run.sh <console|monitor> [tool-args...] <elf>" >&2; exit 2; }
 shift
 
 case "$mode" in

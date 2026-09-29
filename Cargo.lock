@@ -252,7 +252,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix#16ddc3fef2d232cca9134bfa64b995bc2b97e8dd"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
 dependencies = [
  "bitfield-struct",
  "cangen-macro 0.1.0 (git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix)",
@@ -265,19 +265,6 @@ version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2#5b2f5cb04e94e80a3f3eec0e2d3a5cb72d0c72c7"
 dependencies = [
  "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2)",
- "heck",
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "cangen-macro"
-version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix#16ddc3fef2d232cca9134bfa64b995bc2b97e8dd"
-dependencies = [
- "definition-rs 0.1.0 (git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix)",
  "heck",
  "proc-macro2",
  "quote",
@@ -459,17 +446,6 @@ dependencies = [
 name = "definition-rs"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2#5b2f5cb04e94e80a3f3eec0e2d3a5cb72d0c72c7"
-dependencies = [
- "proc-macro2",
- "quote",
- "schemars",
- "serde",
-]
-
-[[package]]
-name = "definition-rs"
-version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=cangen.path-fix#16ddc3fef2d232cca9134bfa64b995bc2b97e8dd"
 dependencies = [
  "proc-macro2",
  "quote",
