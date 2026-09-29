@@ -3,10 +3,17 @@ use strum::{VariantArray, EnumCount, IntoEnumIterator};
 pub mod cells {
     use strum::{VariantArray, EnumCount, IntoEnumIterator};
 
+use crate::segments::chips::ADBMS6830B_NUM_CHIPS;
+
     /// How many cells are on each chip in our setup.
-    pub const ADBMS6830B_NUM_CELLS_PER_CHIP: usize = CellId::COUNT;
+    pub const NUM_CELLS_PER_CHIP: usize = CellId::COUNT;
+
+    /// Total number of cells across all chips.
+    pub const NUM_CELLS_TOTAL: usize = NUM_CELLS_PER_CHIP * ADBMS6830B_NUM_CHIPS;
 
     /// ID for each cell per ADBMS6830B chip. There are 13 cells per chip.
+    /// 
+    /// These are 1-indexed because the datasheet indexes all of the cell-related register fields starting at 1.
     #[repr(usize)]
     #[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,16 +66,16 @@ pub mod cells {
     /// Like IndexByChip but for cells
     #[derive(Copy, Clone, Debug)]
     pub struct IndexByCell<T> {
-        data: [T; ADBMS6830B_NUM_CELLS_PER_CHIP],
+        data: [T; NUM_CELLS_PER_CHIP],
     }
     pub type CellIds = core::iter::Copied<core::slice::Iter<'static, CellId>>;
     pub type Iter<'borrow, T> = core::iter::Zip<CellIds, core::slice::Iter<'borrow, T>>;
     pub type IterMut<'borrow, T> = core::iter::Zip<CellIds, core::slice::IterMut<'borrow, T>>;
-    pub type IntoIter<T> = core::iter::Zip<CellIds, core::array::IntoIter<T, { ADBMS6830B_NUM_CELLS_PER_CHIP }>>;
+    pub type IntoIter<T> = core::iter::Zip<CellIds, core::array::IntoIter<T, { NUM_CELLS_PER_CHIP }>>;
 
     impl<T> IndexByCell<T> {
         /// Creates a new `IndexByCell` directly from an array.
-        pub const fn new(data: [T; ADBMS6830B_NUM_CELLS_PER_CHIP]) -> Self {
+        pub const fn new(data: [T; NUM_CELLS_PER_CHIP]) -> Self {
             Self { data }
         }
 
@@ -98,8 +105,23 @@ pub mod cells {
         }
 
         /// Converts this back into its inner array.
-        pub fn into_array(self) -> [T; ADBMS6830B_NUM_CELLS_PER_CHIP] {
+        pub fn into_array(self) -> [T; NUM_CELLS_PER_CHIP] {
             self.data
+        }
+    }
+
+    impl<T> core::ops::Index<CellId> for IndexByCell<T> {
+        type Output = T;
+
+        fn index(&self, index: CellId) -> &Self::Output {
+            &self.get(index)
+        }
+    }
+
+    impl<T> core::ops::IndexMut<CellId> for IndexByCell<T> {
+        fn index_mut(&mut self, index: CellId) -> &mut Self::Output {
+            let i: usize = index as usize;
+            &mut self.data[i]
         }
     }
 
@@ -234,13 +256,25 @@ pub enum ChipKind {
     Beta,
 }
 
+/// Number of ADBMS6830B chips per segment.
+/// 
+/// (this is just an alias for the ChipKind count, but it reads better like this)
+pub const NUM_CHIPS_PER_SEGMENT: usize = const { ChipKind::COUNT };
+
 pub mod segments {
-    use super::*;
+    use crate::segments::chips::cells::NUM_CELLS_PER_CHIP;
+
+use super::*;
 
     /// Number of segments we have. Each segment has two ADBMS6830B chips.
     ///
     /// (this is just an alais for the SegmentId count, but it kind of reads better like this)
     pub const NUM_SEGMENTS: usize = const { SegmentId::COUNT };
+
+    /// The number of cells per segment.
+    /// 
+    /// This is determined by NUM_CHIPS_PER_SEGMENT * NUM_CELLS_PER_CHIP
+    pub const NUM_CELLS_PER_SEGMENT: usize = NUM_CHIPS_PER_SEGMENT * NUM_CELLS_PER_CHIP;
 
     /// ID for each segment.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -312,6 +346,13 @@ pub mod segments {
             self.get(segment)
         }
 
+        /// Retrives a mutable reference to the data for `segment`.
+        ///
+        /// This is literally just an alias for `.get_mut()`. It may be more readable in large method chains.
+        pub const fn segment_mut(&mut self, segment: SegmentId) -> &mut T {
+            self.get_mut(segment)
+        }
+
         /// Retrieves a mutable reference to the data for `segment`.
         pub const fn get_mut(&mut self, segment: SegmentId) -> &mut T {
             let i: usize = segment as usize;
@@ -333,6 +374,21 @@ pub mod segments {
         /// Converts this back into its inner array.
         pub fn into_array(self) -> [T; NUM_SEGMENTS] {
             self.data
+        }
+    }
+
+    impl<T> core::ops::Index<SegmentId> for IndexBySegment<T> {
+        type Output = T;
+
+        fn index(&self, index: SegmentId) -> &Self::Output {
+            &self.get(index)
+        }
+    }
+
+    impl<T> core::ops::IndexMut<SegmentId> for IndexBySegment<T> {
+        fn index_mut(&mut self, index: SegmentId) -> &mut Self::Output {
+            let i: usize = index as usize;
+            &mut self.data[i]
         }
     }
 
@@ -420,6 +476,21 @@ impl<T> IndexByChip<T> {
     /// Converts this back into its inner array.
     pub fn into_array(self) -> [T; ADBMS6830B_NUM_CHIPS] {
         self.data
+    }
+}
+
+impl<T> core::ops::Index<ChipId> for IndexByChip<T> {
+    type Output = T;
+
+    fn index(&self, index: ChipId) -> &Self::Output {
+        &self.get(index)
+    }
+}
+
+impl<T> core::ops::IndexMut<ChipId> for IndexByChip<T> {
+    fn index_mut(&mut self, index: ChipId) -> &mut Self::Output {
+        let i: usize = index as usize;
+        &mut self.data[i]
     }
 }
 
