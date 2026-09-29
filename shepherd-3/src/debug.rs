@@ -1,4 +1,4 @@
-//! Debug data for segments.
+//! Debug data for the segments, HV plate and state machine subsystems.
 
 use crate::segments;
 use embassy_executor::Spawner;
@@ -191,6 +191,7 @@ pub async fn faults_queuer_2() {
 
 /// Task that sends out debug HV plate data.
 /// Lowk sends way too much stuff but we can use it for verification of life for now.
+#[cfg(not(feature = "hil"))]
 #[embassy_executor::task]
 pub async fn hv_plate_debug() {
     use crate::hv_plate::{self, HV_PLATE_FRESH_DATA_SIGNAL};
@@ -291,6 +292,41 @@ pub async fn hv_plate_debug() {
             defmt_monitor::monitor!("HvPlate/OverCurrent/Oc1Code", desc = "OC1ADC raw result code. Scale with the OC1GC gain from CFGB.", "{=i8}", status.overcurrent.oc1r().raw());
             defmt_monitor::monitor!("HvPlate/OverCurrent/Oc2Code", desc = "OC2ADC raw result code. Scale with the OC2GC gain from CFGB.", "{=i8}", status.overcurrent.oc2r().raw());
             defmt_monitor::monitor!("HvPlate/OverCurrent/Oc3Code", desc = "OC3ADC raw result code. Scale with the OC3GC gain from CFGB.", "{=i8}", status.overcurrent.oc3r().raw());
+        }
+    }
+}
+
+/// Task that sends out debug BMS state machine data.
+#[embassy_executor::task]
+pub async fn state_machine_debug() {
+    use crate::state_machine;
+    use embassy_time::{Duration, Instant, Ticker};
+
+    /// Slow relative to the state machine's own 20 ms tick.
+    const PERIOD_MS: u64 = 100;
+
+    let mut ticker = Ticker::every(Duration::from_millis(PERIOD_MS));
+
+    let mut last_state = state_machine::bms_state();
+    let mut entered_at = Instant::now();
+
+    loop {
+        ticker.next().await;
+
+        let state = state_machine::bms_state();
+
+        // Times are measured from when this task *observed* the change.
+        if state != last_state {
+            defmt::println!("BMS state: {} -> {}, after {=u64} ms in {}", last_state, state, entered_at.elapsed().as_millis(), last_state);
+            last_state = state;
+            entered_at = Instant::now();
+        }
+
+        #[cfg(defmt_monitor)]
+        '_defmt_monitor: {
+            defmt_monitor::monitor!("StateMachine/State", desc = "Current BMS state: Boot, Ready, Charging or Faulted.", "{}", state);
+            defmt_monitor::monitor!("StateMachine/StateCode", desc = "Current BMS state as its discriminant, for plotting. 0 Boot, 1 Ready, 2 Charging, 3 Faulted.", "{=u8}", state as u8);
+            defmt_monitor::monitor!("StateMachine/TimeInStateMs", desc = "Milliseconds since this task observed the machine enter its current state. Late by up to the debug period.", "{=u64}", entered_at.elapsed().as_millis());
         }
     }
 }

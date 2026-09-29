@@ -234,6 +234,7 @@ pub mod accumulated {
 
     impl CacheData {
         /// Reads IVB1ACC into the cache.
+        #[cfg(not(feature = "hil"))]
         pub(in crate::hv_plate) async fn update_accumulated(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             self.ivb1acc.update(api).await
         }
