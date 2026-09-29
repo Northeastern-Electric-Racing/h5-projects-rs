@@ -1,5 +1,4 @@
 use cangen::ToCanFrame;
-use defmt::info;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
@@ -48,8 +47,8 @@ enum PredicateOperation {
 
 /// Predicate to use to determine state of an AUTO Efuse
 pub struct AutoPredicate {
-    value1: f32,
-    value2: f32,
+    value1: fn() -> f32,
+    value2: fn() -> f32,
     operation: PredicateOperation,
 }
 
@@ -193,13 +192,13 @@ impl Efuse {
                 200.0,
                 EfuseControlState::EfuseOff,
                 Some(AutoPredicate {
-                    value1: 0.0,
-                    value2: 0.0,
+                    value1: || 0.0,
+                    value2: || 0.0,
                     operation: PredicateOperation::EQ,
                 }),
                 Some(AutoPredicate {
-                    value1: 0.0,
-                    value2: 0.0,
+                    value1: || 0.0,
+                    value2: || 0.0,
                     operation: PredicateOperation::EQ,
                 }),
                 frame_for::<cangen::BrakeEfuse>,
@@ -293,13 +292,13 @@ impl Efuse {
                 0.0,
                 EfuseControlState::EfuseOff,
                 Some(AutoPredicate {
-                    value1: 0.0,
-                    value2: 0.0,
+                    value1: || 0.0,
+                    value2: || 0.0,
                     operation: PredicateOperation::EQ,
                 }),
                 Some(AutoPredicate {
-                    value1: 0.0,
-                    value2: 0.0,
+                    value1: || 0.0,
+                    value2: || 0.0,
                     operation: PredicateOperation::EQ,
                 }),
                 frame_for::<cangen::SpareEfuse>,
@@ -371,59 +370,36 @@ pub async fn efuse_task(pins: EfusePins) {
     loop {
         for efuse in &mut _efuses {
             match efuse.get_control_state() {
-                EfuseControlState::EfuseOff => {
-                    efuse.disable();
-                }
-                EfuseControlState::EfuseOn => {
-                    efuse.enable();
-                }
+                EfuseControlState::EfuseOff => efuse.disable(),
+                EfuseControlState::EfuseOn => efuse.enable(),
+
                 EfuseControlState::EfuseAuto => {
                     let turn_on = match &efuse.auto_on_predicate {
                         Some(auto_mode_predicate) => match auto_mode_predicate.operation {
-                            PredicateOperation::LESS => {
-                                auto_mode_predicate.value1 < auto_mode_predicate.value2
-                            }
-                            PredicateOperation::GREATER => {
-                                auto_mode_predicate.value1 > auto_mode_predicate.value2
-                            }
-                            PredicateOperation::GREQ => {
-                                auto_mode_predicate.value1 >= auto_mode_predicate.value2
-                            }
-                            PredicateOperation::LEQ => {
-                                auto_mode_predicate.value1 <= auto_mode_predicate.value2
-                            }
-                            PredicateOperation::EQ => {
-                                auto_mode_predicate.value1 == auto_mode_predicate.value2
-                            }
+                            PredicateOperation::LESS => (auto_mode_predicate.value1)() < (auto_mode_predicate.value2)(),
+                            PredicateOperation::GREATER => (auto_mode_predicate.value1)() > (auto_mode_predicate.value2)(),
+                            PredicateOperation::GREQ => (auto_mode_predicate.value1)() >= (auto_mode_predicate.value2)(),
+                            PredicateOperation::LEQ => (auto_mode_predicate.value1)() <= (auto_mode_predicate.value2)(),
+                            PredicateOperation::EQ => (auto_mode_predicate.value1)() == (auto_mode_predicate.value2)(),
                         },
                         None => true,
                     };
 
                     let turn_off = match &efuse.auto_off_predicate {
                         Some(auto_mode_predicate) => match auto_mode_predicate.operation {
-                            PredicateOperation::LESS => {
-                                auto_mode_predicate.value1 < auto_mode_predicate.value2
-                            }
-                            PredicateOperation::GREATER => {
-                                auto_mode_predicate.value1 > auto_mode_predicate.value2
-                            }
-                            PredicateOperation::GREQ => {
-                                auto_mode_predicate.value1 >= auto_mode_predicate.value2
-                            }
-                            PredicateOperation::LEQ => {
-                                auto_mode_predicate.value1 <= auto_mode_predicate.value2
-                            }
-                            PredicateOperation::EQ => {
-                                auto_mode_predicate.value1 == auto_mode_predicate.value2
-                            }
+                            PredicateOperation::LESS => (auto_mode_predicate.value1)() < (auto_mode_predicate.value2)(),
+                            PredicateOperation::GREATER => (auto_mode_predicate.value1)() > (auto_mode_predicate.value2)(),
+                            PredicateOperation::GREQ => (auto_mode_predicate.value1)() >= (auto_mode_predicate.value2)(),
+                            PredicateOperation::LEQ => (auto_mode_predicate.value1)() <= (auto_mode_predicate.value2)(),
+                            PredicateOperation::EQ => (auto_mode_predicate.value1)() == (auto_mode_predicate.value2)(),
                         },
                         None => true,
                     };
 
-                    if turn_on {
-                        efuse.enable();
-                    } else if turn_off {
+                    if turn_off {
                         efuse.disable();
+                    } else if turn_on {
+                        efuse.enable();
                     }
                 }
             }
@@ -431,7 +407,7 @@ pub async fn efuse_task(pins: EfusePins) {
 
         let adc = adc::data().await;
 
-        // send oout CAN messages for each EFUSE
+        // send out CAN message for each EFUSE
         for efuse in &_efuses {
             can::OUTGOING.send(efuse.to_frame(&adc)).await;
         }
