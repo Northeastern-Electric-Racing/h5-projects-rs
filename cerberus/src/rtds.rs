@@ -1,8 +1,7 @@
-//! RTDS (ready to drive sound), ported from the old C `u_rtds.c`.
+//! RTDS (ready to drive sound)
 //!
 //! rtds_task owns the pin. everything else just calls `sound_rtds` / `cancel_rtds` which
-//! throw a command on the queue. the threadx one shot timer is gone, the task just sleeps
-//! until the deadline instead.
+//! throw a command on the queue. The task just sleeps until a new command or the deadline is reached.
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -13,8 +12,7 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
 
 /// how long the rtds sound plays
-const RTDS_DURATION: Duration = Duration::from_millis(1500); // was 1500 ticks in C, pretty sure the tick was 1kHz
-
+const RTDS_DURATION: Duration = Duration::from_millis(1500);
 const COMMAND_QUEUE_SIZE: usize = 4;
 
 #[derive(Clone, Copy, defmt::Format)]
@@ -29,15 +27,12 @@ pub enum RtdsError {
     QueueFull,
 }
 
-// TODO: faults aren't ported yet. C did `queue_send(&faults, &(fault_t){RTDS_FAULT}, TX_NO_WAIT)`,
-// swap this out once we have faults
+// TODO: faults aren't ported yet, swap this out once we have faults
 fn send_rtds_fault() {
     error!("RTDS_FAULT (placeholder, faults not ported yet).");
 }
 
-// TODO: shutdown isn't ported yet. in C `is_shutdown_closed()` returned the bms_shutdown flag
-// (or just true w/ TSMS_OVERRIDE). returns false for now so rtds never goes off.
-// pass the real one into rtds_task once shutdown exists
+// TODO: shutdown isn't ported yet, pass the real one into rtds_task once shutdown exists
 pub fn is_shutdown_closed_placeholder() -> bool {
     true
 }
@@ -48,7 +43,7 @@ static COMMANDS: Channel<ThreadModeRawMutex, RtdsCommand, COMMAND_QUEUE_SIZE> = 
 static PIN_ON: AtomicBool = AtomicBool::new(false);
 static SOUNDING: AtomicBool = AtomicBool::new(false);
 
-/// puts a command on the queue. fault gets raised in here so it still happens if the caller ignores the error
+/// Puts a new command on the queue. Fault gets raised here regardless of if the caller ignores the error
 pub(crate) fn send(command: RtdsCommand) -> Result<(), RtdsError> {
     COMMANDS.try_send(command).map_err(|_| {
         error!("RTDS command queue full, dropped {}.", command);
@@ -62,12 +57,12 @@ pub fn sound_rtds() -> Result<(), RtdsError> {
     send(RtdsCommand::Sound)
 }
 
-/// stop the rtds early (it turns off by itself after RTDS_DURATION anyway)
+/// stop the rtds ahead of deadline, call when shutdown is open
 pub fn cancel_rtds() -> Result<(), RtdsError> {
     send(RtdsCommand::Cancel)
 }
 
-/// is the pin high rn (mostly for debugging)
+/// is the pin high
 pub fn is_pin_on() -> bool {
     PIN_ON.load(Ordering::Relaxed)
 }
@@ -88,6 +83,7 @@ impl Rtds {
     fn set_pin(&mut self) {
         // shutdown open = can't drive, so don't let rtds go off
         if !(self.shutdown_closed)() {
+            debug!("RTDS shut down due to shutdown_closed.");
             return;
         }
 
@@ -142,15 +138,15 @@ pub async fn rtds_task(pin: Output<'static>, shutdown_closed: fn() -> bool) -> !
 
     loop {
         match rtds.sound_deadline {
-            Some(deadline) => {
-                debug!("Some sound");
+            Some(deadline) => { // if there is a deadline (sound is playing)
+                // wait until either there is a new command or the timer expires
                 let event: Either<RtdsCommand, ()> = select(COMMANDS.receive(), Timer::at(deadline)).await;
-                match event {
+                match event { // then if it is a new command, handle it, otherwise end the sound playing.
                     Either::First(command) => rtds.handle_command(command),
                     Either::Second(()) => rtds.handle_sound_deadline(),
                 }
             },
-            None => rtds.handle_command(COMMANDS.receive().await),
+            None => rtds.handle_command(COMMANDS.receive().await), // wait for a new command, then handle it
         }
     }
 }
