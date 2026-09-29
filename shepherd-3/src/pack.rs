@@ -1,6 +1,7 @@
 use strum::IntoEnumIterator;
 
 use crate::{
+    state_machine::{BmsState}, state_machine,
     segments::{CellId, ChipId, ChipKind, SegmentId, IndexByChip, IndexByCell, IndexBySegment, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
     units::{Temperature, Voltage, Current, Length, Percentage, Resistance, ResistancePerLength, degree_celsius, volt, consts::{from_ohms, from_millimeters, from_amps}},
 };
@@ -82,6 +83,11 @@ use super::*;
         /// Voltage of pack
         pack_voltage: Voltage,
 
+        /// Current cell voltages. These come from the C-ADC registers when
+        /// we are charging, and the Filtered Cell Voltage registers when we
+        /// are not charging (aka are in any other state).
+        cell_voltages: IndexByChip<IndexByCell<Voltage>>,
+
         /// State of Charge (SoC) of the pack.
         soc: Percentage,
     }
@@ -140,6 +146,8 @@ use super::*;
 
                 pack_voltage: Voltage::new::<volt>(f32::MIN),
 
+                cell_voltages: IndexByChip::from_fn(|_| { IndexByCell::from_fn(|_| { Voltage::new::<volt>(f32::MIN) }) }),
+
                 soc: Percentage::new(0.0_f32),
             }
         }
@@ -187,9 +195,35 @@ use super::*;
             self.avg_temp = Temperature::new::<degree_celsius>(total_temp / NUM_CELLS_TOTAL as f32);
         }
 
-        /// Corrects the ... todo finish this
-        fn correct_cell_voltages_25a(&mut self, voltages: &mut IndexByChip<IndexByCell<Voltage>>) {
-            for (chip, voltages) in voltages.iter_mut() {
+        /// Corrects the ... u_TODO finish this
+        fn calc_cell_voltages(&mut self, data: &CacheData) {
+            let state = state_machine::bms_state();
+
+            let voltages: IndexByChip<IndexByCell<Voltage>> = match state {
+                BmsState::Charging => { 
+                    let Ok(data) = data.get_cell_voltages().try_nice() else { 
+                        return; 
+                    };
+                    data
+                }
+            }
+
+            for chip in ChipId::iter() {
+                // Store the cell voltages from the correct registers depending on if we are charging or not
+                match state {
+                    BmsState::Charging => {
+                        let voltages
+                        for cell in CellId::iter() {
+                            self.cell_voltages[chip][cell] = 
+                        }
+                    }
+                }
+                for cell in CellId::iter() {
+                    self.cell_voltages[chip][cell] = match state {
+                        BmsState::Charging => data
+                    }
+                }
+
                 // Constants and comments from TSECU-Shepherd
                 // 25A patch only: alpha lowest and beta highest need to be offset correctly
                 const UNIT_RES: ResistancePerLength = from_ohms_per_millimeter(0.00139_f32); // from 1/2 oz copper, 0.71mm trace width, 30C
@@ -201,17 +235,17 @@ use super::*;
 
                 // The distance times the unit resistance, plus the resistance of the fuse
                 let (res, cell): (Resistance, CellId) = match chip.kind() {
-                    ChipKind::Alpha => {
+                    ChipKind::Beta => {
                         let res: Resistance = (UNIT_RES * TRACE_LEN_BETA) + FUSE_RES + TRACE_RES_ONBOARD_BETA;
                         (res, CellId::Cell13)
                     },
-                    ChipKind::Beta => {
+                    ChipKind::Alpha => {
                         let res: Resistance = (UNIT_RES * TRACE_LEN_ALPHA) + FUSE_RES + TRACE_RES_ONBOARD_ALPHA;
                         (res, CellId::Cell1)
                     }
                 };
 
-                let curr_bal: Current = match state_machine::bms_state() {
+                let curr_bal: Current = match state {
                     // measured on 4/5/2026, the current through the cells when in charging mode single shot C ADCs
 			        // redone to be higher 4/8 sans measurement
                     BmsState::Charging => from_amps(0.029_f32),
@@ -230,7 +264,10 @@ use super::*;
         pub fn analyze(&mut self) {
             let cache = crate::segments::cache();
 
+            let Ok(voltages) = cache.get_cell_voltages().try_nice() else { return; };
+
             self.calc_pack_temps(cache);
+            self.correct_cell_voltages_25a(&mut voltages);
         }
     }
 }

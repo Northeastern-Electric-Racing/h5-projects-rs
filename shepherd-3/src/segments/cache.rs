@@ -754,6 +754,15 @@ pub mod cell_voltages {
         }
     }
 
+    impl From<NiceData> for IndexByChip<IndexByCell<Voltage>> {
+        fn from(nice: NiceData) -> Self {
+            let bycell = nice.inner;
+            let bycell = bycell.inner;
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
+        }
+    }
+
+
     impl CacheData {
         /// Updates caches CellVoltages A through E with new data.
         ///
