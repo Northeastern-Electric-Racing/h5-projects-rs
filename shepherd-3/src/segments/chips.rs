@@ -3,7 +3,7 @@ use strum::{VariantArray, EnumCount, IntoEnumIterator};
 pub mod cells {
     use strum::{VariantArray, EnumCount, IntoEnumIterator};
 
-use crate::segments::chips::ADBMS6830B_NUM_CHIPS;
+    use crate::segments::chips::ADBMS6830B_NUM_CHIPS;
 
     /// How many cells are on each chip in our setup.
     pub const NUM_CELLS_PER_CHIP: usize = CellId::COUNT;
@@ -12,7 +12,7 @@ use crate::segments::chips::ADBMS6830B_NUM_CHIPS;
     pub const NUM_CELLS_TOTAL: usize = NUM_CELLS_PER_CHIP * ADBMS6830B_NUM_CHIPS;
 
     /// ID for each cell per ADBMS6830B chip. There are 13 cells per chip.
-    /// 
+    ///
     /// These are 1-indexed because the datasheet indexes all of the cell-related register fields starting at 1.
     #[repr(usize)]
     #[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
@@ -257,14 +257,14 @@ pub enum ChipKind {
 }
 
 /// Number of ADBMS6830B chips per segment.
-/// 
+///
 /// (this is just an alias for the ChipKind count, but it reads better like this)
 pub const NUM_CHIPS_PER_SEGMENT: usize = const { ChipKind::COUNT };
 
 pub mod segments {
     use crate::segments::chips::cells::NUM_CELLS_PER_CHIP;
 
-use super::*;
+    use super::*;
 
     /// Number of segments we have. Each segment has two ADBMS6830B chips.
     ///
@@ -272,7 +272,7 @@ use super::*;
     pub const NUM_SEGMENTS: usize = const { SegmentId::COUNT };
 
     /// The number of cells per segment.
-    /// 
+    ///
     /// This is determined by NUM_CHIPS_PER_SEGMENT * NUM_CELLS_PER_CHIP
     pub const NUM_CELLS_PER_SEGMENT: usize = NUM_CHIPS_PER_SEGMENT * NUM_CELLS_PER_CHIP;
 

@@ -17,7 +17,7 @@ pub type Resistance = uom::si::f32::ElectricalResistance;
 /// Current!
 pub type Current = uom::si::f32::ElectricCurrent;
 
-// /// 
+// ///
 // pub type Percentage = uom::si::f32::Ratio;
 
 /// Percentage!
@@ -26,19 +26,29 @@ mod percentage {
     use uom::si::ratio::percent;
 
     /// Percentage!
-    /// 
+    ///
     /// This is a simple wrapper type around `Ratio` from `uom`. It is useful when you are basically
     /// only going to use a Percentage and don't care about the `Ratio` base unit.
-    pub struct Percentage { inner: Ratio }
+    pub struct Percentage {
+        inner: Ratio,
+    }
     impl Percentage {
         /// Creates a new `Percentage` from an f32.
-        pub fn new(value: f32) -> Self { Self { inner: Ratio::new::<percent>(value) } }
+        pub fn new(value: f32) -> Self {
+            Self { inner: Ratio::new::<percent>(value) }
+        }
         /// Returns the Percentage as an f32.
-        pub fn as_f32(&self) -> f32 { self.inner.value }
+        pub fn as_f32(&self) -> f32 {
+            self.inner.value
+        }
         /// Gets a ref to the inner of this object.
-        pub fn inner(&self) -> &Ratio { &self.inner }
+        pub fn inner(&self) -> &Ratio {
+            &self.inner
+        }
         /// Gets a mutable ref to the inner of this object.
-        pub fn inner_mut(&mut self) -> &mut Ratio { &mut self.inner }
+        pub fn inner_mut(&mut self) -> &mut Ratio {
+            &mut self.inner
+        }
     }
 }
 pub use percentage::Percentage;

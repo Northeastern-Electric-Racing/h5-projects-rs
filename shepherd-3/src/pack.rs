@@ -1,18 +1,14 @@
 use strum::IntoEnumIterator;
 
 use crate::{
-    segments::{
-        CellId, ChipId, SegmentId, IndexBySegment, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL,
-    },
-    units::{
-        Temperature, Voltage, Percentage, degree_celsius, volt,
-    }
+    segments::{CellId, ChipId, SegmentId, IndexBySegment, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
+    units::{Temperature, Voltage, Percentage, degree_celsius, volt},
 };
 
 mod analyzer {
     use uom::si::angle::degree;
 
-use super::*;
+    use super::*;
 
     struct CriticalCellValue<T> {
         /// The critical value being stored here.
@@ -23,9 +19,15 @@ use super::*;
         cell: CellId,
     }
     impl<T> CriticalCellValue<T> {
-        pub const fn value(&self) -> &T { &self.value }
-        pub const fn chip(&self) -> ChipId { self.chip }
-        pub const fn cell(&self) -> CellId { self.cell }
+        pub const fn value(&self) -> &T {
+            &self.value
+        }
+        pub const fn chip(&self) -> ChipId {
+            self.chip
+        }
+        pub const fn cell(&self) -> CellId {
+            self.cell
+        }
     }
 
     struct CriticalChipValue<T> {
@@ -35,8 +37,12 @@ use super::*;
         chip: ChipId,
     }
     impl<T> CriticalChipValue<T> {
-        pub const fn value(&self) -> &T { &self.value }
-        pub const fn chip(&self) -> ChipId { self.chip }
+        pub const fn value(&self) -> &T {
+            &self.value
+        }
+        pub const fn chip(&self) -> ChipId {
+            self.chip
+        }
     }
 
     /// 6 consoles 10 computers
@@ -140,10 +146,14 @@ use super::*;
     impl Analyzer {
         fn calc_pack_temps(&mut self, data: &CacheData) {
             let mut total_temp = 0_f32;
-            let mut total_seg_temp= 0_f32;
+            let mut total_seg_temp = 0_f32;
 
-            let Ok(rdax) = data.get_redundant_aux().try_nice() else { return; };
-            let Ok(stata) = data.get_status_a().try_nice() else { return; };
+            let Ok(rdax) = data.get_redundant_aux().try_nice() else {
+                return;
+            };
+            let Ok(stata) = data.get_status_a().try_nice() else {
+                return;
+            };
 
             for chip in ChipId::iter() {
                 let temps = rdax[chip].to_temps().cell_temperatures;
@@ -154,7 +164,7 @@ use super::*;
                     }
 
                     if &temps[cell] < self.min_temp.value() {
-                        self.min_temp = CriticalCellValue { value: temps[cell], chip, cell}
+                        self.min_temp = CriticalCellValue { value: temps[cell], chip, cell }
                     }
 
                     total_temp += temps[cell].get::<degree_celsius>();
@@ -168,7 +178,7 @@ use super::*;
                 }
 
                 if self.max_chiptemp.value() < &stata[chip].itmp {
-                    self.max_chiptemp = CriticalChipValue { value: stata[chip].itmp, chip}
+                    self.max_chiptemp = CriticalChipValue { value: stata[chip].itmp, chip }
                 }
             }
 
