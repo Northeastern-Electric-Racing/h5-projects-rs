@@ -191,7 +191,7 @@ impl Efuse {
                 Output::new(pins.brake_en, Level::Low, EN_SPEED),
                 Input::new(pins.brake_er, ER_PULL),
                 200.0,
-                EfuseControlState::EfuseAuto,
+                EfuseControlState::EfuseOff,
                 Some(AutoPredicate {
                     value1: 0.0,
                     value2: 0.0,
@@ -229,7 +229,7 @@ impl Efuse {
                 Output::new(pins.radfan_en, Level::Low, EN_SPEED),
                 Input::new(pins.radfan_er, ER_PULL),
                 56.0,
-                EfuseControlState::EfuseAuto,
+                EfuseControlState::EfuseOff,
                 None,
                 None,
                 frame_for::<cangen::RadfanEfuse>,
@@ -239,7 +239,7 @@ impl Efuse {
                 Output::new(pins.fanbatt_en, Level::Low, EN_SPEED),
                 Input::new(pins.fanbatt_er, ER_PULL),
                 27.0,
-                EfuseControlState::EfuseAuto,
+                EfuseControlState::EfuseOff,
                 None,
                 None,
                 frame_for::<cangen::FanbattEfuse>,
@@ -249,7 +249,7 @@ impl Efuse {
                 Output::new(pins.pump1_en, Level::Low, EN_SPEED),
                 Input::new(pins.pump1_er, ER_PULL),
                 47.0,
-                EfuseControlState::EfuseAuto,
+                EfuseControlState::EfuseOff,
                 None,
                 None,
                 frame_for::<cangen::PumponeEfuse>,
@@ -259,7 +259,7 @@ impl Efuse {
                 Output::new(pins.pump2_en, Level::Low, EN_SPEED),
                 Input::new(pins.pump2_er, ER_PULL),
                 47.0,
-                EfuseControlState::EfuseAuto,
+                EfuseControlState::EfuseOff,
                 None,
                 None,
                 frame_for::<cangen::PumptwoEfuse>,
@@ -291,7 +291,7 @@ impl Efuse {
                 Output::new(pins.spare_en, Level::Low, EN_SPEED),
                 Input::new(pins.spare_er, ER_PULL),
                 0.0,
-                EfuseControlState::EfuseAuto,
+                EfuseControlState::EfuseOff,
                 Some(AutoPredicate {
                     value1: 0.0,
                     value2: 0.0,
@@ -436,6 +436,6 @@ pub async fn efuse_task(pins: EfusePins) {
             can::OUTGOING.send(efuse.to_frame(&adc)).await;
         }
 
-        Timer::after_millis(EFUSE_PERIOD_MS).await
+        Timer::after_millis(EFUSE_PERIOD_MS).await;
     }
 }

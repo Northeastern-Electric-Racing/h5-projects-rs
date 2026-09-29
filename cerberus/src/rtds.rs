@@ -6,8 +6,8 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use defmt::{debug, error};
 use embassy_futures::select::{Either, select};
+use defmt::{debug, error};
 use embassy_stm32::gpio::Output;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
@@ -18,7 +18,7 @@ const RTDS_DURATION: Duration = Duration::from_millis(1500); // was 1500 ticks i
 const COMMAND_QUEUE_SIZE: usize = 4;
 
 #[derive(Clone, Copy, defmt::Format)]
-enum RtdsCommand {
+pub(crate) enum RtdsCommand {
     Sound,
     Cancel,
 }
@@ -39,7 +39,7 @@ fn send_rtds_fault() {
 // (or just true w/ TSMS_OVERRIDE). returns false for now so rtds never goes off.
 // pass the real one into rtds_task once shutdown exists
 pub fn is_shutdown_closed_placeholder() -> bool {
-    false
+    true
 }
 
 static COMMANDS: Channel<ThreadModeRawMutex, RtdsCommand, COMMAND_QUEUE_SIZE> = Channel::new();
@@ -49,7 +49,7 @@ static PIN_ON: AtomicBool = AtomicBool::new(false);
 static SOUNDING: AtomicBool = AtomicBool::new(false);
 
 /// puts a command on the queue. fault gets raised in here so it still happens if the caller ignores the error
-fn send(command: RtdsCommand) -> Result<(), RtdsError> {
+pub(crate) fn send(command: RtdsCommand) -> Result<(), RtdsError> {
     COMMANDS.try_send(command).map_err(|_| {
         error!("RTDS command queue full, dropped {}.", command);
         send_rtds_fault();
@@ -108,6 +108,7 @@ impl Rtds {
     }
 
     fn handle_command(&mut self, command: RtdsCommand) {
+        debug!("Handling RTDS command: {:?}", command);
         match command {
             RtdsCommand::Sound => {
                 self.set_pin();
@@ -142,6 +143,7 @@ pub async fn rtds_task(pin: Output<'static>, shutdown_closed: fn() -> bool) -> !
     loop {
         match rtds.sound_deadline {
             Some(deadline) => {
+                debug!("Some sound");
                 let event: Either<RtdsCommand, ()> = select(COMMANDS.receive(), Timer::at(deadline)).await;
                 match event {
                     Either::First(command) => rtds.handle_command(command),
