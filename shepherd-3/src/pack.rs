@@ -1,14 +1,16 @@
 use strum::IntoEnumIterator;
 
 use crate::{
-    segments::{CellId, ChipId, SegmentId, IndexBySegment, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
-    units::{Temperature, Voltage, Percentage, degree_celsius, volt},
+    segments::{CellId, ChipId, ChipKind, SegmentId, IndexByChip, IndexByCell, IndexBySegment, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
+    units::{Temperature, Voltage, Current, Length, Percentage, Resistance, ResistancePerLength, degree_celsius, volt, consts::{from_ohms, from_millimeters, from_amps}},
 };
 
 mod analyzer {
     use uom::si::angle::degree;
 
-    use super::*;
+    use crate::units::consts::from_ohms_per_millimeter;
+
+use super::*;
 
     struct CriticalCellValue<T> {
         /// The critical value being stored here.
@@ -183,6 +185,44 @@ mod analyzer {
             }
 
             self.avg_temp = Temperature::new::<degree_celsius>(total_temp / NUM_CELLS_TOTAL as f32);
+        }
+
+        /// Corrects the ... todo finish this
+        fn correct_cell_voltages_25a(&mut self, voltages: &mut IndexByChip<IndexByCell<Voltage>>) {
+            for (chip, voltages) in voltages.iter_mut() {
+                // Constants and comments from TSECU-Shepherd
+                // 25A patch only: alpha lowest and beta highest need to be offset correctly
+                const UNIT_RES: ResistancePerLength = from_ohms_per_millimeter(0.00139_f32); // from 1/2 oz copper, 0.71mm trace width, 30C
+                const TRACE_LEN_ALPHA: Length = from_millimeters(234.56_f32 + 27.23_f32);
+                const TRACE_LEN_BETA: Length = from_millimeters(116.36_f32 + 27.431_f32);
+                const FUSE_RES: Resistance = from_ohms(0.1637_f32);
+                const TRACE_RES_ONBOARD_ALPHA: Resistance = from_ohms(0.015_f32); // ohms, correction offset
+                const TRACE_RES_ONBOARD_BETA: Resistance = from_ohms(0.20_f32); // ohms, correction offset
+
+                // The distance times the unit resistance, plus the resistance of the fuse
+                let (res, cell): (Resistance, CellId) = match chip.kind() {
+                    ChipKind::Alpha => {
+                        let res: Resistance = (UNIT_RES * TRACE_LEN_BETA) + FUSE_RES + TRACE_RES_ONBOARD_BETA;
+                        (res, CellId::Cell13)
+                    },
+                    ChipKind::Beta => {
+                        let res: Resistance = (UNIT_RES * TRACE_LEN_ALPHA) + FUSE_RES + TRACE_RES_ONBOARD_ALPHA;
+                        (res, CellId::Cell1)
+                    }
+                };
+
+                let curr_bal: Current = match state_machine::bms_state() {
+                    // measured on 4/5/2026, the current through the cells when in charging mode single shot C ADCs
+			        // redone to be higher 4/8 sans measurement
+                    BmsState::Charging => from_amps(0.029_f32),
+
+                    // measured on 4/5/2026, the current through the cells when in active mode continous C/S read compare
+                    _ => from_amps(0.031_f32),
+                };
+
+                // I*R is the way
+                voltages[cell] += curr_bal * res;
+            }
         }
     }
 
