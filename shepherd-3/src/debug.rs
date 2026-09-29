@@ -191,6 +191,7 @@ pub async fn faults_queuer_2() {
 
 /// Task that sends out debug HV plate data.
 /// Lowk sends way too much stuff but we can use it for verification of life for now.
+#[cfg(not(feature = "hil"))]
 #[embassy_executor::task]
 pub async fn hv_plate_debug() {
     use crate::hv_plate::{self, HV_PLATE_FRESH_DATA_SIGNAL};
