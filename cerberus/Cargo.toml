@@ -22,5 +22,5 @@ embassy-net.workspace = true
 rust-mqtt.workspace = true
 sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", version = "0.1.0" }
 ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs", branch = "can-handler-v2" }
-cangen = { package = "cangen", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs", branch = "can-handler-v2" }
+cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "2226d9a858cc40f3be02ec79a9a070f300b390af" }
 variant_count = "1.2.1"
