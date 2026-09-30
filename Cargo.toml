@@ -1,5 +1,5 @@
 [workspace]
-members = ["msb-fw-2", "shepherd-3", "lightning", "cerberus", "template-h5"]
+members = ["msb-fw-2", "shepherd-3", "lightning", "cerberus-3", "template-h5"]
 resolver = "3"
 
 [workspace.dependencies]
