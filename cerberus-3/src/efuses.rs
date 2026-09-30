@@ -162,9 +162,9 @@ impl Efuse {
         to_frame: fn(&EfuseTelemetry) -> Frame,
     ) -> Self {
         Efuse {
-            efuse_id: efuse_id,
-            en_pin: en_pin,
-            er_pin: er_pin,
+            efuse_id,
+            en_pin,
+            er_pin,
             scale: scale(scale_factor),
             control_state: default_state,
             auto_on_predicate,
