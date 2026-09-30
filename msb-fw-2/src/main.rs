@@ -9,10 +9,11 @@ use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::{time::Hertz, wdg};
 use embassy_time::Timer;
+use msb_fw_2::shock_pot::{ShockPots, shock_pot_task};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> ! {
     info!("Initializing project...");
 
     let mut config = Config::default();
@@ -59,6 +60,9 @@ async fn main(_spawner: Spawner) -> ! {
     }
 
     let p = embassy_stm32::init(config);
+
+    let shock_pots = ShockPots::new(p.ADC1, p.PC0, p.PC2, p.PC6, p.PC7);
+    spawner.spawn(shock_pot_task(shock_pots).expect("Failed to spawn shock_pot_task()."));
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
