@@ -2,9 +2,10 @@ use strum::IntoEnumIterator;
 
 use crate::{
     state_machine::{BmsState}, state_machine,
-    segments::{CellId, ChipId, ChipKind, SegmentId, IndexByChip, IndexByCell, IndexBySegment, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
+    segments::{CellId, ChipId, ChipKind, SegmentId, IndexByChip, IndexByCell, IndexBySegment, ThermistorTemperatures, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
     units::{Temperature, Voltage, Current, Length, Percentage, Resistance, ResistancePerLength, degree_celsius, volt, consts::{from_ohms, from_millimeters, from_amps}},
 };
+use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
 
 mod analyzer {
     use uom::si::angle::degree;
@@ -45,6 +46,77 @@ use super::*;
         }
         pub const fn chip(&self) -> ChipId {
             self.chip
+        }
+    }
+
+    /// Analyzer's comprehensive view of chip data taken from the cache. This represents data for a single chip.
+    /// 
+    /// This isn't 100% analgous to the `chipdata_t` struct from TSECU-Shep. This is meant
+    /// to be the stuff for Analyzer that can be taken directly from the cache (but doesn't incldue anything it has to calculate itself).
+    struct ChipData {
+        pub cell_temp: IndexByCell<Temperature>,
+        //pub cell_resistance: IndexByCell<Resistance>, u_TODO move to `Analyzer` since not directly from ADBMS6830B cache
+        //pub open_cell_voltage: IndexByCell<Voltage>, u_TODO move to `Analyzer` since not directly from ADBMS6830B cache
+        pub cell_voltages: IndexByCell<Voltage>,
+        pub s_cell_voltages: IndexByCell<Voltage>,
+
+        pub on_board_temp_1: Temperature,
+        pub on_board_temp_2: Temperature,
+        pub on_board_temp_3: Temperature, 
+
+        pub die_temp: Temperature,
+
+        pub is_balancing: IndexByCell<bool>,
+        pub cs_fault: IndexByCell<bool>,
+        //pub ow_fault: IndexByCell<bool>, u_TODO move to `Analyzer` since not directly from ADBMS6830B cache
+
+        pub vpv: Voltage,
+        pub vmv: Voltage,
+        pub v_res: Voltage,
+        pub vref2: Voltage,
+        pub v_analog: Voltage,
+        pub v_digital: Voltage,
+    }
+    impl ChipData {
+        /// Tries to create a new `ChipData` by reading in stuff from Cache. If the Cache hasn't been
+        /// filled yet, this will return `Err(())`.
+        pub fn try_new() -> Result<IndexByChip<Self>, ()> {
+            let cache = crate::segments::cache();
+            
+            let redundant_aux = cache.get_redundant_aux().try_nice()?;
+            let status_a = cache.get_status_a().try_nice()?;
+            
+            // Get cell voltagse, either from `cell_voltages` or `filtered_cell_voltages` depending on if we're charging or not
+            let cell_voltages: IndexByChip<IndexByCell<Voltage>> = match state_machine::bms_state() {
+                BmsState::Charging => { 
+                    let Ok(data) = cache.get_cell_voltages().try_nice() else { return Err(()); };
+                    data.into()
+                },
+
+                _ => {
+                    let Ok(data) = cache.get_filtered_cell_voltages().try_nice() else { return Err(()); };
+                    data.into()
+                }
+            };
+
+            let s_voltages: IndexByChip<IndexByCell<Voltage>> = cache.get_s_voltages().try_nice()?.into();
+            let pwm: IndexByChip<IndexByCell<PwmDutyCycleConfig>> = cache.get_pwm().try_nice()?.into();
+
+            Ok(IndexByChip::from_fn(|chip| {
+                let temps = redundant_aux[chip].to_temps();
+                ChipData {
+                    cell_temp: temps.cell_temperatures,
+                    cell_voltages: cell_voltages[chip],
+                    s_cell_voltages: s_voltages[chip],
+                    on_board_temp_1: temps.on_board_temp_1,
+                    on_board_temp_2: temps.on_board_temp_2,
+                    on_board_temp_3: temps.on_board_temp_3,
+                    die_temp: status_a[chip].itmp,
+                    is_balancing: pwm[chip].map_ref(|cfg| cfg.is_balancing())
+
+                }
+
+            }))
         }
     }
 
@@ -255,6 +327,26 @@ use super::*;
 
                 // I*R is the way
                 self.cell_voltages[chip][cell] += curr_bal * res;
+            }
+        }
+
+        /// Calculates pack voltage stats.
+        /// 
+        /// ### WARNING
+        /// This should be called after `calc_cell_voltages()` since it makes decisions based on the internal cell_voltages.
+        pub fn calc_pack_voltage_stats(&mut self, data: &CacheData) {
+            let mut total_volt: f32 = 0_f32;
+            let mut total_ocv: f32 = 0_f32;
+            let mut total_seg_volt: f32 = 0_f32;
+
+            for chip in ChipId::iter() {
+                for cell in CellId::iter() {
+                    if &self.cell_voltages[chip][cell] > self.max_voltage.value() {
+                        self.max_voltage = CriticalCellValue { value: self.cell_voltages[chip][cell], chip, cell }
+                    }
+
+                    if &self.cell_voltages[chip][cell] < 
+                }
             }
         }
     }

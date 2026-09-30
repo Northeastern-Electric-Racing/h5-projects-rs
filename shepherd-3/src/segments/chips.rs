@@ -108,6 +108,15 @@ pub mod cells {
         pub fn into_array(self) -> [T; NUM_CELLS_PER_CHIP] {
             self.data
         }
+
+        pub fn map<U>(self, f: impl FnMut(T) -> U) -> IndexByCell<U> {
+            IndexByCell { data: self.data.map(f) }
+        }
+
+        pub fn map_ref<U>(&self, f: impl FnMut(&T) -> U) -> IndexByCell<U> {
+            IndexByCell { data: self.data.each_ref().map(f) }
+        }
+
     }
 
     impl<T> core::ops::Index<CellId> for IndexByCell<T> {
@@ -665,7 +674,7 @@ pub mod gpios {
     /// The layout of this struct and the temperature calculations are based on the comment near the top of this module.
     pub struct ThermistorTemperatures {
         /// Temperatures for each cell. Note that some of the temperatures will be the same between some of the cells because some of the cells share the same thermistor.
-        pub cell_temperatures: CellTemperatures,
+        pub cell_temperatures: IndexByCell<Temperature>,
         /// First on-board temperature.
         pub on_board_temp_1: Temperature,
         /// Second on-board temperature.
@@ -682,8 +691,8 @@ pub mod gpios {
     impl From<IndexByGpio<Voltage>> for ThermistorTemperatures {
         fn from(gpios: IndexByGpio<Voltage>) -> Self {
             Self {
-                cell_temperatures: CellTemperatures {
-                    inner: IndexByCell::from_fn(|cell| match cell {
+                cell_temperatures: IndexByCell::from_fn(|cell| {
+                    match cell {
                         CellId::Cell1 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
                         CellId::Cell2 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
 
@@ -703,8 +712,8 @@ pub mod gpios {
                         CellId::Cell12 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
 
                         CellId::Cell13 => calc_cell_temp(gpios.get(GpioId::Gpio10)),
-                    }),
-                },
+                    }
+                }),
                 on_board_temp_1: calc_cell_temp(gpios.get(GpioId::Gpio3)),
                 on_board_temp_2: calc_cell_temp(gpios.get(GpioId::Gpio4)),
                 on_board_temp_3: calc_cell_temp(gpios.get(GpioId::Gpio5)),

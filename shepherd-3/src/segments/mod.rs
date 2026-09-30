@@ -18,7 +18,7 @@ pub use core::task::{segments_task, signal::SEGMENTS_FRESH_DATA_SIGNAL};
 pub use chips::{
     ChipId, IndexByChip, ChipKind,
     cells::{CellId, IndexByCell, NUM_CELLS_TOTAL},
-    gpios::{GpioId, IndexByGpio},
+    gpios::{GpioId, IndexByGpio, ThermistorTemperatures},
     segments::{SegmentId, IndexBySegment, NUM_CELLS_PER_SEGMENT},
 };
 pub use cache::{CacheData, RegisterCacheData, Reading, fault_counts, redundant_aux, cell_voltages, average_cell_voltages, filtered_cell_voltages, s_voltages, status_c, status_d, aux, status_a, status_b, pwm};

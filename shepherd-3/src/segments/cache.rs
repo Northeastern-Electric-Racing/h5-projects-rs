@@ -896,6 +896,13 @@ pub mod average_cell_voltages {
         }
     }
 
+    impl From<NiceData> for IndexByChip<IndexByCell<Voltage>> {
+        fn from(nice: NiceData) -> Self {
+            // at least on release mode this should be zero cost
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
+        }
+    }
+
     impl CacheData {
         /// Updates caches AverageCellVoltages A through E with new data.
         ///
@@ -1173,6 +1180,13 @@ pub mod s_voltages {
                     })
                 },
             })
+        }
+    }
+
+    impl From<NiceData> for IndexByChip<IndexByCell<Voltage>> {
+        fn from(nice: NiceData) -> Self {
+            // at least on release mode this should be zero cost
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
         }
     }
 
@@ -1996,6 +2010,13 @@ pub mod pwm {
                     })
                 },
             })
+        }
+    }
+
+    impl From<NiceData> for IndexByChip<IndexByCell<PwmDutyCycleConfig>> {
+        fn from(nice: NiceData) -> Self {
+            // at least on release mode this should be zero cost
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
         }
     }
 
