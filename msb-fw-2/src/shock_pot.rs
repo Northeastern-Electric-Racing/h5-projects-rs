@@ -14,7 +14,7 @@ const ZERO_OFFSET: [f32; NUM_SHOCK_POTS] = [0.0, 0.0];
 const SCALE_FACTOR: [f32; NUM_SHOCK_POTS] = [1.0, 1.0];
 /// Voltage at zero travel. MEASURE AND REPLACE THIS.
 const CALIBRATED_V: [f32; NUM_SHOCK_POTS] = [3.3, 3.3];
-/// Per-pot trim from the C firmware (left / right).
+/// Per-pot trim from the C firmware, indexed by [`ShockPot`] (pot 1 = right, pot 2 = left).
 const TRAVEL_TRIM_IN: [f32; NUM_SHOCK_POTS] = [0.195, 0.140];
 /// Full stroke length. REPLACE THIS.
 const SHOCK_POT_LENGTH_IN: f32 = 1.9685;
@@ -30,27 +30,27 @@ pub static SHOCK_POT_DATA: Watch<ThreadModeRawMutex, [ShockPotReading; NUM_SHOCK
 #[derive(Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum ShockPot {
     /// `SHOCK_POT1` in the C firmware.
-    Front = 0,
+    Right = 0,
     /// `SHOCK_POT2` in the C firmware.
-    Back = 1,
+    Left = 1,
 }
 
 impl ShockPot {
-    pub const ALL: [ShockPot; NUM_SHOCK_POTS] = [ShockPot::Front, ShockPot::Back];
+    pub const ALL: [ShockPot; NUM_SHOCK_POTS] = [ShockPot::Right, ShockPot::Left];
 
     /// Fixed-width name so log rows line up.
     const fn name(self) -> &'static str {
         match self {
-            ShockPot::Front => "front",
-            ShockPot::Back => "back ",
+            ShockPot::Right => "right",
+            ShockPot::Left => "left ",
         }
     }
 
     /// Where this pot is wired on the muxes (LPF1 / LPF2 on U18).
     const fn source(self) -> (MuxId, MuxChannel, MuxInput) {
         match self {
-            ShockPot::Front => (MuxId::U18, MuxChannel::Ch1, MuxInput::B),
-            ShockPot::Back => (MuxId::U18, MuxChannel::Ch2, MuxInput::B),
+            ShockPot::Right => (MuxId::U18, MuxChannel::Ch1, MuxInput::B),
+            ShockPot::Left => (MuxId::U18, MuxChannel::Ch2, MuxInput::B),
         }
     }
 }
