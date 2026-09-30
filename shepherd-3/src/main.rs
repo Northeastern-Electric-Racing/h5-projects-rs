@@ -19,6 +19,7 @@ pub mod units;
 pub mod broadcast;
 pub mod job_diagnostics;
 pub mod debug;
+pub mod state_machine;
 pub mod faults;
 
 use assign_resources::assign_resources;
@@ -122,11 +123,13 @@ async fn main(spawner: Spawner) {
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
-    spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
+    spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
     spawner.spawn(faults::task::faults_task().expect("Failed to spawn faults task."));
+    spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
     spawner.spawn(debug::faults_debug(spawner).expect("Failed to spawn faults debug task."));
     #[cfg(not(feature = "hil"))]
     spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
+    spawner.spawn(debug::state_machine_debug().expect("Failed to spawn debug::state_machine_debug()."));
 }
 
 /// pet the dog beat the heart
