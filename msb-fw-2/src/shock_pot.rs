@@ -82,7 +82,7 @@ pub struct ShockPots<'d> {
     adc: Adc<'d, ADC1, Blocking>,
     shock1: BorrowedAdcChannel<'d, ADC1>,
     shock2: BorrowedAdcChannel<'d, ADC1>,
-    // Held high for as long as this struct lives, so the mux stays on the shock pots.
+    // Held low for as long as this struct lives, so the mux stays on the shock pots.
     _shock1_sel: Output<'d>,
     _shock2_sel: Output<'d>,
 }
@@ -93,8 +93,8 @@ impl<'d> ShockPots<'d> {
             adc: Adc::new_blocking(adc, AdcConfig::default()),
             shock1: shock1_adc.degrade_adc(),
             shock2: shock2_adc.degrade_adc(),
-            _shock1_sel: Output::new(shock1_sel, Level::High, Speed::Low),
-            _shock2_sel: Output::new(shock2_sel, Level::High, Speed::Low),
+            _shock1_sel: Output::new(shock1_sel, Level::Low, Speed::Low),
+            _shock2_sel: Output::new(shock2_sel, Level::Low, Speed::Low),
         }
     }
 
