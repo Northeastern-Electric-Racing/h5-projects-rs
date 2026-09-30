@@ -7,12 +7,18 @@ use defmt::debug;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
+use embassy_stm32::adc::{Adc, Config as AdcConfig};
 use embassy_stm32::{time::Hertz, wdg};
 use embassy_time::Timer;
+use msb_fw_2::multiplexor_handler::{MuxHandler, MuxPins, SharedMux};
+use msb_fw_2::shock_pot;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
+static MUX: StaticCell<SharedMux> = StaticCell::new();
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> ! {
     info!("Initializing project...");
 
     let mut config = Config::default();
@@ -59,6 +65,33 @@ async fn main(_spawner: Spawner) -> ! {
     }
 
     let p = embassy_stm32::init(config);
+
+    let adc1 = Adc::new_blocking(p.ADC1, AdcConfig::default());
+    let adc2 = Adc::new_blocking(p.ADC2, AdcConfig::default());
+    let mux = MUX.init(SharedMux::new(MuxHandler::new(
+        adc1,
+        adc2,
+        MuxPins {
+            u18_sel1: p.PC6,
+            u18_sel2: p.PC7,
+            u18_sel3: p.PC8,
+            u18_sel4: p.PC9,
+            u19_sel1: p.PF6,
+            u19_sel2: p.PF7,
+            u19_sel3: p.PF8,
+            u19_sel4: p.PF9,
+            u18_d1: p.PC0,
+            u18_d2: p.PC2,
+            u18_d3: p.PC3,
+            u18_d4: p.PA0,
+            u19_d1: p.PA3,
+            u19_d2: p.PF13,
+            u19_d3: p.PF14,
+            u19_d4: p.PF12,
+        },
+    )));
+
+    spawner.spawn(shock_pot::shock_pot_task(mux).expect("Failed to spawn shock_pot::shock_pot_task()."));
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
