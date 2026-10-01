@@ -1,0 +1,5 @@
+# Run these aliases from atlas/. Host tools and firmware use the root target directory.
+[alias]
+build-atlas = ["run", "--manifest-path", "tools/Cargo.toml", "--target", "host-tuple", "--target-dir", "../target", "--"]
+run-atlas = ["run", "--manifest-path", "tools/Cargo.toml", "--target", "host-tuple", "--target-dir", "../target", "--", "--run"]
+download-atlas = ["run", "--manifest-path", "tools/Cargo.toml", "--target", "host-tuple", "--target-dir", "../target", "--", "--download"]
