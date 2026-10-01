@@ -1,14 +1,20 @@
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
+use embassy_stm32::i2c::{I2c, Master};
+use embassy_stm32::mode::Blocking;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_time::Delay;
 use lsm6dso::Lsm6dso;
-use lsm6dsox::Lsm6dsox;
+use lsm6dsox::{Lsm6dsox, SlaveAddress};
 use uom::si::acceleration::meter_per_second_squared;
 use uom::si::angular_acceleration;
 use uom::si::f32::*;
 use uom::si::length::meter;
 
+/// lsm6dsox is a blocking (embedded-hal 1.0) driver, so it needs the blocking shared bus.
+pub type ImuI2c = I2cDevice<'static, ThreadModeRawMutex, I2c<'static, Blocking, Master>>;
+
 pub struct IMU {
-    // TODO: Set up I2C Generic
-    imu: Lsm6dsox<...>
+    imu: Lsm6dsox<ImuI2c, Delay>,
 }
 
 pub struct AccelVec {
@@ -37,6 +43,11 @@ impl AccelVec {
 }
 
 impl IMU {
+    pub fn new(i2c: ImuI2c, address: SlaveAddress) -> Self {
+        IMU {
+            imu: Lsm6dsox::new(i2c, address, Delay),
+        }
+    }
     fn get_accel(&self) -> AccelVec {
         todo!("do this")
     }
