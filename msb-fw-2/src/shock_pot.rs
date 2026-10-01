@@ -1,6 +1,6 @@
 //! Shock potentiometer polling. Ported from `u_shock_pot.c` in the C firmware.
 
-use crate::multiplexor_handler::{MuxChannel, MuxId, MuxInput, SharedMux};
+use crate::multiplexor_handler::{MUX_SNAPSHOT, MuxChannel, MuxId, MuxInput};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Ticker};
@@ -75,13 +75,14 @@ pub fn convert(pot: ShockPot, raw: u16) -> ShockPotReading {
 }
 
 #[embassy_executor::task]
-pub async fn shock_pot_task(mux: &'static SharedMux) {
+pub async fn shock_pot_task() {
+    let mut rx = MUX_SNAPSHOT.receiver().expect("Too many MUX_SNAPSHOT receivers.");
     let sender = SHOCK_POT_DATA.sender();
     let mut ticker = Ticker::every(POLL_PERIOD);
 
     loop {
-        // Read every mux source; only the shock pots (LPF1 / LPF2) are used for now.
-        let snapshot = mux.lock().await.read_all().await;
+        // Latest scan of every mux input; waits only until the first scan lands.
+        let snapshot = rx.get().await;
 
         let readings = ShockPot::ALL.map(|pot| {
             let (id, channel, input) = pot.source();

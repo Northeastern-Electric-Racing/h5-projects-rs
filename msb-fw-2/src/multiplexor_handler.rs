@@ -1,27 +1,12 @@
-//! Handler for the two TMUX1134 analog multiplexers on the MSB.
-//!
-//! Each TMUX1134 has four 2:1 switches. `SELx` picks whether `Dx` is connected to `SxA` or `SxB`,
-//! and every `Dx` line runs through a 100 Ω / 100 nF RC filter into an ADC pin. Sensors never
-//! touch the SEL pins directly; they ask the handler to read a (mux, channel, input) source,
-//! which switches the mux, waits for the RC filter to settle, then samples the ADC.
-//!
-//! | Mux | SEL pins  | D1               | D2              | D3              | D4              |
-//! |-----|-----------|------------------|-----------------|-----------------|-----------------|
-//! | U18 | PC6..PC9  | PC0  (ADC1 ch10) | PC2 (ADC1 ch12) | PC3 (ADC1 ch13) | PA0 (ADC1 ch0)  |
-//! | U19 | PF6..PF9  | PA3  (ADC2 ch15) | PF13 (ADC2 ch2) | PF14 (ADC2 ch6) | PF12 (ADC1 ch6) |
-//!
-//! U18 inputs: `SxA` = STRAIN_OUT1..4, `SxB` = LPF1..4.
-//! U19 inputs: S1A = THERMOCOUPLE, S1B = LPF5, S2A/B = LPF6/LPF7, S3A = LPF8, S3B = ADC_EXT1,
-//! S4A/B = ADC_EXT2/ADC_EXT3.
-
-use embassy_stm32::Peri;
+use embassy_futures::join::join;
 use embassy_stm32::adc::{Adc, AdcChannel, BorrowedAdcChannel, SampleTime};
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
 use embassy_stm32::mode::Blocking;
-use embassy_stm32::peripherals::{ADC1, ADC2};
+use embassy_stm32::peripherals::{ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1};
+use embassy_stm32::{Peri, bind_interrupts, dma};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::mutex::Mutex;
-use embassy_time::Timer;
+use embassy_sync::watch::Watch;
+use embassy_time::{Duration, Instant, Ticker, Timer};
 
 /// Settling time after a SEL change. The D-side RC filter has τ = 10 µs; ~9τ settles to 12 bits.
 const MUX_SETTLE_US: u64 = 100;
@@ -29,11 +14,36 @@ const MUX_SETTLE_US: u64 = 100;
 /// ADC sample time, matching the C firmware (92.5 cycles).
 const SAMPLE_TIME: SampleTime = SampleTime::Cycles925;
 
-/// The mux handler shared between all analog sensor tasks.
-///
-/// Hold the lock across the whole select → settle → read sequence so another task cannot flip
-/// the SEL pins mid-read.
-pub type SharedMux = Mutex<ThreadModeRawMutex, MuxHandler<'static>>;
+/// How often [`mux_scan_task`] scans every mux input.
+const SCAN_PERIOD: Duration = Duration::from_millis(10);
+
+/// Max number of sensor tasks that can subscribe to [`MUX_SNAPSHOT`]. Raise as sensors are added.
+pub const MAX_SENSOR_TASKS: usize = 8;
+
+/// Latest scan of every mux input, published by [`mux_scan_task`].
+pub static MUX_SNAPSHOT: Watch<ThreadModeRawMutex, MuxSnapshot, MAX_SENSOR_TASKS> = Watch::new();
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<GPDMA1_CH1>;
+});
+
+/// Mux outputs converted by ADC1, in DMA scan order.
+const ADC1_SCAN: [(MuxId, MuxChannel); 5] = [
+    (MuxId::U18, MuxChannel::Ch1), // PC0, ch10
+    (MuxId::U18, MuxChannel::Ch2), // PC2, ch12
+    (MuxId::U18, MuxChannel::Ch3), // PC3, ch13
+    (MuxId::U18, MuxChannel::Ch4), // PA0, ch0
+    (MuxId::U19, MuxChannel::Ch4), // PF12, ch6
+];
+
+/// Mux outputs converted by ADC2, in DMA scan order. PA3 is shared by ADC1/2 but read on ADC2, as
+/// in the C firmware.
+const ADC2_SCAN: [(MuxId, MuxChannel); 3] = [
+    (MuxId::U19, MuxChannel::Ch1), // PA3, ch15
+    (MuxId::U19, MuxChannel::Ch2), // PF13, ch2
+    (MuxId::U19, MuxChannel::Ch3), // PF14, ch6
+];
 
 /// Which TMUX1134 on the board.
 #[derive(Clone, Copy, PartialEq, Eq, defmt::Format)]
@@ -107,21 +117,18 @@ impl<'d> Mux<'d> {
     }
 }
 
-/// The ADC channel a mux output lands on. U19 D1 (PA3) is shared by ADC1/2 but read on ADC2, as in
-/// the C firmware.
-enum MuxOutput<'d> {
-    Adc1(BorrowedAdcChannel<'d, ADC1>),
-    Adc2(BorrowedAdcChannel<'d, ADC2>),
-}
-
-/// Owns both muxes, both ADCs, and the eight mux output pins.
+/// Owns both muxes, both ADCs with their DMA channels, and the eight mux output pins.
 pub struct MuxHandler<'d> {
     u18: Mux<'d>,
     u19: Mux<'d>,
     adc1: Adc<'d, ADC1, Blocking>,
     adc2: Adc<'d, ADC2, Blocking>,
-    u18_out: [MuxOutput<'d>; 4],
-    u19_out: [MuxOutput<'d>; 4],
+    dma1: Peri<'d, GPDMA1_CH0>,
+    dma2: Peri<'d, GPDMA1_CH1>,
+    /// Channels in [`ADC1_SCAN`] order.
+    adc1_ch: [BorrowedAdcChannel<'d, ADC1>; ADC1_SCAN.len()],
+    /// Channels in [`ADC2_SCAN`] order.
+    adc2_ch: [BorrowedAdcChannel<'d, ADC2>; ADC2_SCAN.len()],
 }
 
 /// Pins used by the [`MuxHandler`].
@@ -145,43 +152,34 @@ pub struct MuxPins<'d> {
 }
 
 impl<'d> MuxHandler<'d> {
-    pub fn new(adc1: Adc<'d, ADC1, Blocking>, adc2: Adc<'d, ADC2, Blocking>, pins: MuxPins<'d>) -> Self {
+    pub fn new(
+        adc1: Adc<'d, ADC1, Blocking>,
+        adc2: Adc<'d, ADC2, Blocking>,
+        dma1: Peri<'d, GPDMA1_CH0>,
+        dma2: Peri<'d, GPDMA1_CH1>,
+        pins: MuxPins<'d>,
+    ) -> Self {
         Self {
             u18: Mux::new(pins.u18_sel1, pins.u18_sel2, pins.u18_sel3, pins.u18_sel4),
             u19: Mux::new(pins.u19_sel1, pins.u19_sel2, pins.u19_sel3, pins.u19_sel4),
             adc1,
             adc2,
-            u18_out: [
-                MuxOutput::Adc1(pins.u18_d1.degrade_adc()),
-                MuxOutput::Adc1(pins.u18_d2.degrade_adc()),
-                MuxOutput::Adc1(pins.u18_d3.degrade_adc()),
-                MuxOutput::Adc1(pins.u18_d4.degrade_adc()),
+            dma1,
+            dma2,
+            adc1_ch: [
+                pins.u18_d1.degrade_adc(),
+                pins.u18_d2.degrade_adc(),
+                pins.u18_d3.degrade_adc(),
+                pins.u18_d4.degrade_adc(),
+                pins.u19_d4.degrade_adc(),
             ],
-            u19_out: [
-                MuxOutput::Adc2(pins.u19_d1.degrade_adc()),
-                MuxOutput::Adc2(pins.u19_d2.degrade_adc()),
-                MuxOutput::Adc2(pins.u19_d3.degrade_adc()),
-                MuxOutput::Adc1(pins.u19_d4.degrade_adc()),
-            ],
+            adc2_ch: [pins.u19_d1.degrade_adc(), pins.u19_d2.degrade_adc(), pins.u19_d3.degrade_adc()],
         }
     }
 
-    fn mux(&mut self, mux: MuxId) -> &mut Mux<'d> {
-        match mux {
-            MuxId::U18 => &mut self.u18,
-            MuxId::U19 => &mut self.u19,
-        }
-    }
-
-    /// Selects `input` on one channel, waiting for the output to settle if it changed.
-    pub async fn select(&mut self, mux: MuxId, channel: MuxChannel, input: MuxInput) {
-        if self.mux(mux).set(channel, input) {
-            Timer::after_micros(MUX_SETTLE_US).await;
-        }
-    }
-
-    /// Selects `input` on every channel of both muxes (like the C `adc_switchMuxStates`).
-    pub async fn select_all(&mut self, input: MuxInput) {
+    /// Selects `input` on every channel of both muxes (like the C `adc_switchMuxStates`), waiting
+    /// for the outputs to settle if anything changed.
+    async fn select_all(&mut self, input: MuxInput) {
         let mut changed = false;
         for channel in MuxChannel::ALL {
             changed |= self.u18.set(channel, input);
@@ -192,48 +190,67 @@ impl<'d> MuxHandler<'d> {
         }
     }
 
-    /// Selects a source and returns the raw 12-bit ADC reading of it.
-    pub async fn read(&mut self, mux: MuxId, channel: MuxChannel, input: MuxInput) -> u16 {
-        self.select(mux, channel, input).await;
-        self.sample(mux, channel)
+    /// Converts every mux output as currently selected, with both ADCs scanning over DMA at once.
+    async fn scan(&mut self) -> ([u16; ADC1_SCAN.len()], [u16; ADC2_SCAN.len()]) {
+        let mut buf1 = [0u16; ADC1_SCAN.len()];
+        let mut buf2 = [0u16; ADC2_SCAN.len()];
+
+        let seq1 = self.adc1_ch.iter_mut().map(|ch| (ch.reborrow_adc(), SAMPLE_TIME));
+        let seq2 = self.adc2_ch.iter_mut().map(|ch| (ch.reborrow_adc(), SAMPLE_TIME));
+        join(
+            self.adc1.read_sequence(self.dma1.reborrow(), Irqs, seq1, None, &mut buf1),
+            self.adc2.read_sequence(self.dma2.reborrow(), Irqs, seq2, None, &mut buf2),
+        )
+        .await;
+
+        (buf1, buf2)
     }
 
     /// Reads every input of every channel on both muxes: all `A` inputs, then all `B` inputs,
     /// settling once per switch.
     pub async fn read_all(&mut self) -> MuxSnapshot {
-        let mut snapshot = MuxSnapshot::default();
+        let mut snapshot = MuxSnapshot::EMPTY;
         for input in [MuxInput::A, MuxInput::B] {
             self.select_all(input).await;
-            for mux in [MuxId::U18, MuxId::U19] {
-                for channel in MuxChannel::ALL {
-                    let raw = self.sample(mux, channel);
-                    snapshot.set(mux, channel, input, raw);
-                }
+            let (buf1, buf2) = self.scan().await;
+            for (&(mux, channel), &raw) in ADC1_SCAN.iter().zip(buf1.iter()) {
+                snapshot.set(mux, channel, input, raw);
+            }
+            for (&(mux, channel), &raw) in ADC2_SCAN.iter().zip(buf2.iter()) {
+                snapshot.set(mux, channel, input, raw);
             }
         }
+        snapshot.timestamp = Instant::now();
         snapshot
     }
+}
 
-    /// Samples a mux output as currently selected.
-    fn sample(&mut self, mux: MuxId, channel: MuxChannel) -> u16 {
-        let out = match mux {
-            MuxId::U18 => &mut self.u18_out[channel as usize],
-            MuxId::U19 => &mut self.u19_out[channel as usize],
-        };
-        match out {
-            MuxOutput::Adc1(ch) => self.adc1.blocking_read(ch, SAMPLE_TIME),
-            MuxOutput::Adc2(ch) => self.adc2.blocking_read(ch, SAMPLE_TIME),
-        }
+/// Owns the [`MuxHandler`] and publishes a full scan to [`MUX_SNAPSHOT`] every [`SCAN_PERIOD`].
+///
+/// Sensor tasks never touch the muxes or ADCs; they subscribe to [`MUX_SNAPSHOT`] and pick out
+/// their sources with [`MuxSnapshot::get`].
+#[embassy_executor::task]
+pub async fn mux_scan_task(mut mux: MuxHandler<'static>) {
+    let sender = MUX_SNAPSHOT.sender();
+    let mut ticker = Ticker::every(SCAN_PERIOD);
+
+    loop {
+        sender.send(mux.read_all().await);
+        ticker.next().await;
     }
 }
 
 /// Raw 12-bit readings of every mux source, indexed by `[mux][channel][input]`.
-#[derive(Clone, Copy, Default, defmt::Format)]
+#[derive(Clone, Copy, defmt::Format)]
 pub struct MuxSnapshot {
     raw: [[[u16; 2]; 4]; 2],
+    /// When the scan finished.
+    pub timestamp: Instant,
 }
 
 impl MuxSnapshot {
+    const EMPTY: Self = Self { raw: [[[0; 2]; 4]; 2], timestamp: Instant::from_ticks(0) };
+
     const fn index(mux: MuxId, channel: MuxChannel, input: MuxInput) -> (usize, usize, usize) {
         let m = match mux {
             MuxId::U18 => 0,

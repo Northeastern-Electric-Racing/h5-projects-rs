@@ -10,12 +10,10 @@ use embassy_stm32::Config;
 use embassy_stm32::adc::{Adc, Config as AdcConfig};
 use embassy_stm32::{time::Hertz, wdg};
 use embassy_time::Timer;
-use msb_fw_2::multiplexor_handler::{MuxHandler, MuxPins, SharedMux};
+use msb_fw_2::multiplexor_handler::{self, MuxHandler, MuxPins};
 use msb_fw_2::shock_pot;
-use static_cell::StaticCell;
+use msb_fw_2::steering_angle;
 use {defmt_rtt as _, panic_probe as _};
-
-static MUX: StaticCell<SharedMux> = StaticCell::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -68,9 +66,11 @@ async fn main(spawner: Spawner) -> ! {
 
     let adc1 = Adc::new_blocking(p.ADC1, AdcConfig::default());
     let adc2 = Adc::new_blocking(p.ADC2, AdcConfig::default());
-    let mux = MUX.init(SharedMux::new(MuxHandler::new(
+    let mux = MuxHandler::new(
         adc1,
         adc2,
+        p.GPDMA1_CH0,
+        p.GPDMA1_CH1,
         MuxPins {
             u18_sel1: p.PC6,
             u18_sel2: p.PC7,
@@ -89,9 +89,11 @@ async fn main(spawner: Spawner) -> ! {
             u19_d3: p.PF14,
             u19_d4: p.PF12,
         },
-    )));
+    );
 
-    spawner.spawn(shock_pot::shock_pot_task(mux).expect("Failed to spawn shock_pot::shock_pot_task()."));
+    spawner.spawn(multiplexor_handler::mux_scan_task(mux).expect("Failed to spawn multiplexor_handler::mux_scan_task()."));
+    spawner.spawn(shock_pot::shock_pot_task().expect("Failed to spawn shock_pot::shock_pot_task()."));
+    spawner.spawn(steering_angle::steering_angle_task().expect("Failed to spawn steering_angle::steering_angle_task()."));
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
