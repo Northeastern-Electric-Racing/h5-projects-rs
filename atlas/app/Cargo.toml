@@ -1,0 +1,18 @@
+[package]
+name = "atlas-app"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+cortex-m.workspace = true
+embassy-boot-stm32.workspace = true
+embedded-can.workspace = true
+embedded-storage.workspace = true
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true
