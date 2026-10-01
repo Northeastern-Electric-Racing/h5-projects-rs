@@ -19,5 +19,6 @@ pub const fn cache() -> &'static CacheData {
 }
 
 // Re-exports
+pub use core::api::set_hv_relay;
 pub use core::task::{hv_plate_task, signal::HV_PLATE_FRESH_DATA_SIGNAL};
 pub use cache::{CacheData, RegisterCacheData, UpdateError, accumulated, aux, current_voltage, flag, status, voltages};
