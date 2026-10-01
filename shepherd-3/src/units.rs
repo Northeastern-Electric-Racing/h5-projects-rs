@@ -2,6 +2,7 @@
 
 pub use uom::si::thermodynamic_temperature::degree_celsius;
 pub use uom::si::electric_potential::volt;
+pub use uom::si::electrical_resistance::ohm;
 
 /// Voltage!
 ///
@@ -36,6 +37,19 @@ pub mod consts {
         pub const KILO: f32 = 1e3;
         pub const MEGA: f32 = 1e6;
     }
+
+    // Voltage
+    /// Creates a `Voltage` from a value in Volts.
+    pub const fn from_volts(value: f32) -> Voltage {
+        // uom's base si unit is volts, so you are able to just pass the value straight in.
+        Voltage { dimension: PhantomData, units: PhantomData, value }
+    }
+    /// Creates a `Voltage` from a value in mV.
+    pub const fn from_millivolts(value: f32) -> Voltage { from_volts(value * scalers::MILLI) }
+    /// Creates a `Voltage` from a value in kV.
+    pub const fn from_kilovolts(value: f32) -> Voltage { from_volts(value * scalers::KILO) }
+    /// Creates a `Voltage` from a value in MV.
+    pub const fn from_megavolts(value: f32) -> Voltage { from_volts(value * scalers::MEGA) }
 
     // RESISTANCE
     /// Creates a `Resistance` from a value in Ohms.
@@ -82,6 +96,21 @@ pub mod consts {
     pub const fn from_kiloamps(value: f32) -> Current { from_amps(value * scalers::KILO) }
     /// Creates a `Current` from a value in MA. dont
     pub const fn from_megaamps(value: f32) -> Current { from_amps(value * scalers::MEGA) }
+
+    // TEMPERATURE
+    /// Creates a `Temperature` from a value in Kelvin.
+    pub const fn from_kelvin(value: f32) -> Temperature {
+        // uom's base si unit is kelvin, so you are able to just pass the value straight in.
+        Temperature { dimension: PhantomData, units: PhantomData, value }
+    }
+    /// Creates a `Temperature` from a value in °C.
+    pub const fn from_celsius(value: f32) -> Temperature {
+        const KELVIN_OFFSET: f32 = 273.15;
+        from_kelvin(value + KELVIN_OFFSET) 
+    }
+    /// Creates a `Temperature` from a value in m°C.
+    pub const fn from_millicelsius(value: f32) -> Temperature { from_celsius(value * scalers::MILLI) }
+
     
 }
 
@@ -94,6 +123,7 @@ mod percentage {
     ///
     /// This is a simple wrapper type around `Ratio` from `uom`. It is useful when you are basically
     /// only going to use a Percentage and don't care about the `Ratio` base unit.
+    #[derive(Copy, Clone)]
     pub struct Percentage {
         inner: Ratio,
     }
@@ -124,7 +154,7 @@ mod microcelcius_unit {
         system: uom::si;
         quantity: uom::si::thermodynamic_temperature;
 
-        @microcelcius: 1.0e-6, 273.15; "uC", "degree (microcelcius)", "degrees (microcelcius)";
+        @microcelcius: 1.0e-6, 273.15e6; "uC", "degree (microcelcius)", "degrees (microcelcius)";
     }
 }
 pub use microcelcius_unit::microcelcius;
@@ -135,7 +165,7 @@ mod millicelcius_unit {
         system: uom::si;
         quantity: uom::si::thermodynamic_temperature;
 
-        @millicelcius: 1.0e-3, 273.15; "mC", "degree (millicelcius)", "degrees (millicelcius)";
+        @millicelcius: 1.0e-3, 273.15e3; "mC", "degree (millicelcius)", "degrees (millicelcius)";
     }
 }
 pub use millicelcius_unit::millicelcius;

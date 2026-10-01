@@ -73,6 +73,13 @@ pub mod cells {
     pub type IterMut<'borrow, T> = core::iter::Zip<CellIds, core::slice::IterMut<'borrow, T>>;
     pub type IntoIter<T> = core::iter::Zip<CellIds, core::array::IntoIter<T, { NUM_CELLS_PER_CHIP }>>;
 
+    impl <T: Copy> IndexByCell<T> {
+        /// Creates a new `IndexByCell` by initializing every element to `value`.
+        pub const fn from_value(value: T) -> Self {
+            Self { data: [value; NUM_CELLS_PER_CHIP] }
+        }
+    }
+
     impl<T> IndexByCell<T> {
         /// Creates a new `IndexByCell` directly from an array.
         pub const fn new(data: [T; NUM_CELLS_PER_CHIP]) -> Self {
@@ -485,6 +492,13 @@ impl<T> IndexByChip<T> {
     /// Converts this back into its inner array.
     pub fn into_array(self) -> [T; ADBMS6830B_NUM_CHIPS] {
         self.data
+    }
+}
+
+impl <T: Copy> IndexByChip<T> {
+    /// Creates a new `IndexByChip` by initializing every element to `value`.
+    pub const fn from_value(value: T) -> Self {
+        Self { data: [value; ADBMS6830B_NUM_CHIPS] }
     }
 }
 
