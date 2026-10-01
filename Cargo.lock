@@ -294,6 +294,7 @@ dependencies = [
  "rust-mqtt",
  "sht3x-ner",
  "static_cell",
+ "uom",
  "variant_count",
 ]
 
