@@ -134,13 +134,13 @@ mod service {
     }
 
     /// Work `evaluate` could not do itself, because it needs the wire.
-    pub(super) enum Action {
+    pub enum Action {
         None,
         /// The line was switched. Re-run startup to reconfigure and resynchronise the chip.
         Restart,
     }
 
-    pub(super) struct Service {
+    pub struct Service {
         state: State,
         /// Lifetime PEC-failure count at the last accumulator reset.
         pec_baseline: u32,
@@ -158,7 +158,7 @@ mod service {
     }
 
     impl Service {
-        pub(super) fn new(now: Instant) -> Self {
+        pub fn new(now: Instant) -> Self {
             Self {
                 state: State::Normal,
                 pec_baseline: 0,
@@ -178,7 +178,7 @@ mod service {
         /// when we expected otherwise has rebooted. Note the counter is stale for the rest of
         /// the cycle startup ran in, since nothing has read it back yet; the read jobs run
         /// immediately after, so it settles the same cycle.
-        pub(super) fn needs_startup(&self, api: &alias::Api) -> bool {
+        fn needs_startup(&self, api: &alias::Api) -> bool {
             if !self.started {
                 return true;
             }
@@ -192,12 +192,12 @@ mod service {
         }
 
         /// Records that startup succeeded.
-        pub(super) const fn mark_started(&mut self) {
+        const fn mark_started(&mut self) {
             self.started = true;
         }
 
         /// Advances the recovery state machine. Call once per cycle.
-        pub(super) fn evaluate(&mut self, api: &mut alias::Api, now: Instant) -> Action {
+        fn evaluate(&mut self, api: &mut alias::Api, now: Instant) -> Action {
             match self.state {
                 State::Normal => {
                     if self.recovery_successful {
@@ -289,11 +289,11 @@ mod service {
             }
         }
 
-        fn errors_since_reset(&self, api: &alias::Api) -> u32 {
+        const fn errors_since_reset(&self, api: &alias::Api) -> u32 {
             api.device().pec_failed_count().saturating_sub(self.pec_baseline)
         }
 
-        fn reset_accumulator(&mut self, api: &alias::Api) {
+        const fn reset_accumulator(&mut self, api: &alias::Api) {
             self.pec_baseline = api.device().pec_failed_count();
         }
     }
@@ -342,7 +342,7 @@ mod service {
         }
 
         /// Keeps the chip configured and the isoSPI link on a working port.
-        pub(super) async fn run_service(&self, service: &mut Service) {
+        pub async fn run_service(&self, service: &mut Service) {
             let mut api = self.api.lock().await;
 
             if service.needs_startup(&api) {
