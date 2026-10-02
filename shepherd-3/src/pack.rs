@@ -480,11 +480,10 @@ mod analyzer {
                     /// Open-wire threshold while the S-ADC switch is active.
                     const CELL_OPEN_WIRE_MAX_DROP_PERCENT: Ratio = from_ratio(0.15).expect("Invalid Ratio.");
 
-                    let was_open: bool = self.ow_fault[chip][cell];
                     let is_open = drop_percent > CELL_OPEN_WIRE_MAX_DROP_PERCENT;
                     self.ow_fault[chip][cell] = is_open;
                     open_wire_fault_active = open_wire_fault_active || is_open;
-                    if is_open && !was_open {
+                    if is_open {
                         defmt::warn!("[OW] Open wire: Chip={}, Cell={}, even_excited={} V, odd_excited={} V, drop={} V, drop_percent={} %", chip, cell, even_excited.get::<volt>(), odd_excited.get::<volt>(), drop.get::<volt>(), drop_percent.get::<percent>());
                     }
                 }
@@ -500,16 +499,17 @@ mod analyzer {
     /// Task that runs and updates the analyzer (to do run some calculations on chip data).
     #[embassy_executor::task]
     pub async fn analyzer_task() {
-        use crate::segments::{SEGMENTS_FRESH_DATA_SIGNAL, ChipId, ChipKind, CellId};
+        use crate::segments::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL, ChipId, ChipKind, CellId};
         use crate::units::{degree_celsius, volt};
         use crate::can;
 
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
-        let mut subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
+        let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
+        let mut segments_openwire_subscription = SEGMENTS_OPENWIRE_RAN_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
 
         loop {
             // Run one loop of this task every time new Segments data arrives.
-            subscription.wait().await;
+            segments_freshdata_subscription.wait().await;
 
             let Ok(mut analyzer) = Analyzer::new() else { continue; };
 
@@ -521,6 +521,10 @@ mod analyzer {
             // calc_open_cell_voltage u_TODO - probably do this later once full scope of how much hv plate data is needed here is known
             analyzer.calc_pack_voltage_stats();
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
+
+            if segments_openwire_subscription.has_been_signaled() {
+                analyzer.detect_cell_open_wire().await;
+            }
 
             update(analyzer);
         }

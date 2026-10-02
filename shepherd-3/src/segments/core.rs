@@ -522,7 +522,16 @@ pub mod task {
 
         const SEGMENTS_FRESH_DATA_MAX_WAITERS: usize = 10;
         pub static SEGMENTS_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, SEGMENTS_FRESH_DATA_MAX_WAITERS> = Broadcast::new();
+
+        const SEGMENTS_OPENWIRE_RAN_MAX_WAITERS: usize = 10;
+        pub static SEGMENTS_OPENWIRE_RAN_SIGNAL: Broadcast<ThreadModeRawMutex, SEGMENTS_OPENWIRE_RAN_MAX_WAITERS> = Broadcast::new();
     }
+
+    /// How often the open wire test/update should run.
+    pub const OPEN_WIRE_FREQUENCY: Duration = Duration::from_secs(30);
+
+    /// Frequency (in ms) at which the segments task should run.
+    pub const SEGMENTS_TASK_FREQUENCY_MS: u64 = 300;
 
     /// Main task in charge of managing the segments.
     ///
@@ -532,10 +541,6 @@ pub mod task {
     /// shouldn't do any processing on that read data though. Once the data is cached, it should generally be read by other tasks since reading the data doesn't require making any actual SPI transactions.
     #[embassy_executor::task]
     pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) {
-        
-        /// Frequency (in ms) at which the segments task should run.
-        const SEGMENTS_TASK_FREQUENCY_MS: u64 = 300;
-
         let mut segments = Segments::new(r_linea, r_lineb);
 
         /// Timing diagnostics for the segments task.
@@ -575,9 +580,6 @@ pub mod task {
 
         let mut diagnostics = Diagnostics::new();
 
-
-        /// How often the open wire test/update should run.
-        const OPEN_WIRE_FREQUENCY: Duration = Duration::from_secs(30);
         // When the open wire test should run next. We set this to `Deadline::expire_now()` so it runs at startup (but thereafter will run
         // at the frequency configured above).
         let mut open_wire_deadline = Deadline::expire_now();
@@ -588,11 +590,10 @@ pub mod task {
             // Run the segments service.
             segments.run_service().await;
 
-            // Do the SPI transactions to update the register caches.
-            let mut all_successful: bool = true;
-
             // These are the normal updates we do every time this task runs.
             '_normal: {
+                let mut all_successful: bool = true;
+
                 if let Err(err) = segments.job_update_aux_registers().await {
                     defmt::error!("Segments: Inside `segments_task()`: `job_update_aux_registers()` failed. Error: {}", err);
                     all_successful = false;
@@ -612,6 +613,10 @@ pub mod task {
                     defmt::error!("Segments: Inside `segments_task()`: `job_update_pwm_registers()` failed. Error: {}", err);
                     all_successful = false;
                 }
+
+                if all_successful {
+                    signal::SEGMENTS_FRESH_DATA_SIGNAL.signal();
+                }
             }
 
             // We only run the open wire test every so often
@@ -622,17 +627,13 @@ pub mod task {
                             // only schedule the next deadline if we were successful. if the read failed we should try again
                             // the next time this task runs and keep doing so until it is successful
                             open_wire_deadline = Deadline::expire_in(OPEN_WIRE_FREQUENCY);
+                            signal::SEGMENTS_OPENWIRE_RAN_SIGNAL.signal();
                         },
                         Err(err) => {
                             defmt::error!("Segments: Inside `segments_task()`: `job_update_open_wire()` failed. Error: {}", err);
-                            all_successful = false;
                         },
                     }
                 }
-            }
-
-            if all_successful {
-                signal::SEGMENTS_FRESH_DATA_SIGNAL.signal();
             }
 
             diagnostics.update(start_time);

@@ -1,4 +1,4 @@
-use strum::{EnumCount, VariantArray, EnumIter, EnumIs};
+use strum::{EnumCount, VariantArray, EnumIter, EnumIs, IntoEnumIterator};
 use embassy_time::{Duration, Instant, Timer};
 use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
@@ -17,6 +17,7 @@ mod ids {
     pub struct FaultConfig {
         timeout: Duration,
         severity: FaultSeverity,
+        debounces: usize,
     }
     impl FaultConfig {
         /// How long a fault should stay active before expiring.
@@ -27,7 +28,24 @@ mod ids {
         pub const fn severity(&self) -> FaultSeverity {
             self.severity
         }
+        /// How many times a fault needs to be triggered for it
+        /// to actually become "official". If this is zero, the fault flag will be
+        /// set immediately when the fault is triggered for a first time. For values greater than
+        /// zero, then every fault trigger for this fault will increment a counter, and the fault will only
+        /// officially latch after this `debounces` threshold is met. This counter is reset when the fault is cleared.
+        pub const fn debounces(&self) -> usize {
+            self.debounces
+        }
     }
+
+    // u_TODO - we probably should have two types of faults. right now, we just have the normal auto-clear fault where you trigger it and then it automatically clears
+    // itself after a bit. But, we should have another type that must be manually cleared by the setter. This would be useful for things like the open wire test, where the fault
+    // is something that is periodically re-tested. We could even have a `debounces` setting for the clear side, where a fault must consecutively be cleared for `debounces` time for the
+    // flag to actually "officially" be considered cleared.
+    // the api probably shouldn't still use clear/set though. it would probably be better for us to have a enum where the fault user is just updating
+    // the fault controller on if the fault passed that time, something like `faults::update(FaultId::CellOpenWireFault, FaultUpdate::Passed)` or `faults::update(FaultId::CellOpenWireFault, FaultUpdate::Failed)`,
+    // that way this faults manager would be able to manage the debouncing stuff on its own internally. the debounces could be renamed something like `consecutive_successes` and `consecutive_failures`
+    // on that note, it might also be a good idea to remvoe `debounces` from the normal Timeout-based faults just for simplicity 
 
     #[derive(EnumCount, VariantArray, EnumIter)]
     #[derive(defmt::Format)]
@@ -48,26 +66,33 @@ mod ids {
         FakeFault2,
     }
     impl FaultId {
+        /// Lets you iterate over each cell.
+        pub fn iter() -> <Self as IntoEnumIterator>::Iterator {
+            <Self as IntoEnumIterator>::iter()
+        }
+
         /// Returns this FaultId's config settings.
         #[rustfmt::skip]
         pub const fn config(self) -> FaultConfig {
+            use crate::segments::OPEN_WIRE_FREQUENCY;
+
             // This function body is for defining the config settings for each fault.
 
             // using a match statement instead of a lookup table here because rust doesnt have designated initializers for arrays
             // but this should probably (?) compile into a lookup table anyway since there doesn't seem to be a reason not to
             match self {
-                Self::DischargeLimitEnforcementFault => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-                Self::ChargeLimitEnforcement         => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-                Self::CellVoltageTooLow              => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-                Self::CellVoltageTooHigh             => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-                Self::CellChargeVoltageTooHigh       => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-                Self::PackTooHot                     => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-                Self::DieTempMaximumFault            => FaultConfig { timeout: Duration::from_millis(55_000), severity: FaultSeverity::Critical },
-                Self::HvPlateCommsFault              => FaultConfig { timeout: Duration::from_millis(20_000), severity: FaultSeverity::Critical },
-                Self::SegmentCommsFault              => FaultConfig { timeout: Duration::from_millis(20_000), severity: FaultSeverity::NonCritical },
-                Self::CellOpenWireFault              => FaultConfig { timeout: Duration::from_millis(40_000), severity: FaultSeverity::Critical },
-                Self::FakeFault1                     => FaultConfig { timeout: Duration::from_millis(1000), severity: FaultSeverity::NonCritical },
-                Self::FakeFault2                     => FaultConfig { timeout: Duration::from_millis(2500), severity: FaultSeverity::NonCritical },
+                Self::DischargeLimitEnforcementFault => FaultConfig { timeout: Duration::from_secs(5), severity: FaultSeverity::Critical, debounces: 0 },
+                Self::ChargeLimitEnforcement         => FaultConfig { timeout: Duration::from_secs(5), severity: FaultSeverity::Critical, debounces: 0 },
+                Self::CellVoltageTooLow              => FaultConfig { timeout: Duration::from_secs(5), severity: FaultSeverity::Critical, debounces: 0 },
+                Self::CellVoltageTooHigh             => FaultConfig { timeout: Duration::from_secs(5), severity: FaultSeverity::Critical, debounces: 0 },
+                Self::CellChargeVoltageTooHigh       => FaultConfig { timeout: Duration::from_secs(5), severity: FaultSeverity::Critical, debounces: 0 },
+                Self::PackTooHot                     => FaultConfig { timeout: Duration::from_secs(5), severity: FaultSeverity::Critical, debounces: 0 },
+                Self::DieTempMaximumFault            => FaultConfig { timeout: Duration::from_secs(5), severity: FaultSeverity::Critical, debounces: 0 },
+                Self::HvPlateCommsFault              => FaultConfig { timeout: Duration::from_secs(5), severity: FaultSeverity::Critical, debounces: 0 },
+                Self::SegmentCommsFault              => FaultConfig { timeout: Duration::from_secs(5), severity: FaultSeverity::NonCritical, debounces: 0 },
+                Self::CellOpenWireFault              => FaultConfig { timeout: Duration::from_secs(OPEN_WIRE_FREQUENCY.as_secs() + (OPEN_WIRE_FREQUENCY.as_secs() / 2)), severity: FaultSeverity::Critical, debounces: 1 },
+                Self::FakeFault1                     => FaultConfig { timeout: Duration::from_millis(1000), severity: FaultSeverity::NonCritical, debounces: 0 },
+                Self::FakeFault2                     => FaultConfig { timeout: Duration::from_millis(2500), severity: FaultSeverity::NonCritical, debounces: 0 },
             }
         }
 
@@ -150,6 +175,21 @@ mod ids {
         /// Converts this back into its inner array.
         pub fn into_array(self) -> [T; FaultId::COUNT] {
             self.data
+        }
+    }
+
+    impl<T> core::ops::Index<FaultId> for IndexByFaultId<T> {
+        type Output = T;
+
+        fn index(&self, index: FaultId) -> &Self::Output {
+            &self.get(index)
+        }
+    }
+
+    impl<T> core::ops::IndexMut<FaultId> for IndexByFaultId<T> {
+        fn index_mut(&mut self, index: FaultId) -> &mut Self::Output {
+            let i: usize = index as usize;
+            &mut self.data[i]
         }
     }
 }
@@ -326,17 +366,37 @@ pub mod task {
     /// Guy in charge of the faults.
     struct FaultManager {
         timers: IndexByFaultId<FaultTimer>,
+
+        /// Tracks the number of increments for this fault. Every time
+        /// this fault is triggered, this will increment by 1 for that fault.
+        /// Every time the fault is cleared, this gets set to 0 for that fault.
+        increments: IndexByFaultId<usize>,
     }
     impl FaultManager {
         /// Initializes the faults manager.
         pub fn new() -> Self {
-            Self { timers: IndexByFaultId::from_fn(|_| FaultTimer::new()) }
+            Self { 
+                timers: IndexByFaultId::from_fn(|_| FaultTimer::new()),
+                increments: IndexByFaultId::from_fn(|_| 0 as usize),
+            }
         }
 
         /// Triggers a fault.
         pub fn trigger_fault(&mut self, fault: FaultId) {
-            FLAGS.set_fault(fault);
+            self.increments[fault] = self.increments[fault].saturating_add(1);
+            if self.increments[fault] > fault.config().debounces() {
+                FLAGS.set_fault(fault);
+            }
+
+            // restart the timer no matter what
             self.timers.get_mut(fault).restart(fault.config().timeout());
+        }
+        
+        /// Clears a fault.
+        pub fn clear_fault(&mut self, fault: FaultId) {
+            self.timers[fault].set_inactive();
+            self.increments[fault] = 0;
+            FLAGS.clear_fault(fault);
         }
     }
 
@@ -358,16 +418,13 @@ pub mod task {
             let mut soonest_expiration: Option<Instant> = None;
 
             // Check the state of each fault timer.
-            for (fault, timer) in manager.timers.iter_mut() {
-                match timer.evaluate(now) {
+            for fault in FaultId::iter() {
+                match manager.timers[fault].evaluate(now) {
                     // This timer is inactive so we don't need to do anything.
                     EvaluationResult::Inactive => {},
 
                     // This timer has expired, so we can set it to Inactive and clear the associated fault.
-                    EvaluationResult::Expired => {
-                        timer.set_inactive();
-                        FLAGS.clear_fault(fault);
-                    },
+                    EvaluationResult::Expired => manager.clear_fault(fault),
 
                     // This timer is active, so we use it as part of our "soonest deadline" calculation (to see how long this task should sleep).
                     EvaluationResult::Active { deadline } => {
