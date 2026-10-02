@@ -3,6 +3,8 @@
 pub use uom::si::thermodynamic_temperature::degree_celsius;
 pub use uom::si::electric_potential::volt;
 pub use uom::si::electrical_resistance::ohm;
+pub use uom::si::ratio::ratio;
+pub use uom::si::ratio::percent;
 
 /// Voltage!
 ///
@@ -24,12 +26,18 @@ pub type ResistancePerLength = <Resistance as core::ops::Div<Length>>::Output;
 /// Meters
 pub type Length = uom::si::f32::Length;
 
+/// A ratio. Basically just a percent. The lowest value is at `0.0`, and the highest value is at `1.0`.
+pub type Ratio = uom::si::f32::Ratio;
+
 /// Module for `const fn` constructors for certain units.
 /// 
 /// (for context, `uom` doesn't support `const fn` constructors because their types rely on trait methods internally)
 pub mod consts {
     use super::*;
     use core::marker::PhantomData;
+
+    /// Constant for zero volts (0V).
+    pub const ZERO_VOLTS: Voltage = from_volts(0_f32);
 
     /// Scalers for SI prefixes.
     pub mod scalers {
@@ -111,42 +119,18 @@ pub mod consts {
     /// Creates a `Temperature` from a value in m°C.
     pub const fn from_millicelsius(value: f32) -> Temperature { from_celsius(value * scalers::MILLI) }
 
+    // RATIO
+    /// Creates a `Ratio` from `value`. The `value` must range from `0.0` to `1.0`. If
+    /// it is outside of that range, this will return `None`. This is meant to be used
+    /// to initialize consts, so you can call this from a `const` context and then unwrap
+    /// the result as a nice compile-time check that you've passed in a valid `value`.
+    pub const fn from_ratio(value: f32) -> Option<Ratio> {
+        if (value > 1.0_f32) || (value < 0.0_f32) { return None; }
+        Some(Ratio { dimension: PhantomData, units: PhantomData, value })
+    }
+
     
 }
-
-/// Percentage!
-mod percentage {
-    use uom::si::f32::Ratio;
-    use uom::si::ratio::percent;
-
-    /// Percentage!
-    ///
-    /// This is a simple wrapper type around `Ratio` from `uom`. It is useful when you are basically
-    /// only going to use a Percentage and don't care about the `Ratio` base unit.
-    #[derive(Copy, Clone)]
-    pub struct Percentage {
-        inner: Ratio,
-    }
-    impl Percentage {
-        /// Creates a new `Percentage` from an f32.
-        pub fn new(value: f32) -> Self {
-            Self { inner: Ratio::new::<percent>(value) }
-        }
-        /// Returns the Percentage as an f32.
-        pub fn as_f32(&self) -> f32 {
-            self.inner.value
-        }
-        /// Gets a ref to the inner of this object.
-        pub fn inner(&self) -> &Ratio {
-            &self.inner
-        }
-        /// Gets a mutable ref to the inner of this object.
-        pub fn inner_mut(&mut self) -> &mut Ratio {
-            &mut self.inner
-        }
-    }
-}
-pub use percentage::Percentage;
 
 /// adbms6830b temperature scale (microcelsius resolution).
 mod microcelcius_unit {

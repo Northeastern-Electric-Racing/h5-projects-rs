@@ -467,6 +467,42 @@ pub mod jobs {
 
             Ok(())
         }
+
+        /// Update the OpenWire parts of the S voltages.
+        /// 
+        /// This probably shouldn't be called at the same frequency as the normal s voltages because then the OpenWire mode would
+        /// be constantly flipping back and forth between this and the normal mode.
+        /// 
+        /// Also, this basically takes the place of `segment_run_cell_open_wire_test()`, except for the fact that it
+        /// doesn't read the normal S ADC voltages beforehand (since those are already read by the snap job).
+        pub async fn job_update_open_wire(&mut self) -> Result<(), UpdateError> {
+            use adbms6830b::chip::commands::{self, adc::{AutoAcquisition, OpenWire, AdcvRedundancy, Acquisition, ResetFilter}};
+            
+            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
+
+            /// Autoconvert timeout in ms.
+            const TIMEOUT_MS: u64 = 100;
+
+            // even though these are S voltages we don't need to use SNAP since we are manually polling here
+
+            self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOnOddOff, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
+            cache::CACHE.update_s_voltages_ow_even_on(self.service.api()).await?;
+            self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOffOddOn, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
+            
+            cache::CACHE.update_s_voltages_ow_odd_on(self.service.api()).await?;
+
+            // Unless we are not charging, restart continuous redundant conversions (since that is what we 
+            // normally use outside of this function when we aren't charging).
+            if !crate::state_machine::bms_state().is_charging() {
+                self.service.api().command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::Continuous, ResetFilter::Reset, OpenWire::OffForAll)).await.map_err(UpdateError::PollError)?;
+            }
+            
+            job_diagnostics::log_job_diagnostics!("Segments", "job_update_open_wire", run.finish());
+
+            Ok(())
+        }
+
     }
 }
 
@@ -476,6 +512,7 @@ pub mod task {
     use crate::broadcast::Broadcast;
     use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
     use embassy_time::{Instant, Duration, Timer};
+    use crate::helpers::Deadline;
 
     /// `Broadcast` static for segments task. This allows the Segments task to flag other tasks when it successfully runs the jobs.
     ///
@@ -495,6 +532,7 @@ pub mod task {
     /// shouldn't do any processing on that read data though. Once the data is cached, it should generally be read by other tasks since reading the data doesn't require making any actual SPI transactions.
     #[embassy_executor::task]
     pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) {
+        
         /// Frequency (in ms) at which the segments task should run.
         const SEGMENTS_TASK_FREQUENCY_MS: u64 = 300;
 
@@ -537,6 +575,13 @@ pub mod task {
 
         let mut diagnostics = Diagnostics::new();
 
+
+        /// How often the open wire test/update should run.
+        const OPEN_WIRE_FREQUENCY: Duration = Duration::from_secs(30);
+        // When the open wire test should run next. We set this to `Deadline::expire_now()` so it runs at startup (but thereafter will run
+        // at the frequency configured above).
+        let mut open_wire_deadline = Deadline::expire_now();
+
         loop {
             let start_time = Instant::now();
 
@@ -546,24 +591,44 @@ pub mod task {
             // Do the SPI transactions to update the register caches.
             let mut all_successful: bool = true;
 
-            if let Err(err) = segments.job_update_aux_registers().await {
-                defmt::error!("Segments: Inside `segments_task()`: `job_update_aux_registers()` failed. Error: {}", err);
-                all_successful = false;
+            // These are the normal updates we do every time this task runs.
+            '_normal: {
+                if let Err(err) = segments.job_update_aux_registers().await {
+                    defmt::error!("Segments: Inside `segments_task()`: `job_update_aux_registers()` failed. Error: {}", err);
+                    all_successful = false;
+                }
+
+                if let Err(err) = segments.job_update_snap_registers().await {
+                    defmt::error!("Segments: Inside `segments_task()`: `job_update_snap_registers()` failed. Error: {}", err);
+                    all_successful = false;
+                }
+
+                if let Err(err) = segments.job_update_redundant_aux().await {
+                    defmt::error!("Segments: Inside `segments_task()`: `job_update_redundant_aux()` failed. Error: {}", err);
+                    all_successful = false;
+                }
+
+                if let Err(err) = segments.job_update_pwm_registers().await {
+                    defmt::error!("Segments: Inside `segments_task()`: `job_update_pwm_registers()` failed. Error: {}", err);
+                    all_successful = false;
+                }
             }
 
-            if let Err(err) = segments.job_update_snap_registers().await {
-                defmt::error!("Segments: Inside `segments_task()`: `job_update_snap_registers()` failed. Error: {}", err);
-                all_successful = false;
-            }
-
-            if let Err(err) = segments.job_update_redundant_aux().await {
-                defmt::error!("Segments: Inside `segments_task()`: `job_update_redundant_aux()` failed. Error: {}", err);
-                all_successful = false;
-            }
-
-            if let Err(err) = segments.job_update_pwm_registers().await {
-                defmt::error!("Segments: Inside `segments_task()`: `job_update_pwm_registers()` failed. Error: {}", err);
-                all_successful = false;
+            // We only run the open wire test every so often
+            '_open_wire: {
+                if open_wire_deadline.past() {
+                    match segments.job_update_open_wire().await {
+                        Ok(()) => {
+                            // only schedule the next deadline if we were successful. if the read failed we should try again
+                            // the next time this task runs and keep doing so until it is successful
+                            open_wire_deadline = Deadline::expire_in(OPEN_WIRE_FREQUENCY);
+                        },
+                        Err(err) => {
+                            defmt::error!("Segments: Inside `segments_task()`: `job_update_open_wire()` failed. Error: {}", err);
+                            all_successful = false;
+                        },
+                    }
+                }
             }
 
             if all_successful {

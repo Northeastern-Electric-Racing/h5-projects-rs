@@ -22,6 +22,7 @@ pub mod debug;
 pub mod state_machine;
 pub mod faults;
 pub mod pack;
+pub mod helpers;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]

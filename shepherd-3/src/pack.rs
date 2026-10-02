@@ -3,7 +3,7 @@ use strum::IntoEnumIterator;
 use crate::{
     state_machine::{BmsState}, state_machine,
     segments::{CellId, ChipId, ChipKind, SegmentId, IndexByChip, IndexByCell, IndexBySegment, ThermistorTemperatures, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
-    units::{Temperature, Voltage, Current, Length, Percentage, Resistance, ResistancePerLength, degree_celsius, volt, ohm, consts::{from_ohms, from_volts, from_ohms_per_millimeter, from_millimeters, from_amps, from_celsius}},
+    units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm, consts::{from_ohms, from_volts, from_ohms_per_millimeter, from_millimeters, from_amps, from_ratio}},
 };
 use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
 
@@ -111,10 +111,10 @@ mod analyzer {
     #[derive(Copy, Clone)]
     struct ChipData {
         pub cell_temp: IndexByCell<Temperature>,
-        //pub cell_resistance: IndexByCell<Resistance>, u_TODO move to `Analyzer` since not directly from ADBMS6830B cache
-        //pub open_cell_voltage: IndexByCell<Voltage>, u_TODO move to `Analyzer` since not directly from ADBMS6830B cache
         pub cell_voltages: IndexByCell<Voltage>,
         pub s_cell_voltages: IndexByCell<Voltage>,
+        pub s_cell_ow_even_on: IndexByCell<Voltage>,
+        pub s_cell_ow_odd_on: IndexByCell<Voltage>,
 
         pub on_board_temp_1: Temperature,
         pub on_board_temp_2: Temperature,
@@ -124,7 +124,6 @@ mod analyzer {
 
         pub is_balancing: IndexByCell<bool>,
         pub cs_fault: IndexByCell<bool>,
-        //pub ow_fault: IndexByCell<bool>, u_TODO move to `Analyzer` since not directly from ADBMS6830B cache
 
         pub vpv: Voltage,
         pub vmv: Voltage,
@@ -161,6 +160,8 @@ mod analyzer {
             };
 
             let s_voltages: IndexByChip<IndexByCell<Voltage>> = cache.get_s_voltages().try_nice()?.into();
+            let s_voltages_ow_even_on: IndexByChip<IndexByCell<Voltage>> = cache.get_s_voltages_ow_even_on().try_nice()?.into();
+            let s_voltages_ow_odd_on: IndexByChip<IndexByCell<Voltage>> = cache.get_s_voltages_ow_odd_on().try_nice()?.into();
             let pwm: IndexByChip<IndexByCell<PwmDutyCycleConfig>> = cache.get_pwm().try_nice()?.into();
 
             Ok(IndexByChip::from_fn(|chip| {
@@ -170,6 +171,8 @@ mod analyzer {
                     cell_temp: temps.cell_temperatures,
                     cell_voltages: cell_voltages[chip],
                     s_cell_voltages: s_voltages[chip],
+                    s_cell_ow_even_on: s_voltages_ow_even_on[chip],
+                    s_cell_ow_odd_on: s_voltages_ow_odd_on[chip],
                     on_board_temp_1: temps.on_board_temp_1,
                     on_board_temp_2: temps.on_board_temp_2,
                     on_board_temp_3: temps.on_board_temp_3,
@@ -233,7 +236,7 @@ mod analyzer {
         pack_voltage: Voltage,
 
         /// State of Charge (SoC) of the pack.
-        soc: Percentage,
+        soc: Ratio,
     }
     impl Analyzer {
         /// Creates a new Analyzer with current cache data, and blank data for all the
@@ -299,7 +302,7 @@ mod analyzer {
 
                 pack_voltage: Voltage::new::<volt>(f32::MIN),
 
-                soc: Percentage::new(0.0_f32),
+                soc: Ratio::new::<ratio>(0.0_f32),
             })
         }
     }
@@ -431,6 +434,67 @@ mod analyzer {
             self.pack_ocv = total_ocv;
             self.delta_ocv = self.max_ocv.value() - self.min_ocv.value();
         }
+
+        pub async fn detect_cell_open_wire(&mut self) {
+            use crate::units::consts::ZERO_VOLTS;
+
+            let mut open_wire_fault_active = false;
+
+            for chip in ChipId::iter() {
+                for cell in CellId::iter() {
+                    struct Comparison {
+                        excited: Voltage,
+                        baseline: Voltage,
+                    }
+
+                    // Cell voltage when even cells were excited and odd cells were left normal.
+                    let even_excited: Voltage = self.chip_data[chip].s_cell_ow_even_on[cell];
+                    // Cell voltage when odd cells were excited and even cells were left normal.
+                    let odd_excited: Voltage = self.chip_data[chip].s_cell_ow_odd_on[cell];
+
+                    let depends: Comparison = if cell.is_even() {
+                        // This cell is even, so its `excited` voltage comes from when only even cells were excited,
+                        // while its `baseline` voltage comes from when only odd cells were excited.
+                        Comparison {
+                            excited: even_excited,
+                            baseline: odd_excited,
+                        }
+                    } else {
+                        // This cell is odd, so its `excited` voltage comes from when only odd cells were excited,
+                        // while its `baseline` voltage comes from when only even cells were excited.
+                        Comparison {
+                            excited: odd_excited,
+                            baseline: even_excited,
+                        }
+                    };
+
+                    let drop: Voltage = depends.baseline - depends.excited;
+                    let drop_percent: Ratio = {
+                        if depends.baseline > ZERO_VOLTS {
+                            drop / depends.baseline
+                        } else {
+                            Ratio::new::<ratio>(0_f32)
+                        }
+                    };
+
+                    /// Open-wire threshold while the S-ADC switch is active.
+                    const CELL_OPEN_WIRE_MAX_DROP_PERCENT: Ratio = from_ratio(0.15).expect("Invalid Ratio.");
+
+                    let was_open: bool = self.ow_fault[chip][cell];
+                    let is_open = drop_percent > CELL_OPEN_WIRE_MAX_DROP_PERCENT;
+                    self.ow_fault[chip][cell] = is_open;
+                    open_wire_fault_active = open_wire_fault_active || is_open;
+                    if is_open && !was_open {
+                        defmt::warn!("[OW] Open wire: Chip={}, Cell={}, even_excited={} V, odd_excited={} V, drop={} V, drop_percent={} %", chip, cell, even_excited.get::<volt>(), odd_excited.get::<volt>(), drop.get::<volt>(), drop_percent.get::<percent>());
+                    }
+                }
+            }
+
+            use crate::faults;
+            use crate::faults::FaultId;
+
+            if open_wire_fault_active { faults::queue(FaultId::CellOpenWireFault).await; }
+        }
     }
 
     /// Task that runs and updates the analyzer (to do run some calculations on chip data).
@@ -448,9 +512,15 @@ mod analyzer {
             subscription.wait().await;
 
             let Ok(mut analyzer) = Analyzer::new() else { continue; };
+
+            // this whole section is supposed to look pretty similar to the C code just so
+            // we make sure we bring everything over correctly.
+            // calc_cell_temps() is in the C code, but is not needed here because the chipdata already calculates cell temps.
             analyzer.calc_pack_temps();
             analyzer.calc_cell_voltages();
+            // calc_open_cell_voltage u_TODO - probably do this later once full scope of how much hv plate data is needed here is known
             analyzer.calc_pack_voltage_stats();
+            // calc_celL_resistances u_TODO - also needs hv_plate so see above
 
             update(analyzer);
         }

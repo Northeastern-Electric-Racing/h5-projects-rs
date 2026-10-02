@@ -40,7 +40,7 @@ pub mod cells {
         }
 
         /// This `CellId` represented as a raw u8.
-        pub fn as_u8(&self) -> u8 {
+        pub const fn as_u8(&self) -> u8 {
             *self as u8
         }
 
@@ -60,6 +60,14 @@ pub mod cells {
             let i: usize = *self as usize;
             let next = i + 1;
             Self::from_repr(next)
+        }
+
+        /// If this `CellId` is even.
+        /// 
+        /// For example, `CellId::Cell2`, `CellId::Cell4`, etc are even.
+        pub const fn is_even(&self) -> bool {
+            // We need to add 1 because the enum variants start at 0 in their raw underlying representation
+            ((self.as_u8() + 1) % 2) == 0
         }
     }
 
