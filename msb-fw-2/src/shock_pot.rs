@@ -1,14 +1,9 @@
 //! Shock potentiometer polling. Ported from `u_shock_pot.c` in the C firmware.
 
-use crate::multiplexor_handler::{MUX_SNAPSHOT, MuxChannel, MuxId, MuxInput};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use crate::analog_sensor::{self, AnalogSensor, MAX_VOLTS, SensorData};
+use crate::multiplexor_handler::{MuxChannel, MuxId, MuxInput, MuxSource};
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Ticker};
-
-const POLL_PERIOD: Duration = Duration::from_millis(20);
-
-const MAX_VOLTS: f32 = 3.3;
-const MAX_ADC_VAL_12B: f32 = 4095.0;
+use embassy_time::Duration;
 
 const ZERO_OFFSET: [f32; NUM_SHOCK_POTS] = [0.0, 0.0];
 const SCALE_FACTOR: [f32; NUM_SHOCK_POTS] = [1.0, 1.0];
@@ -21,11 +16,8 @@ const SHOCK_POT_LENGTH_IN: f32 = 1.9685;
 
 pub const NUM_SHOCK_POTS: usize = 2;
 
-/// Max number of tasks that can subscribe to [`SHOCK_POT_DATA`].
-const MAX_RECEIVERS: usize = 2;
-
 /// Latest shock pot readings, indexed by [`ShockPot`].
-pub static SHOCK_POT_DATA: Watch<ThreadModeRawMutex, [ShockPotReading; NUM_SHOCK_POTS], MAX_RECEIVERS> = Watch::new();
+pub static SHOCK_POT_DATA: SensorData<ShockPotReading, NUM_SHOCK_POTS> = Watch::new();
 
 #[derive(Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum ShockPot {
@@ -47,7 +39,7 @@ impl ShockPot {
     }
 
     /// Where this pot is wired on the muxes (LPF1 / LPF2 on U18).
-    const fn source(self) -> (MuxId, MuxChannel, MuxInput) {
+    const fn source(self) -> MuxSource {
         match self {
             ShockPot::Right => (MuxId::U18, MuxChannel::Ch1, MuxInput::B),
             ShockPot::Left => (MuxId::U18, MuxChannel::Ch2, MuxInput::B),
@@ -64,36 +56,33 @@ pub struct ShockPotReading {
     pub inch_travel: f32,
 }
 
-/// Converts a raw ADC reading into calibrated values.
-pub fn convert(pot: ShockPot, raw: u16) -> ShockPotReading {
-    let i = pot as usize;
-    let volts = f32::from(raw) * MAX_VOLTS / MAX_ADC_VAL_12B;
-    let position = (volts - ZERO_OFFSET[i]) * SCALE_FACTOR[i];
-    let inch_travel = (CALIBRATED_V[i] - position) * (SHOCK_POT_LENGTH_IN / MAX_VOLTS) - TRAVEL_TRIM_IN[i];
+/// Both shock pots, as one [`AnalogSensor`].
+pub struct ShockPots;
 
-    ShockPotReading { raw, volts, position, inch_travel }
+impl AnalogSensor<NUM_SHOCK_POTS> for ShockPots {
+    const POLL_PERIOD: Duration = Duration::from_millis(20);
+    const SOURCES: [MuxSource; NUM_SHOCK_POTS] = [ShockPot::Right.source(), ShockPot::Left.source()];
+    const NAMES: [&'static str; NUM_SHOCK_POTS] = [ShockPot::Right.name(), ShockPot::Left.name()];
+
+    type Reading = ShockPotReading;
+
+    fn convert(i: usize, raw: u16, volts: f32) -> ShockPotReading {
+        let position = (volts - ZERO_OFFSET[i]) * SCALE_FACTOR[i];
+        let inch_travel = (CALIBRATED_V[i] - position) * (SHOCK_POT_LENGTH_IN / MAX_VOLTS) - TRAVEL_TRIM_IN[i];
+
+        ShockPotReading { raw, volts, position, inch_travel }
+    }
+
+    fn log(name: &'static str, r: &ShockPotReading) {
+        defmt::info!("Shock pot {=str}: raw={=u16} volts={=f32} in={=f32}", name, r.raw, r.volts, r.inch_travel);
+    }
+
+    fn data() -> &'static SensorData<ShockPotReading, NUM_SHOCK_POTS> {
+        &SHOCK_POT_DATA
+    }
 }
 
 #[embassy_executor::task]
 pub async fn shock_pot_task() {
-    let mut rx = MUX_SNAPSHOT.receiver().expect("Too many MUX_SNAPSHOT receivers.");
-    let sender = SHOCK_POT_DATA.sender();
-    let mut ticker = Ticker::every(POLL_PERIOD);
-
-    loop {
-        // Latest scan of every mux input; waits only until the first scan lands.
-        let snapshot = rx.get().await;
-
-        let readings = ShockPot::ALL.map(|pot| {
-            let (id, channel, input) = pot.source();
-            convert(pot, snapshot.get(id, channel, input))
-        });
-        for pot in ShockPot::ALL {
-            let r = readings[pot as usize];
-            defmt::info!("Shock pot {=str}: raw={=u16} volts={=f32} in={=f32}", pot.name(), r.raw, r.volts, r.inch_travel);
-        }
-        sender.send(readings);
-
-        ticker.next().await;
-    }
+    analog_sensor::run::<ShockPots, NUM_SHOCK_POTS>().await
 }

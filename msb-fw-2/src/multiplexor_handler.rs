@@ -1,8 +1,9 @@
 use embassy_futures::join::join;
-use embassy_stm32::adc::{Adc, AdcChannel, BorrowedAdcChannel, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, Config as AdcConfig, SampleTime};
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
-use embassy_stm32::mode::Blocking;
-use embassy_stm32::peripherals::{ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1};
+use embassy_stm32::peripherals::{
+    ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1, PA0, PA3, PC0, PC2, PC3, PC6, PC7, PC8, PC9, PF6, PF7, PF8, PF9, PF12, PF13, PF14,
+};
 use embassy_stm32::{Peri, bind_interrupts, dma};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
@@ -74,6 +75,9 @@ pub enum MuxInput {
     B,
 }
 
+/// One mux source: which mux, which switch, which input.
+pub type MuxSource = (MuxId, MuxChannel, MuxInput);
+
 /// Maps an input to the SEL pin level that selects it.
 ///
 /// Taken from the C firmware, which reads the LPF (`SxB`) sensors with every SEL pin driven low.
@@ -117,66 +121,13 @@ impl<'d> Mux<'d> {
     }
 }
 
-/// Owns both muxes, both ADCs with their DMA channels, and the eight mux output pins.
-pub struct MuxHandler<'d> {
+/// The SEL lines of both muxes.
+struct MuxHandler<'d> {
     u18: Mux<'d>,
     u19: Mux<'d>,
-    adc1: Adc<'d, ADC1, Blocking>,
-    adc2: Adc<'d, ADC2, Blocking>,
-    dma1: Peri<'d, GPDMA1_CH0>,
-    dma2: Peri<'d, GPDMA1_CH1>,
-    /// Channels in [`ADC1_SCAN`] order.
-    adc1_ch: [BorrowedAdcChannel<'d, ADC1>; ADC1_SCAN.len()],
-    /// Channels in [`ADC2_SCAN`] order.
-    adc2_ch: [BorrowedAdcChannel<'d, ADC2>; ADC2_SCAN.len()],
-}
-
-/// Pins used by the [`MuxHandler`].
-pub struct MuxPins<'d> {
-    pub u18_sel1: Peri<'d, embassy_stm32::peripherals::PC6>,
-    pub u18_sel2: Peri<'d, embassy_stm32::peripherals::PC7>,
-    pub u18_sel3: Peri<'d, embassy_stm32::peripherals::PC8>,
-    pub u18_sel4: Peri<'d, embassy_stm32::peripherals::PC9>,
-    pub u19_sel1: Peri<'d, embassy_stm32::peripherals::PF6>,
-    pub u19_sel2: Peri<'d, embassy_stm32::peripherals::PF7>,
-    pub u19_sel3: Peri<'d, embassy_stm32::peripherals::PF8>,
-    pub u19_sel4: Peri<'d, embassy_stm32::peripherals::PF9>,
-    pub u18_d1: Peri<'d, embassy_stm32::peripherals::PC0>,
-    pub u18_d2: Peri<'d, embassy_stm32::peripherals::PC2>,
-    pub u18_d3: Peri<'d, embassy_stm32::peripherals::PC3>,
-    pub u18_d4: Peri<'d, embassy_stm32::peripherals::PA0>,
-    pub u19_d1: Peri<'d, embassy_stm32::peripherals::PA3>,
-    pub u19_d2: Peri<'d, embassy_stm32::peripherals::PF13>,
-    pub u19_d3: Peri<'d, embassy_stm32::peripherals::PF14>,
-    pub u19_d4: Peri<'d, embassy_stm32::peripherals::PF12>,
 }
 
 impl<'d> MuxHandler<'d> {
-    pub fn new(
-        adc1: Adc<'d, ADC1, Blocking>,
-        adc2: Adc<'d, ADC2, Blocking>,
-        dma1: Peri<'d, GPDMA1_CH0>,
-        dma2: Peri<'d, GPDMA1_CH1>,
-        pins: MuxPins<'d>,
-    ) -> Self {
-        Self {
-            u18: Mux::new(pins.u18_sel1, pins.u18_sel2, pins.u18_sel3, pins.u18_sel4),
-            u19: Mux::new(pins.u19_sel1, pins.u19_sel2, pins.u19_sel3, pins.u19_sel4),
-            adc1,
-            adc2,
-            dma1,
-            dma2,
-            adc1_ch: [
-                pins.u18_d1.degrade_adc(),
-                pins.u18_d2.degrade_adc(),
-                pins.u18_d3.degrade_adc(),
-                pins.u18_d4.degrade_adc(),
-                pins.u19_d4.degrade_adc(),
-            ],
-            adc2_ch: [pins.u19_d1.degrade_adc(), pins.u19_d2.degrade_adc(), pins.u19_d3.degrade_adc()],
-        }
-    }
-
     /// Selects `input` on every channel of both muxes (like the C `adc_switchMuxStates`), waiting
     /// for the outputs to settle if anything changed.
     async fn select_all(&mut self, input: MuxInput) {
@@ -189,53 +140,91 @@ impl<'d> MuxHandler<'d> {
             Timer::after_micros(MUX_SETTLE_US).await;
         }
     }
-
-    /// Converts every mux output as currently selected, with both ADCs scanning over DMA at once.
-    async fn scan(&mut self) -> ([u16; ADC1_SCAN.len()], [u16; ADC2_SCAN.len()]) {
-        let mut buf1 = [0u16; ADC1_SCAN.len()];
-        let mut buf2 = [0u16; ADC2_SCAN.len()];
-
-        let seq1 = self.adc1_ch.iter_mut().map(|ch| (ch.reborrow_adc(), SAMPLE_TIME));
-        let seq2 = self.adc2_ch.iter_mut().map(|ch| (ch.reborrow_adc(), SAMPLE_TIME));
-        join(
-            self.adc1.read_sequence(self.dma1.reborrow(), Irqs, seq1, None, &mut buf1),
-            self.adc2.read_sequence(self.dma2.reborrow(), Irqs, seq2, None, &mut buf2),
-        )
-        .await;
-
-        (buf1, buf2)
-    }
-
-    /// Reads every input of every channel on both muxes: all `A` inputs, then all `B` inputs,
-    /// settling once per switch.
-    pub async fn read_all(&mut self) -> MuxSnapshot {
-        let mut snapshot = MuxSnapshot::EMPTY;
-        for input in [MuxInput::A, MuxInput::B] {
-            self.select_all(input).await;
-            let (buf1, buf2) = self.scan().await;
-            for (&(mux, channel), &raw) in ADC1_SCAN.iter().zip(buf1.iter()) {
-                snapshot.set(mux, channel, input, raw);
-            }
-            for (&(mux, channel), &raw) in ADC2_SCAN.iter().zip(buf2.iter()) {
-                snapshot.set(mux, channel, input, raw);
-            }
-        }
-        snapshot.timestamp = Instant::now();
-        snapshot
-    }
 }
 
-/// Owns the [`MuxHandler`] and publishes a full scan to [`MUX_SNAPSHOT`] every [`SCAN_PERIOD`].
+/// Peripherals owned by [`mux_scan_task`].
+pub struct MuxResources {
+    pub adc1: Peri<'static, ADC1>,
+    pub adc2: Peri<'static, ADC2>,
+    pub dma1: Peri<'static, GPDMA1_CH0>,
+    pub dma2: Peri<'static, GPDMA1_CH1>,
+
+    pub u18_sel1: Peri<'static, PC6>,
+    pub u18_sel2: Peri<'static, PC7>,
+    pub u18_sel3: Peri<'static, PC8>,
+    pub u18_sel4: Peri<'static, PC9>,
+    pub u19_sel1: Peri<'static, PF6>,
+    pub u19_sel2: Peri<'static, PF7>,
+    pub u19_sel3: Peri<'static, PF8>,
+    pub u19_sel4: Peri<'static, PF9>,
+
+    pub u18_d1: Peri<'static, PC0>,
+    pub u18_d2: Peri<'static, PC2>,
+    pub u18_d3: Peri<'static, PC3>,
+    pub u18_d4: Peri<'static, PA0>,
+    pub u19_d1: Peri<'static, PA3>,
+    pub u19_d2: Peri<'static, PF13>,
+    pub u19_d3: Peri<'static, PF14>,
+    pub u19_d4: Peri<'static, PF12>,
+}
+
+/// Owns the muxes and ADCs and publishes a full scan to [`MUX_SNAPSHOT`] every [`SCAN_PERIOD`].
+///
+/// Each pass reads all `A` inputs, then all `B` inputs, settling once per switch. Both ADCs scan
+/// over DMA at once.
 ///
 /// Sensor tasks never touch the muxes or ADCs; they subscribe to [`MUX_SNAPSHOT`] and pick out
 /// their sources with [`MuxSnapshot::get`].
 #[embassy_executor::task]
-pub async fn mux_scan_task(mut mux: MuxHandler<'static>) {
+pub async fn mux_scan_task(r: MuxResources) {
+    let mut mux = MuxHandler {
+        u18: Mux::new(r.u18_sel1, r.u18_sel2, r.u18_sel3, r.u18_sel4),
+        u19: Mux::new(r.u19_sel1, r.u19_sel2, r.u19_sel3, r.u19_sel4),
+    };
+
+    let mut adc1 = Adc::new_blocking(r.adc1, AdcConfig::default());
+    let mut adc2 = Adc::new_blocking(r.adc2, AdcConfig::default());
+
+    // Order must match `ADC1_SCAN` / `ADC2_SCAN`; the array lengths are checked against them.
+    let adc1_channels: [_; ADC1_SCAN.len()] = [
+        (r.u18_d1.degrade_adc(), SAMPLE_TIME),
+        (r.u18_d2.degrade_adc(), SAMPLE_TIME),
+        (r.u18_d3.degrade_adc(), SAMPLE_TIME),
+        (r.u18_d4.degrade_adc(), SAMPLE_TIME),
+        (r.u19_d4.degrade_adc(), SAMPLE_TIME),
+    ];
+    let adc2_channels: [_; ADC2_SCAN.len()] = [
+        (r.u19_d1.degrade_adc(), SAMPLE_TIME),
+        (r.u19_d2.degrade_adc(), SAMPLE_TIME),
+        (r.u19_d3.degrade_adc(), SAMPLE_TIME),
+    ];
+
+    // Program each sequencer once; every `read()` then converts the sequence a single time.
+    let mut seq1 = adc1.configure_sequence(r.dma1, adc1_channels.into_iter(), Irqs);
+    let mut seq2 = adc2.configure_sequence(r.dma2, adc2_channels.into_iter(), Irqs);
+
     let sender = MUX_SNAPSHOT.sender();
     let mut ticker = Ticker::every(SCAN_PERIOD);
 
     loop {
-        sender.send(mux.read_all().await);
+        let mut snapshot = MuxSnapshot::EMPTY;
+        for input in [MuxInput::A, MuxInput::B] {
+            mux.select_all(input).await;
+
+            let mut buf1 = [0u16; ADC1_SCAN.len()];
+            let mut buf2 = [0u16; ADC2_SCAN.len()];
+            join(seq1.read(&mut buf1), seq2.read(&mut buf2)).await;
+
+            for (&(id, channel), &raw) in ADC1_SCAN.iter().zip(buf1.iter()) {
+                snapshot.set(id, channel, input, raw);
+            }
+            for (&(id, channel), &raw) in ADC2_SCAN.iter().zip(buf2.iter()) {
+                snapshot.set(id, channel, input, raw);
+            }
+        }
+        snapshot.timestamp = Instant::now();
+        sender.send(snapshot);
+
         ticker.next().await;
     }
 }

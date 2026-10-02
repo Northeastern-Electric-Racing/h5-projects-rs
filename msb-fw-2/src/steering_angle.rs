@@ -1,14 +1,9 @@
 //! Steering angle polling. Ported from `u_steering_angle.c` in the C firmware.
 
-use crate::multiplexor_handler::{MUX_SNAPSHOT, MuxChannel, MuxId, MuxInput};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use crate::analog_sensor::{self, AnalogSensor, SensorData};
+use crate::multiplexor_handler::{MuxChannel, MuxId, MuxInput, MuxSource};
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Ticker};
-
-const POLL_PERIOD: Duration = Duration::from_millis(20);
-
-const MAX_VOLTS: f32 = 3.3;
-const MAX_ADC_VAL_12B: f32 = 4095.0;
+use embassy_time::Duration;
 
 /// Sensor voltage at full right lock.
 const V_MIN: f32 = 1.0626;
@@ -26,14 +21,10 @@ const ANGLE_LEFT_MAX: f32 = 75.0;
 /// (disconnected or shorted sensor).
 const FAULT_MARGIN_V: f32 = 0.1;
 
-/// LPF3 on U18 (PC3, ADC1 ch13), read with the same SEL state as the shock pots.
-const SOURCE: (MuxId, MuxChannel, MuxInput) = (MuxId::U18, MuxChannel::Ch3, MuxInput::B);
-
-/// Max number of tasks that can subscribe to [`STEERING_ANGLE_DATA`].
-const MAX_RECEIVERS: usize = 2;
+pub const NUM_STEERING_ANGLES: usize = 1;
 
 /// Latest steering angle reading.
-pub static STEERING_ANGLE_DATA: Watch<ThreadModeRawMutex, SteeringAngleReading, MAX_RECEIVERS> = Watch::new();
+pub static STEERING_ANGLE_DATA: SensorData<SteeringAngleReading, NUM_STEERING_ANGLES> = Watch::new();
 
 #[derive(Clone, Copy, Default, defmt::Format)]
 pub struct SteeringAngleReading {
@@ -46,38 +37,43 @@ pub struct SteeringAngleReading {
     pub in_range: bool,
 }
 
-/// Converts a raw ADC reading into a steering angle.
-pub fn convert(raw: u16) -> SteeringAngleReading {
-    let volts = f32::from(raw) * MAX_VOLTS / MAX_ADC_VAL_12B;
-    let in_range = (V_MIN - FAULT_MARGIN_V..=V_MAX + FAULT_MARGIN_V).contains(&volts);
+/// The steering angle sensor, as an [`AnalogSensor`].
+pub struct SteeringAngle;
 
-    let v = volts.clamp(V_MIN, V_MAX);
-    let angle_deg = if v <= V_STRAIGHT {
-        ANGLE_RIGHT_MAX * (V_STRAIGHT - v) / (V_STRAIGHT - V_MIN)
-    } else {
-        -ANGLE_LEFT_MAX * (v - V_STRAIGHT) / (V_MAX - V_STRAIGHT)
-    };
+impl AnalogSensor<NUM_STEERING_ANGLES> for SteeringAngle {
+    const POLL_PERIOD: Duration = Duration::from_millis(20);
+    /// LPF3 on U18 (PC3, ADC1 ch13), read with the same SEL state as the shock pots.
+    const SOURCES: [MuxSource; NUM_STEERING_ANGLES] = [(MuxId::U18, MuxChannel::Ch3, MuxInput::B)];
+    const NAMES: [&'static str; NUM_STEERING_ANGLES] = ["steering"];
 
-    SteeringAngleReading { raw, volts, angle_deg, in_range }
+    type Reading = SteeringAngleReading;
+
+    fn convert(_i: usize, raw: u16, volts: f32) -> SteeringAngleReading {
+        let in_range = (V_MIN - FAULT_MARGIN_V..=V_MAX + FAULT_MARGIN_V).contains(&volts);
+
+        let v = volts.clamp(V_MIN, V_MAX);
+        let angle_deg = if v <= V_STRAIGHT {
+            ANGLE_RIGHT_MAX * (V_STRAIGHT - v) / (V_STRAIGHT - V_MIN)
+        } else {
+            -ANGLE_LEFT_MAX * (v - V_STRAIGHT) / (V_MAX - V_STRAIGHT)
+        };
+
+        SteeringAngleReading { raw, volts, angle_deg, in_range }
+    }
+
+    fn log(_name: &'static str, r: &SteeringAngleReading) {
+        defmt::info!("Steering angle: raw={=u16} volts={=f32} angle={=f32}deg", r.raw, r.volts, r.angle_deg);
+        if !r.in_range {
+            defmt::warn!("Steering angle sensor out of range ({=f32} V); check wiring.", r.volts);
+        }
+    }
+
+    fn data() -> &'static SensorData<SteeringAngleReading, NUM_STEERING_ANGLES> {
+        &STEERING_ANGLE_DATA
+    }
 }
 
 #[embassy_executor::task]
 pub async fn steering_angle_task() {
-    let mut rx = MUX_SNAPSHOT.receiver().expect("Too many MUX_SNAPSHOT receivers.");
-    let sender = STEERING_ANGLE_DATA.sender();
-    let mut ticker = Ticker::every(POLL_PERIOD);
-
-    loop {
-        let snapshot = rx.get().await;
-        let (id, channel, input) = SOURCE;
-        let reading = convert(snapshot.get(id, channel, input));
-
-        defmt::info!("Steering angle: raw={=u16} volts={=f32} angle={=f32}deg", reading.raw, reading.volts, reading.angle_deg);
-        if !reading.in_range {
-            defmt::warn!("Steering angle sensor out of range ({=f32} V); check wiring.", reading.volts);
-        }
-        sender.send(reading);
-
-        ticker.next().await;
-    }
+    analog_sensor::run::<SteeringAngle, NUM_STEERING_ANGLES>().await
 }
