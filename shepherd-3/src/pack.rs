@@ -498,14 +498,23 @@ mod analyzer {
                 faults::queue(FaultCommand::CellOpenWireFault(PassFailAction::NotifyOkay)).await;
             }
         }
+
+        pub async fn update_chip_status(&mut self) {
+
+        }
     }
 
     /// Task that runs and updates the analyzer (to do run some calculations on chip data).
     #[embassy_executor::task]
     pub async fn analyzer_task() {
-        use crate::segments::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL, ChipId, ChipKind, CellId};
-        use crate::units::{degree_celsius, volt};
-        use crate::can;
+        use crate::{
+            can, can::{
+                types::{CellTemperatures, CellVoltage, PackSocStatus, SegmentAverageVoltages, SegmentTotalVoltages, SegmentTemperatures}
+            },
+            segments::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL, ChipId, ChipKind, CellId, SegmentId},
+            units::{degree_celsius, volt},
+        };
+
 
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
@@ -525,12 +534,114 @@ mod analyzer {
             // calc_open_cell_voltage u_TODO - probably do this later once full scope of how much hv plate data is needed here is known
             analyzer.calc_pack_voltage_stats();
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
+            // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
 
             if segments_openwire_subscription.has_been_signaled() {
                 analyzer.detect_cell_open_wire().await;
             }
 
             update(analyzer);
+
+            // u_TODO - i'm pretty sure we can just move the stuff in `cell_temp_sanitizer.c` directly into the analyzer task. there doesn't seem to be a reason to have it in its own task like the C code. so we should add that here (after the analyzer is done)
+            
+            can::send(CellVoltage {
+                high_val:  analyzer.max_ocv.value().get::<volt>(),
+                high_cell: analyzer.max_ocv.cell().as_u8(),
+                high_chip: analyzer.max_ocv.chip().as_u8(),
+                low_val:   analyzer.min_ocv.value().get::<volt>(),
+                low_chip:  analyzer.min_ocv.chip().as_u8(),
+                low_cell:  analyzer.min_ocv.cell().as_u8(),
+                avg_val:   analyzer.avg_ocv.get::<volt>(),
+            }.as_frame()).await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/high_val", desc = "Value of highest cell voltage, in volts.", "{=f32}", analyzer.max_ocv.value().get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/high_cell", desc = "The cell `high_val` was measured from.", "{}", analyzer.max_ocv.cell());
+                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/high_chip", desc = "The chip `high_val` was measured from.", "{}", analyzer.max_ocv.chip());
+                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_val", desc = "Value of lowest cell voltage, in volts.", "{=f32}", analyzer.min_ocv.value().get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_cell", desc = "The cell `low_val` was measured from.", "{}", analyzer.min_ocv.cell());
+                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_chip", desc = "The chip `low_val` was measured from.", "{}", analyzer.min_ocv.chip());
+                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/avg_val", desc = "The average cell voltage, in volts.", "{=f32}", analyzer.avg_ocv.get::<volt>());
+            }
+
+            can::send(SegmentAverageVoltages {
+                seg1: analyzer.segment_average_volts[SegmentId::Segment0].get::<volt>(),
+                seg2: analyzer.segment_average_volts[SegmentId::Segment1].get::<volt>(),
+                seg3: analyzer.segment_average_volts[SegmentId::Segment2].get::<volt>(),
+                seg4: analyzer.segment_average_volts[SegmentId::Segment3].get::<volt>(),
+                seg5: analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>(),
+            }.as_frame()).await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                for segment in SegmentId::iter() {
+                    defmt_monitor::monitor!(["AnalyzerDebug/SegmentAverageVoltages/seg_{=u8}/", segment.as_u8()], desc = "Average voltage for this segment, in volts.", "{=f32}", analyzer.segment_average_volts[segment].get::<volt>());
+                }
+            }
+
+            can::send(SegmentTotalVoltages {
+                seg1: analyzer.segment_total_volts[SegmentId::Segment0].get::<volt>(),
+                seg2: analyzer.segment_total_volts[SegmentId::Segment1].get::<volt>(),
+                seg3: analyzer.segment_total_volts[SegmentId::Segment2].get::<volt>(),
+                seg4: analyzer.segment_total_volts[SegmentId::Segment3].get::<volt>(),
+                seg5: analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>(),
+            }.as_frame()).await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                for segment in SegmentId::iter() {
+                    defmt_monitor::monitor!(["AnalyzerDebug/SegmentTotalVoltages/seg_{=u8}/", segment.as_u8()], desc = "Total voltage for this segment, in volts.", "{=f32}", analyzer.segment_total_volts[segment].get::<volt>());
+                }
+            }
+
+            can::send(CellTemperatures {
+                high_val:  analyzer.max_temp.value().get::<degree_celsius>(),
+                high_cell: analyzer.max_temp.cell().as_u8(),
+                high_chip: analyzer.max_temp.chip().as_u8(),
+                low_val:   analyzer.min_temp.value().get::<degree_celsius>(),
+                low_chip:  analyzer.min_temp.chip().as_u8(),
+                low_cell:  analyzer.min_temp.cell().as_u8(),
+                avg_val:   analyzer.avg_temp.get::<degree_celsius>(),
+            }.as_frame()).await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                defmt_monitor::monitor!("AnalyzerDebug/CellTemperatures/high_val", desc = "Value of highest cell temperature, in degrees celsius.", "{=f32}", analyzer.max_temp.value().get::<degree_celsius>());
+                defmt_monitor::monitor!("AnalyzerDebug/CellTemperatures/high_cell", desc = "The cell `high_val` was measured from.", "{}", analyzer.max_temp.cell());
+                defmt_monitor::monitor!("AnalyzerDebug/CellTemperatures/high_chip", desc = "The chip `high_val` was measured from.", "{}", analyzer.max_temp.chip());
+                defmt_monitor::monitor!("AnalyzerDebug/CellTemperatures/low_val", desc = "Value of lowest cell temperature, in degree celsius.", "{=f32}", analyzer.min_temp.value().get::<degree_celsius>());
+                defmt_monitor::monitor!("AnalyzerDebug/CellTemperatures/low_cell", desc = "The cell `low_val` was measured from.", "{}", analyzer.min_temp.cell());
+                defmt_monitor::monitor!("AnalyzerDebug/CellTemperatures/low_chip", desc = "The chip `low_val` was measured from.", "{}", analyzer.min_temp.chip());
+                defmt_monitor::monitor!("AnalyzerDebug/CellTemperatures/avg_val", desc = "The average cell temperature in degrees celsius.", "{}", analyzer.avg_temp.get::<degree_celsius>());
+            }
+
+            can::send(SegmentTemperatures {
+                seg1: analyzer.segment_average_temps[SegmentId::Segment0].get::<degree_celsius>(),
+                seg2: analyzer.segment_average_temps[SegmentId::Segment1].get::<degree_celsius>(),
+                seg3: analyzer.segment_average_temps[SegmentId::Segment2].get::<degree_celsius>(),
+                seg4: analyzer.segment_average_temps[SegmentId::Segment3].get::<degree_celsius>(),
+                seg5: analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>(),
+            }.as_frame()).await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                for segment in SegmentId::iter() {
+                    defmt_monitor::monitor!(["AnalyzerDebug/SegmentTemperatures/seg_{=u8}/", segment.as_u8()], desc = "Temperature for this segment, in degrees celsius.", "{=f32}", analyzer.segment_average_temps[segment].get::<degree_celsius>());
+                }
+            }
+
+            can::send(PackSocStatus {
+                pack_soc: analyzer.soc.get::<ratio>(),
+                pack_soc_drift: f32::MIN, // u_TODO make this real eventually
+            }.as_frame()).await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge. This is a ratio/percentage from 0.0 to 1.0", "{=f32}", analyzer.soc.get::<ratio>());
+                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Pack SoC drift. CURRENTLY NOT A REAL VALUE.", "{=f32}", f32::MIN);
+            }
+            
         }
     }
 }

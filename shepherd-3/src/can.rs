@@ -113,6 +113,97 @@ pub mod types {
             frame.to_can_frame()
         }
     }
+
+    pub struct CellVoltage {
+        pub high_val: f32,
+        pub high_chip: u8,
+        pub high_cell: u8,
+        pub low_val: f32,
+        pub low_chip: u8,
+        pub low_cell: u8,
+        pub avg_val: f32,
+    }
+    impl CellVoltage {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::CellVoltage::new().with_high_val(self.high_val).with_high_chip(self.high_chip).with_high_cell(self.high_cell).with_low_val(self.low_val).with_low_chip(self.low_chip).with_low_cell(self.low_cell).with_avg_val(self.avg_val);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct SegmentAverageVoltages {
+        pub seg1: f32,
+        pub seg2: f32,
+        pub seg3: f32,
+        pub seg4: f32,
+        pub seg5: f32,
+    }
+    impl SegmentAverageVoltages {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::SegmentAverageVoltages::new().with_seg1(self.seg1).with_seg2(self.seg2).with_seg3(self.seg3).with_seg4(self.seg4).with_seg5(self.seg5);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct SegmentTotalVoltages {
+        pub seg1: f32,
+        pub seg2: f32,
+        pub seg3: f32,
+        pub seg4: f32,
+        pub seg5: f32,
+    }
+    impl SegmentTotalVoltages {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::SegmentTotalVoltages::new().with_seg1(self.seg1).with_seg2(self.seg2).with_seg3(self.seg3).with_seg4(self.seg4).with_seg5(self.seg5);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct CellTemperatures {
+        pub high_val: f32,
+        pub high_chip: u8,
+        pub high_cell: u8,
+        pub low_val: f32,
+        pub low_chip: u8,
+        pub low_cell: u8,
+        pub avg_val: f32,
+    }
+    impl CellTemperatures {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::CellTemperatures::new().with_high_val(self.high_val).with_high_chip(self.high_chip).with_high_cell(self.high_cell).with_low_val(self.low_val).with_low_chip(self.low_chip).with_low_cell(self.low_cell).with_avg_val(self.avg_val);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct SegmentTemperatures {
+        pub seg1: f32,
+        pub seg2: f32,
+        pub seg3: f32,
+        pub seg4: f32,
+        pub seg5: f32,
+    }
+    impl SegmentTemperatures {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::SegmentTemperatures::new().with_seg1(self.seg1).with_seg2(self.seg2).with_seg3(self.seg3).with_seg4(self.seg4).with_seg5(self.seg5);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct PackSocStatus {
+        pub pack_soc: f32,
+        pub pack_soc_drift: f32,
+    }
+    impl PackSocStatus {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::PackSocStatus::new().with_Pack_SoC(self.pack_soc).with_Pack_SoC_Drift(self.pack_soc_drift);
+
+            frame.to_can_frame()
+        }
+    }
 }
 
 /// Interrupt config and diagnostics.
