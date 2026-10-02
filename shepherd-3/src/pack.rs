@@ -490,9 +490,13 @@ mod analyzer {
             }
 
             use crate::faults;
-            use crate::faults::FaultId;
+            use crate::faults::{FaultCommand, PassFailAction};
 
-            if open_wire_fault_active { faults::queue(FaultId::CellOpenWireFault).await; }
+            if open_wire_fault_active {
+                faults::queue(FaultCommand::CellOpenWireFault(PassFailAction::NotifyBad)).await;
+            } else {
+                faults::queue(FaultCommand::CellOpenWireFault(PassFailAction::NotifyOkay)).await;
+            }
         }
     }
 
