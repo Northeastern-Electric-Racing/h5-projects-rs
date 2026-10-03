@@ -336,7 +336,7 @@ mod analyzer {
 
                 let die_temp: Temperature = self.chip_data[chip].die_temp;
                 
-                if self.max_chiptemp.value() < die_temp {
+                if self.max_chiptemp.value().as_inner() < die_temp.as_inner() {
                     self.max_chiptemp = CriticalChipValue { value: die_temp, chip }
                 }
             }
@@ -353,36 +353,36 @@ mod analyzer {
             for chip in ChipId::iter() {
                 // Constants and comments from TSECU-Shepherd
                 // 25A patch only: alpha lowest and beta highest need to be offset correctly
-                const UNIT_RES: ResistancePerLength = from_ohms_per_millimeter(0.00139_f32); // from 1/2 oz copper, 0.71mm trace width, 30C
-                const TRACE_LEN_ALPHA: Length = from_millimeters(234.56_f32 + 27.23_f32);
-                const TRACE_LEN_BETA: Length = from_millimeters(116.36_f32 + 27.431_f32);
-                const FUSE_RES: Resistance = from_ohms(0.1637_f32);
-                const TRACE_RES_ONBOARD_ALPHA: Resistance = from_ohms(0.015_f32); // ohms, correction offset
-                const TRACE_RES_ONBOARD_BETA: Resistance = from_ohms(0.20_f32); // ohms, correction offset
+                const UNIT_RES: ResistancePerLength = ResistancePerLength::from_ohms_per_millimeter(0.00139_f32); // from 1/2 oz copper, 0.71mm trace width, 30C
+                const TRACE_LEN_ALPHA: Length = Length::from_millimeters(234.56_f32 + 27.23_f32);
+                const TRACE_LEN_BETA: Length = Length::from_millimeters(116.36_f32 + 27.431_f32);
+                const FUSE_RES: Resistance = Resistance::from_ohms(0.1637_f32);
+                const TRACE_RES_ONBOARD_ALPHA: Resistance = Resistance::from_ohms(0.015_f32); // ohms, correction offset
+                const TRACE_RES_ONBOARD_BETA: Resistance = Resistance::from_ohms(0.20_f32); // ohms, correction offset
 
                 // The distance times the unit resistance, plus the resistance of the fuse
                 let (res, cell): (Resistance, CellId) = match chip.kind() {
                     ChipKind::Beta => {
-                        let res: Resistance = (UNIT_RES * TRACE_LEN_BETA) + FUSE_RES + TRACE_RES_ONBOARD_BETA;
+                        let res = Resistance::from_inner((UNIT_RES.as_inner() * TRACE_LEN_BETA.as_inner()) + FUSE_RES.as_inner() + TRACE_RES_ONBOARD_BETA.as_inner());
                         (res, CellId::Cell13)
                     },
                     ChipKind::Alpha => {
-                        let res: Resistance = (UNIT_RES * TRACE_LEN_ALPHA) + FUSE_RES + TRACE_RES_ONBOARD_ALPHA;
+                        let res = Resistance::from_inner((UNIT_RES.as_inner() * TRACE_LEN_ALPHA.as_inner()) + FUSE_RES.as_inner() + TRACE_RES_ONBOARD_ALPHA.as_inner());
                         (res, CellId::Cell1)
                     }
                 };
 
-                let curr_bal: Current = match state {
+                let curr_bal = match state {
                     // measured on 4/5/2026, the current through the cells when in charging mode single shot C ADCs
 			        // redone to be higher 4/8 sans measurement
-                    BmsState::Charging => from_amps(0.029_f32),
+                    BmsState::Charging => Current::from_amps(0.029_f32),
 
                     // measured on 4/5/2026, the current through the cells when in active mode continous C/S read compare
-                    _ => from_amps(0.031_f32),
+                    _ => Current::from_amps(0.031_f32),
                 };
 
                 // I*R is the way
-                self.chip_data[chip].cell_voltages[cell] += curr_bal * res;
+                *self.chip_data[chip].cell_voltages[cell].inner_mut() += curr_bal.as_inner() * res.as_inner();
             }
         }
 
