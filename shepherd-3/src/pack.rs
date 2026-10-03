@@ -1,16 +1,14 @@
-use strum::IntoEnumIterator;
-
 use crate::{
     state_machine::{BmsState}, state_machine,
-    segments::{CellId, ChipId, ChipKind, SegmentId, IndexByChip, IndexByCell, IndexBySegment, ThermistorTemperatures, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
-    units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm, consts::{from_ohms, from_volts, from_ohms_per_millimeter, from_millimeters, from_amps}},
+    segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
+    units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm},
 };
 use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
 
-mod analyzer {
+pub mod analyzer {
     use super::*;
     use embassy_time::Instant;
-    use embassy_sync::{blocking_mutex, blocking_mutex::raw::ThreadModeRawMutex};
+    use embassy_sync::{blocking_mutex};
     use core::cell::Cell;
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
@@ -58,7 +56,7 @@ mod analyzer {
     }
 
     #[derive(Copy, Clone)]
-    struct CriticalCellValue<T> {
+    pub struct CriticalCellValue<T> {
         /// The critical value being stored here.
         value: T,
         /// Chip the critical value was measured from.
@@ -83,13 +81,15 @@ mod analyzer {
         }
     }
 
+    #[allow(dead_code)]
     #[derive(Copy, Clone)]
-    struct CriticalChipValue<T> {
+    pub struct CriticalChipValue<T> {
         /// The critical value being stored here.
         value: T,
         /// Chip the critical value was measured from.
         chip: ChipId,
     }
+    #[allow(dead_code)]
     impl<T> CriticalChipValue<T> {
         pub const fn value_ref(&self) -> &T {
             &self.value
@@ -109,7 +109,8 @@ mod analyzer {
     /// This isn't 100% analgous to the `chipdata_t` struct from TSECU-Shep. This is meant
     /// to be the stuff for Analyzer that can be taken directly from the cache (but doesn't incldue anything it has to calculate itself).
     #[derive(Copy, Clone)]
-    struct ChipData {
+    #[allow(dead_code)]
+    pub struct ChipData {
         pub cell_temp: IndexByCell<Temperature>,
         pub cell_voltages: IndexByCell<Voltage>,
         pub s_cell_voltages: IndexByCell<Voltage>,
@@ -192,51 +193,52 @@ mod analyzer {
 
     /// 6 consoles 10 computers
     #[derive(Copy, Clone)]
-    struct Analyzer {
+    #[allow(dead_code)]
+    pub struct Analyzer {
         /// Data directly from the ADBMS6830B chips.
-        chip_data: IndexByChip<ChipData>,
+        pub chip_data: IndexByChip<ChipData>,
 
         // Stuff that was on `chipdata_t` in the C code but wasn't moved over to `ChipData` in the Rust code
         // because it is a calculated value rather than something taken directly from the chips
-        cell_resistance: IndexByChip<IndexByCell<Resistance>>,
-        open_cell_voltage: IndexByChip<IndexByCell<Voltage>>,
-        ow_fault: IndexByChip<IndexByCell<bool>>,
+        pub cell_resistance: IndexByChip<IndexByCell<Resistance>>,
+        pub open_cell_voltage: IndexByChip<IndexByCell<Voltage>>,
+        pub ow_fault: IndexByChip<IndexByCell<bool>>,
 
         // Max, min, and avg thermistor readings.
-        max_temp: CriticalCellValue<Temperature>,
-        min_temp: CriticalCellValue<Temperature>,
-        avg_temp: Temperature,
+        pub max_temp: CriticalCellValue<Temperature>,
+        pub min_temp: CriticalCellValue<Temperature>,
+        pub avg_temp: Temperature,
 
         // Max, min, and avg voltage of the cells
-        max_voltage: CriticalCellValue<Voltage>,
-        min_voltage: CriticalCellValue<Voltage>,
-        avg_voltage: Voltage,
-        delta_voltage: Voltage,
+        pub max_voltage: CriticalCellValue<Voltage>,
+        pub min_voltage: CriticalCellValue<Voltage>,
+        pub avg_voltage: Voltage,
+        pub delta_voltage: Voltage,
 
         // Max, min, and avg Open Cell Voltage (OCV) readings.
-        max_ocv: CriticalCellValue<Voltage>,
-        min_ocv: CriticalCellValue<Voltage>,
-        avg_ocv: Voltage,
-        delta_ocv: Voltage,
-        pack_ocv: Voltage,
+        pub max_ocv: CriticalCellValue<Voltage>,
+        pub min_ocv: CriticalCellValue<Voltage>,
+        pub avg_ocv: Voltage,
+        pub delta_ocv: Voltage,
+        pub pack_ocv: Voltage,
 
         /// The highest current chip temperature, for faulting.
-        max_chiptemp: CriticalChipValue<Temperature>,
+        pub max_chiptemp: CriticalChipValue<Temperature>,
 
         /// Segment temperature averages.
-        segment_average_temps: IndexBySegment<Temperature>,
+        pub segment_average_temps: IndexBySegment<Temperature>,
         /// Segment OCV average voltages.
-        segment_average_volts: IndexBySegment<Voltage>,
+        pub segment_average_volts: IndexBySegment<Voltage>,
         /// Total voltages for each segment.
-        segment_total_volts: IndexBySegment<Voltage>,
+        pub segment_total_volts: IndexBySegment<Voltage>,
         /// Delta voltages for each segment.
-        segment_delta_volts: IndexBySegment<Voltage>,
+        pub segment_delta_volts: IndexBySegment<Voltage>,
 
         /// Voltage of pack
-        pack_voltage: Voltage,
+        pub pack_voltage: Voltage,
 
         /// State of Charge (SoC) of the pack.
-        soc: Ratio,
+        pub soc: Ratio,
     }
     impl Analyzer {
         /// Creates a new Analyzer with current cache data, and blank data for all the
@@ -496,10 +498,6 @@ mod analyzer {
                 faults::queue(FaultCommand::CellOpenWireFault(PassFailAction::NotifyOkay)).await;
             }
         }
-
-        pub async fn update_chip_status(&mut self) {
-
-        }
     }
 
     /// Task that runs and updates the analyzer (to do run some calculations on chip data).
@@ -509,7 +507,7 @@ mod analyzer {
             can, can::{
                 types::{CellTemperatures, CellVoltage, PackSocStatus, SegmentAverageVoltages, SegmentTotalVoltages, SegmentTemperatures}
             },
-            segments::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL, ChipId, ChipKind, CellId, SegmentId},
+            segments::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL, SegmentId},
             units::{degree_celsius, volt},
         };
 
