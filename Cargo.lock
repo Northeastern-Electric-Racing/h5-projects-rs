@@ -150,13 +150,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "840ad5d907de7448d88a3f22b4a7b5d326c6eb3deeb9f94cfaaec7354a80b305"
 
 [[package]]
-name = "atlas-app"
+name = "atlas"
 version = "0.1.0"
 dependencies = [
  "cortex-m",
+ "cortex-m-rt",
+ "crc",
+ "defmt-rtt",
  "embassy-boot-stm32",
+ "embassy-executor",
+ "embassy-stm32",
+ "embassy-sync",
+ "embassy-time",
  "embedded-can",
  "embedded-storage",
+ "panic-probe",
  "serde",
  "serde_json",
 ]
@@ -1771,26 +1779,6 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",
-]
-
-[[package]]
-name = "stm32h563-can-bootloader"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "crc",
- "defmt-rtt",
- "embassy-boot-stm32",
- "embassy-executor",
- "embassy-stm32",
- "embassy-sync",
- "embassy-time",
- "embedded-can",
- "embedded-storage",
- "panic-probe",
- "serde",
- "serde_json",
 ]
 
 [[package]]

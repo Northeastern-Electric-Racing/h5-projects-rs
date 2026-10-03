@@ -1,4 +1,4 @@
-//! ECU configuration source used by platform build scripts; not generated output.
+//! ECU configuration source used by build scripts; not generated output.
 
 use serde::Deserialize;
 use std::{
@@ -14,43 +14,13 @@ type Result<T> = std::result::Result<T, String>;
 pub struct Config {
     pub schema_version: u32,
     pub supported_bit_rates: Vec<u32>,
-    pub platforms: BTreeMap<String, Platform>,
     pub ecus: BTreeMap<String, Ecu>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Platform {
-    pub cargo_package: String,
-    pub rust_target: String,
-    pub chip: String,
-    pub memory: Memory,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Memory {
-    pub bootloader: Region,
-    pub application: Region,
-    pub dfu: Region,
-    pub state: Region,
-    pub ram: Region,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Region {
-    #[serde(deserialize_with = "unsigned")]
-    pub address: u32,
-    #[serde(deserialize_with = "unsigned")]
-    pub size: u32,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ecu {
     pub label: String,
-    pub platform: String,
     pub hardware: Hardware,
     pub can: Can,
 }
@@ -58,7 +28,6 @@ pub struct Ecu {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Hardware {
-    pub hse_hz: u32,
     pub can_peripheral: String,
     pub can_rx: String,
     pub can_tx: String,
@@ -125,18 +94,6 @@ fn bytes<'de, D: serde::Deserializer<'de>>(
         .collect()
 }
 
-impl Region {
-    pub fn bounds(&self) -> Result<(u32, u32)> {
-        let start = self.address;
-        let size = self.size;
-        let end = start.checked_add(size).ok_or("Memory region overflows")?;
-        if size == 0 {
-            return Err("Memory region cannot be empty".into());
-        }
-        Ok((start, end))
-    }
-}
-
 impl Config {
     pub fn read(path: &Path) -> Result<Self> {
         let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -146,14 +103,14 @@ impl Config {
         Ok(config)
     }
 
-    pub fn select(&self, name: &str) -> Result<(&Ecu, &Platform)> {
+    pub fn select(&self, name: &str) -> Result<&Ecu> {
         let ecu = self.ecus.get(&name.to_ascii_lowercase()).ok_or_else(|| {
             format!(
                 "Unknown ECU {name}; choose: {}",
                 self.ecus.keys().cloned().collect::<Vec<_>>().join(", ")
             )
         })?;
-        Ok((ecu, &self.platforms[&ecu.platform]))
+        Ok(ecu)
     }
 
     fn validate(&self) -> Result<()> {
@@ -166,18 +123,6 @@ impl Config {
         // Position in this array is the existing SET_BAUD_RATE wire code.
         if self.supported_bit_rates != [125_000, 250_000, 500_000, 1_000_000] {
             return Err("supported_bit_rates must match the protocol bitrate codes".into());
-        }
-        for platform in self.platforms.values() {
-            let m = &platform.memory;
-            let regions = [&m.bootloader, &m.application, &m.dfu, &m.state, &m.ram];
-            let mut bounds = Vec::new();
-            for region in regions {
-                let (start, end) = region.bounds()?;
-                if bounds.iter().any(|&(s, e)| start < e && s < end) {
-                    return Err("Memory regions overlap".into());
-                }
-                bounds.push((start, end));
-            }
         }
         let mut ids = HashSet::new();
         for (name, ecu) in &self.ecus {
@@ -194,9 +139,9 @@ impl Config {
                     "ECU name must use lowercase letters, digits, or hyphens: {name}"
                 ));
             }
-            if !self.platforms.contains_key(&ecu.platform) {
-                return Err(format!("Unknown platform for {name}: {}", ecu.platform));
-            }
+            ecu.hardware
+                .validate_h563_can()
+                .map_err(|e| format!("ecus.{name}.hardware: {e}"))?;
             if !self.supported_bit_rates.contains(&ecu.can.default_bit_rate) {
                 return Err(format!("Unsupported default bitrate for {name}"));
             }
@@ -216,54 +161,6 @@ impl Config {
             if !(1..=8).contains(&ecu.can.application_boot_request_data.len()) {
                 return Err(format!("Invalid application boot request for {name}"));
             }
-        }
-        Ok(())
-    }
-}
-
-impl Platform {
-    /// Match the bank-relative flash implementation compiled by this platform package.
-    pub fn validate_h563(&self, ecu: &Ecu) -> Result<()> {
-        if self.rust_target != "thumbv8m.main-none-eabihf" || self.chip != "STM32H563ZITx" {
-            return Err("Selected platform does not match the STM32H563ZI package".into());
-        }
-        let hw = &ecu.hardware;
-        hw.validate_h563_can()?;
-        if hw.hse_hz != 25_000_000 {
-            return Err("This platform currently supports a 25 MHz HSE oscillator".into());
-        }
-        let m = &self.memory;
-        for (region, bank_start, bank_end) in [
-            (&m.bootloader, 0x0800_0000, 0x0810_0000),
-            (&m.application, 0x0800_0000, 0x0810_0000),
-            (&m.dfu, 0x0810_0000, 0x0820_0000),
-            (&m.state, 0x0810_0000, 0x0820_0000),
-        ] {
-            let (start, end) = region.bounds()?;
-            if start < bank_start || end > bank_end || start % 8192 != 0 || end % 8192 != 0 {
-                return Err(
-                    "Flash partitions must be bank-contained and aligned to 8 KiB sectors".into(),
-                );
-            }
-        }
-        if m.bootloader.address != 0x0800_0000 {
-            return Err("Bootloader must start at 0x08000000".into());
-        }
-        let (ram_start, ram_end) = m.ram.bounds()?;
-        if ram_start < 0x2000_0000
-            || ram_end > 0x200a_0000
-            || ram_start % 8 != 0
-            || ram_end % 8 != 0
-        {
-            return Err("RAM must fit H563 SRAM and be 8-byte aligned".into());
-        }
-        if m.dfu.size < m.application.size + 8192 {
-            return Err("DFU needs at least one extra erase sector beyond the application".into());
-        }
-        // Reserve progress entries for both the swap and rollback, in flash write units.
-        let state_needed = (2 + 4 * (m.application.size / 8192)) * 16;
-        if m.state.size < state_needed {
-            return Err("State partition is too small for swap progress".into());
         }
         Ok(())
     }
@@ -315,16 +212,14 @@ mod tests {
         let config: Config = serde_json::from_str(FIXTURE).unwrap();
         config.validate().unwrap();
         for name in ["BMS", "vcu"] {
-            let (ecu, platform) = config.select(name).unwrap();
-            platform.validate_h563(ecu).unwrap();
+            assert!(config.select(name).is_ok());
         }
-        assert_eq!(config.select("bms").unwrap().0.can.request_id, 0x10);
-        assert_eq!(config.select("vcu").unwrap().0.can.request_id, 0x14);
+        assert_eq!(config.select("bms").unwrap().can.request_id, 0x10);
+        assert_eq!(config.select("vcu").unwrap().can.request_id, 0x14);
         assert_eq!(
             config
                 .select("bms")
                 .unwrap()
-                .0
                 .can
                 .application_boot_request_data,
             [0xb0, 7, 0x10, 0xad]
@@ -344,12 +239,9 @@ mod tests {
         value["ecus"]["bms"]["can"]["request_id"] = serde_json::json!(16);
         value["ecus"]["bms"]["can"]["application_boot_request_data"] =
             serde_json::json!([176, "0X07", 16, "0xad"]);
-        value["platforms"]["stm32h563zi"]["memory"]["bootloader"]["address"] =
-            serde_json::json!(0x08000000);
         let config: Config = serde_json::from_value(value).unwrap();
         config.validate().unwrap();
-        let (ecu, platform) = config.select("bms").unwrap();
-        platform.validate_h563(ecu).unwrap();
+        let ecu = config.select("bms").unwrap();
         assert_eq!(ecu.can.request_id, 16);
         assert_eq!(ecu.can.application_boot_request_data, [176, 7, 16, 173]);
     }
@@ -360,34 +252,15 @@ mod tests {
             ("/schema_version", serde_json::json!(2)),
             ("/ecus/vcu/can/request_id", serde_json::json!(16)),
             ("/ecus/bms/can/request_id", serde_json::json!(2048)),
-            ("/ecus/bms/platform", serde_json::json!("unknown")),
+            ("/ecus/bms/can/default_bit_rate", serde_json::json!(123)),
             (
                 "/ecus/bms/can/application_boot_request_data",
                 serde_json::json!([]),
             ),
-            (
-                "/platforms/stm32h563zi/memory/application/address",
-                serde_json::json!(0x08000000),
-            ),
-            (
-                "/platforms/stm32h563zi/memory/application/size",
-                serde_json::json!(0xD2001),
-            ),
-            (
-                "/platforms/stm32h563zi/memory/dfu/size",
-                serde_json::json!(0xD2000),
-            ),
-            (
-                "/platforms/stm32h563zi/memory/state/address",
-                serde_json::json!(0x08200000),
-            ),
             ("/ecus/bms/hardware/can_rx", serde_json::json!("PA0")),
         ] {
             let config: Config = serde_json::from_value(modified(pointer, value)).unwrap();
-            let result = config.validate().and_then(|()| {
-                let (ecu, platform) = config.select("bms")?;
-                platform.validate_h563(ecu)
-            });
+            let result = config.validate();
             assert!(result.is_err(), "{pointer}");
         }
     }
@@ -405,10 +278,6 @@ mod tests {
             ),
             ("/ecus/bms/can/request_id", serde_json::json!(-1)),
             ("/ecus/bms/can/request_id", serde_json::json!(65536)),
-            (
-                "/platforms/stm32h563zi/memory/bootloader/address",
-                serde_json::json!(0x100000000_u64),
-            ),
             (
                 "/ecus/bms/can/application_boot_request_data",
                 serde_json::json!([256]),
@@ -445,8 +314,7 @@ mod tests {
                     hw.can_peripheral = peripheral.into();
                     hw.can_rx = (*rx).into();
                     hw.can_tx = (*tx).into();
-                    let (ecu, platform) = config.select("bms").unwrap();
-                    platform.validate_h563(ecu).unwrap();
+                    config.validate().unwrap();
                 }
             }
         }
@@ -462,7 +330,6 @@ mod tests {
             ("FDCAN2", "PB13", "PD9"),
         ] {
             let hw = Hardware {
-                hse_hz: 25_000_000,
                 can_peripheral: peripheral.into(),
                 can_rx: rx.into(),
                 can_tx: tx.into(),
