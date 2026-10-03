@@ -62,4 +62,12 @@ impl<M: RawMutex, const N: usize> Subscription<'_, M, N> {
     pub fn clear(&mut self) {
         while self.subscriber.try_next_message_pure().is_some() {}
     }
+
+    /// Checks if this signal has been signaled since we last checked.
+    /// 
+    /// Note: This doesn't do a peek. If the signal HAS been signaled since
+    /// we last checked, calling this will consume that signal.
+    pub fn has_been_signaled(&mut self) -> bool {
+        self.subscriber.try_next_message_pure().is_some()
+    }
 }

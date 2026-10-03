@@ -455,11 +455,11 @@ pub struct CacheData {
     fcd: RegisterCache<FilteredCellVoltagesD>,
     fce: RegisterCache<FilteredCellVoltagesE>,
 
-    sca: RegisterCache<SVoltagesA>,
-    scb: RegisterCache<SVoltagesB>,
-    scc: RegisterCache<SVoltagesC>,
-    scd: RegisterCache<SVoltagesD>,
-    sce: RegisterCache<SVoltagesE>,
+    sca: s_voltages::kinds::IndexBySVoltageKind<RegisterCache<SVoltagesA>>,
+    scb: s_voltages::kinds::IndexBySVoltageKind<RegisterCache<SVoltagesB>>,
+    scc: s_voltages::kinds::IndexBySVoltageKind<RegisterCache<SVoltagesC>>,
+    scd: s_voltages::kinds::IndexBySVoltageKind<RegisterCache<SVoltagesD>>,
+    sce: s_voltages::kinds::IndexBySVoltageKind<RegisterCache<SVoltagesE>>,
 
     statc: RegisterCache<StatusC>,
 
@@ -505,11 +505,11 @@ impl CacheData {
             fcd: RegisterCache::new(),
             fce: RegisterCache::new(),
 
-            sca: RegisterCache::new(),
-            scb: RegisterCache::new(),
-            scc: RegisterCache::new(),
-            scd: RegisterCache::new(),
-            sce: RegisterCache::new(),
+            sca: s_voltages::kinds::IndexBySVoltageKind::new([const { RegisterCache::new() }; s_voltages::kinds::NUM_S_VOLTAGE_KINDS]),
+            scb: s_voltages::kinds::IndexBySVoltageKind::new([const { RegisterCache::new() }; s_voltages::kinds::NUM_S_VOLTAGE_KINDS]),
+            scc: s_voltages::kinds::IndexBySVoltageKind::new([const { RegisterCache::new() }; s_voltages::kinds::NUM_S_VOLTAGE_KINDS]),
+            scd: s_voltages::kinds::IndexBySVoltageKind::new([const { RegisterCache::new() }; s_voltages::kinds::NUM_S_VOLTAGE_KINDS]),
+            sce: s_voltages::kinds::IndexBySVoltageKind::new([const { RegisterCache::new() }; s_voltages::kinds::NUM_S_VOLTAGE_KINDS]),
 
             statc: RegisterCache::new(),
 
@@ -754,6 +754,14 @@ pub mod cell_voltages {
         }
     }
 
+    impl From<NiceData> for IndexByChip<IndexByCell<Voltage>> {
+        fn from(nice: NiceData) -> Self {
+            // at least on release mode this should be zero cost
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
+        }
+    }
+
+
     impl CacheData {
         /// Updates caches CellVoltages A through E with new data.
         ///
@@ -885,6 +893,13 @@ pub mod average_cell_voltages {
                     })
                 },
             })
+        }
+    }
+
+    impl From<NiceData> for IndexByChip<IndexByCell<Voltage>> {
+        fn from(nice: NiceData) -> Self {
+            // at least on release mode this should be zero cost
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
         }
     }
 
@@ -1027,6 +1042,13 @@ pub mod filtered_cell_voltages {
         }
     }
 
+    impl From<NiceData> for IndexByChip<IndexByCell<Voltage>> {
+        fn from(nice: NiceData) -> Self {
+            // at least on release mode this should be zero cost
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
+        }
+    }
+
     impl CacheData {
         /// Updates caches FilteredCellVoltages A through E with new data.
         ///
@@ -1161,6 +1183,13 @@ pub mod s_voltages {
         }
     }
 
+    impl From<NiceData> for IndexByChip<IndexByCell<Voltage>> {
+        fn from(nice: NiceData) -> Self {
+            // at least on release mode this should be zero cost
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
+        }
+    }
+
     impl CacheData {
         /// Updates caches SVoltages A through E with new data.
         ///
@@ -1168,11 +1197,11 @@ pub mod s_voltages {
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_s_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             let result: Result<(), UpdateError> = async {
-                self.sca.update(api).await?;
-                self.scb.update(api).await?;
-                self.scc.update(api).await?;
-                self.scd.update(api).await?;
-                self.sce.update(api).await?;
+                self.sca[kinds::SVoltageKind::Normal].update(api).await?;
+                self.scb[kinds::SVoltageKind::Normal].update(api).await?;
+                self.scc[kinds::SVoltageKind::Normal].update(api).await?;
+                self.scd[kinds::SVoltageKind::Normal].update(api).await?;
+                self.sce[kinds::SVoltageKind::Normal].update(api).await?;
                 Ok(())
             }
             .await;
@@ -1183,11 +1212,202 @@ pub mod s_voltages {
         /// Gets the current cached S Voltages data.
         pub fn get_s_voltages(&self) -> s_voltages::Raw {
             s_voltages::Raw {
-                sca: self.sca.data(),
-                scb: self.scb.data(),
-                scc: self.scc.data(),
-                scd: self.scd.data(),
-                sce: self.sce.data(),
+                sca: self.sca[kinds::SVoltageKind::Normal].data(),
+                scb: self.scb[kinds::SVoltageKind::Normal].data(),
+                scc: self.scc[kinds::SVoltageKind::Normal].data(),
+                scd: self.scd[kinds::SVoltageKind::Normal].data(),
+                sce: self.sce[kinds::SVoltageKind::Normal].data(),
+            }
+        }
+
+        /// Updates caches SVoltages A through E with new data, and PUTS IT IN THE `OpenWireEven` storage.
+        /// 
+        /// Before calling this, the caller should mmke sure to trigger a conversion with `OpenWire::EvenOnOddOff`. Then,
+        /// after calling this, the caller should put the SVoltages back in continuous mode.
+        ///
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_s_voltages_ow_even_on(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            let result: Result<(), UpdateError> = async {
+                self.sca[kinds::SVoltageKind::OpenWireEvenOn].update(api).await?;
+                self.scb[kinds::SVoltageKind::OpenWireEvenOn].update(api).await?;
+                self.scc[kinds::SVoltageKind::OpenWireEvenOn].update(api).await?;
+                self.scd[kinds::SVoltageKind::OpenWireEvenOn].update(api).await?;
+                self.sce[kinds::SVoltageKind::OpenWireEvenOn].update(api).await?;
+                Ok(())
+            }
+            .await;
+
+            result
+        }
+
+        /// Gets the current cached S Voltages data for `OpenWire::EvenOnOddOff`.
+        pub fn get_s_voltages_ow_even_on(&self) -> s_voltages::Raw {
+            s_voltages::Raw {
+                sca: self.sca[kinds::SVoltageKind::OpenWireEvenOn].data(),
+                scb: self.scb[kinds::SVoltageKind::OpenWireEvenOn].data(),
+                scc: self.scc[kinds::SVoltageKind::OpenWireEvenOn].data(),
+                scd: self.scd[kinds::SVoltageKind::OpenWireEvenOn].data(),
+                sce: self.sce[kinds::SVoltageKind::OpenWireEvenOn].data(),
+            }
+        }
+
+        /// Updates caches SVoltages A through E with new data, and PUTS IT IN THE `OpenWireOdd` storage.
+        /// 
+        /// Before calling this, the caller should mmke sure to trigger a conversion with `OpenWire::EvenOffOddOn`. Then,
+        /// after calling this, the caller should put the SVoltages back in continuous mode.
+        ///
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_s_voltages_ow_odd_on(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            let result: Result<(), UpdateError> = async {
+                self.sca[kinds::SVoltageKind::OpenWireOddOn].update(api).await?;
+                self.scb[kinds::SVoltageKind::OpenWireOddOn].update(api).await?;
+                self.scc[kinds::SVoltageKind::OpenWireOddOn].update(api).await?;
+                self.scd[kinds::SVoltageKind::OpenWireOddOn].update(api).await?;
+                self.sce[kinds::SVoltageKind::OpenWireOddOn].update(api).await?;
+                Ok(())
+            }
+            .await;
+
+            result
+        }
+
+        /// Gets the current cached S Voltages data for `OpenWire::EvenOffOddOn`.
+        pub fn get_s_voltages_ow_odd_on(&self) -> s_voltages::Raw {
+            s_voltages::Raw {
+                sca: self.sca[kinds::SVoltageKind::OpenWireOddOn].data(),
+                scb: self.scb[kinds::SVoltageKind::OpenWireOddOn].data(),
+                scc: self.scc[kinds::SVoltageKind::OpenWireOddOn].data(),
+                scd: self.scd[kinds::SVoltageKind::OpenWireOddOn].data(),
+                sce: self.sce[kinds::SVoltageKind::OpenWireOddOn].data(),
+            }
+        }
+    }
+
+    pub mod kinds {
+        use strum::{EnumCount, VariantArray};
+
+        /// The meaning of the voltages in the S voltage registers change depend
+        /// on what OpenWire setting you set when triggering the conversions. This cache
+        /// stores three different versions of the S voltages (for three different OpenWire settings).
+        /// This enum is so we can index
+        #[repr(usize)]
+        #[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
+        #[derive(Clone, Copy, Debug)]
+        pub enum SVoltageKind {
+            /// Corresponds to OpenWire::OffForAll
+            Normal,
+            /// Corresponds to OpenWire::EvenOnOddOff
+            OpenWireEvenOn,
+            /// Corresponds to OpenWire::OddOnEvenOff
+            OpenWireOddOn,
+        }
+
+        /// Number of S Voltage kinds.
+        pub const NUM_S_VOLTAGE_KINDS: usize = SVoltageKind::COUNT;
+
+        /// Wrapper around an array of type `T`, that lets you index using `SVoltageKind` instead of `usize`.
+        /// 
+        /// We really should have a macro for these types
+        #[derive(Copy, Clone, Debug)]
+        pub struct IndexBySVoltageKind<T> {
+            data: [T; SVoltageKind::COUNT],
+        }
+        pub type Kinds = core::iter::Copied<core::slice::Iter<'static, SVoltageKind>>;
+        pub type Iter<'borrow, T> = core::iter::Zip<Kinds, core::slice::Iter<'borrow, T>>;
+        pub type IterMut<'borrow, T> = core::iter::Zip<Kinds, core::slice::IterMut<'borrow, T>>;
+        pub type IntoIter<T> = core::iter::Zip<Kinds, core::array::IntoIter<T, { SVoltageKind::COUNT }>>;
+
+        impl<T> IndexBySVoltageKind<T> {
+            /// Creates a new `IndexBySVoltageKind` directly from an array.
+            pub const fn new(data: [T; SVoltageKind::COUNT]) -> Self {
+                Self { data }
+            }
+
+            /// Retrives the data for `kind`.
+            pub const fn get(&self, kind: SVoltageKind) -> &T {
+                let i: usize = kind as usize;
+                &self.data[i]
+            }
+
+            /// Retrives the data for `kind`.
+            ///
+            /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
+            pub const fn kind(&self, kind: SVoltageKind) -> &T {
+                self.get(kind)
+            }
+
+            /// Retrieves a mutable reference to the data for `kind`.
+            pub const fn get_mut(&mut self, kind: SVoltageKind) -> &mut T {
+                let i: usize = kind as usize;
+                &mut self.data[i]
+            }
+
+            pub fn from_fn(mut f: impl FnMut(SVoltageKind) -> T) -> Self {
+                Self { data: core::array::from_fn(|i| f(SVoltageKind::VARIANTS[i])) }
+            }
+
+            pub fn iter(&self) -> Iter<'_, T> {
+                SVoltageKind::VARIANTS.iter().copied().zip(self.data.iter())
+            }
+
+            pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+                SVoltageKind::VARIANTS.iter().copied().zip(self.data.iter_mut())
+            }
+
+            /// Converts this back into its inner array.
+            pub fn into_array(self) -> [T; SVoltageKind::COUNT] {
+                self.data
+            }
+        }
+
+        impl <T: Copy> IndexBySVoltageKind<T> {
+            /// Creates a new `IndexBySVoltageKind` by initializing every element to `value`.
+            pub const fn from_value(value: T) -> Self {
+                Self { data: [value; SVoltageKind::COUNT] }
+            }
+        }
+
+        impl<T> core::ops::Index<SVoltageKind> for IndexBySVoltageKind<T> {
+            type Output = T;
+
+            fn index(&self, index: SVoltageKind) -> &Self::Output {
+                &self.get(index)
+            }
+        }
+
+        impl<T> core::ops::IndexMut<SVoltageKind> for IndexBySVoltageKind<T> {
+            fn index_mut(&mut self, index: SVoltageKind) -> &mut Self::Output {
+                let i: usize = index as usize;
+                &mut self.data[i]
+            }
+        }
+
+        impl<T> IntoIterator for IndexBySVoltageKind<T> {
+            type Item = (SVoltageKind, T);
+            type IntoIter = IntoIter<T>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                SVoltageKind::VARIANTS.iter().copied().zip(self.data)
+            }
+        }
+
+        impl<'borrow, T> IntoIterator for &'borrow IndexBySVoltageKind<T> {
+            type Item = (SVoltageKind, &'borrow T);
+            type IntoIter = Iter<'borrow, T>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.iter()
+            }
+        }
+
+        impl<'borrow, T> IntoIterator for &'borrow mut IndexBySVoltageKind<T> {
+            type Item = (SVoltageKind, &'borrow mut T);
+            type IntoIter = IterMut<'borrow, T>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.iter_mut()
             }
         }
     }
@@ -1981,6 +2201,13 @@ pub mod pwm {
                     })
                 },
             })
+        }
+    }
+
+    impl From<NiceData> for IndexByChip<IndexByCell<PwmDutyCycleConfig>> {
+        fn from(nice: NiceData) -> Self {
+            // at least on release mode this should be zero cost
+            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
         }
     }
 

@@ -21,6 +21,8 @@ pub mod job_diagnostics;
 pub mod debug;
 pub mod state_machine;
 pub mod faults;
+pub mod pack;
+pub mod helpers;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
@@ -127,8 +129,11 @@ async fn main(spawner: Spawner) {
     spawner.spawn(faults::task::faults_task().expect("Failed to spawn faults task."));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
     spawner.spawn(debug::faults_debug(spawner).expect("Failed to spawn faults debug task."));
+    spawner.spawn(pack::analyzer::analyzer_task().expect("Failed to spawn pack::analyzer_task()."));
+    
     #[cfg(not(feature = "hil"))]
     spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
+
     spawner.spawn(debug::state_machine_debug().expect("Failed to spawn debug::state_machine_debug()."));
 }
 
