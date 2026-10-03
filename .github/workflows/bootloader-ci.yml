@@ -1,0 +1,68 @@
+name: Bootloader CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  ecu-configs:
+    runs-on: ubuntu-latest
+    outputs:
+      ecus: ${{ steps.config.outputs.ecus }}
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v6
+      - name: Read ECU names
+        id: config
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          config = json.loads(Path("atlas/ecus.json").read_text())
+          ecus = sorted(config["ecus"])
+          if not ecus or any(not re.fullmatch(r"[a-z0-9-]+", ecu) for ecu in ecus):
+              raise SystemExit("Expected ECU names containing lowercase letters, digits, or hyphens")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"ecus={json.dumps(ecus)}\n")
+          PY
+
+  bootloader:
+    name: Bootloader (${{ matrix.ecu }})
+    needs: ecu-configs
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ecu: ${{ fromJSON(needs.ecu-configs.outputs.ecus) }}
+    env:
+      BOOTLOADER_ECU: ${{ matrix.ecu }}
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Build
+        working-directory: atlas
+        run: cargo build-atlas "$BOOTLOADER_ECU"
+      - name: Clippy
+        run: >-
+          cargo clippy --release --all-features
+          --package atlas
+          --target thumbv8m.main-none-eabihf
+          --target-dir "target/$BOOTLOADER_ECU-bootloader"
+          -- -D warnings
+      - name: Format host tools
+        run: cargo fmt --manifest-path atlas/tools/Cargo.toml --check

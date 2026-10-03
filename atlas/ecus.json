@@ -6,41 +6,10 @@
     500000,
     1000000
   ],
-  "platforms": {
-    "stm32h563zi": {
-      "cargo_package": "stm32h563-can-bootloader",
-      "rust_target": "thumbv8m.main-none-eabihf",
-      "chip": "STM32H563ZITx",
-      "memory": {
-        "bootloader": {
-          "address": "0x08000000",
-          "size": "0x2E000"
-        },
-        "application": {
-          "address": "0x0802E000",
-          "size": "0xD2000"
-        },
-        "dfu": {
-          "address": "0x08100000",
-          "size": "0xFA000"
-        },
-        "state": {
-          "address": "0x081FA000",
-          "size": "0x2000"
-        },
-        "ram": {
-          "address": "0x20000000",
-          "size": "0xA0000"
-        }
-      }
-    }
-  },
   "ecus": {
     "bms": {
       "label": "Battery Management System",
-      "platform": "stm32h563zi",
       "hardware": {
-        "hse_hz": 25000000,
         "can_peripheral": "FDCAN2",
         "can_rx": "PD9",
         "can_tx": "PB13"
@@ -61,9 +30,7 @@
     },
     "vcu": {
       "label": "Vehicle Control Unit",
-      "platform": "stm32h563zi",
       "hardware": {
-        "hse_hz": 25000000,
         "can_peripheral": "FDCAN2",
         "can_rx": "PD9",
         "can_tx": "PB13"

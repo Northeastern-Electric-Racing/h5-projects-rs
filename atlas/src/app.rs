@@ -4,10 +4,10 @@ use crate::config::*;
 
 /// Read the active image after boot preparation has completed any swap.
 pub fn active_valid() -> bool {
-    // APP_START maps readable active flash, untouched by CAN DFU writes.
+    // The linker places the active image in readable flash, separate from DFU writes.
     let vector = unsafe {
-        let sp = core::ptr::read_volatile(APP_START as *const u32);
-        let reset = core::ptr::read_volatile((APP_START + 4) as *const u32);
+        let sp = core::ptr::read_volatile(app_start() as *const u32);
+        let reset = core::ptr::read_volatile((app_start() + 4) as *const u32);
         let mut vector = [0; 8];
         vector[..4].copy_from_slice(&sp.to_le_bytes());
         vector[4..].copy_from_slice(&reset.to_le_bytes());
@@ -24,7 +24,7 @@ pub fn vector_valid(vector: &[u8; 8]) -> bool {
     let reset_addr = reset & !1;
 
     // A descending stack may start one byte past the last SRAM address.
-    (SRAM_START..=SRAM_END).contains(&sp)
+    (sram_start()..=sram_end()).contains(&sp)
         && (reset & 1) != 0
-        && (APP_START..APP_START + APP_SIZE).contains(&reset_addr)
+        && (app_start()..app_start() + app_size()).contains(&reset_addr)
 }

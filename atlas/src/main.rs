@@ -30,11 +30,6 @@ mod types;
 use can::CanHandler;
 use types::Control;
 
-unsafe extern "C" {
-    // Absolute vector-table address supplied by memory.x.
-    static __bootloader_active_address: u32;
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     let mut config = embassy_stm32::Config::default();
@@ -75,8 +70,7 @@ async fn main(_spawner: Spawner) -> ! {
         Control::Continue => unreachable!(),
     }
 
-    // The linker symbol's address is the value; do not dereference it.
-    let start = core::ptr::addr_of!(__bootloader_active_address) as u32;
+    let start = config::app_start();
 
     // Stop bootloader interrupts before the app replaces the vector table and RAM.
     cortex_m::interrupt::disable();

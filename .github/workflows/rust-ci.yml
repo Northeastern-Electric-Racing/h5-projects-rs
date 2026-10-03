@@ -24,10 +24,10 @@ jobs:
         with:
           rustflags: ""
       - name: Build
-        run: cargo build --verbose --workspace --all --all-features
+        run: cargo build --verbose --workspace --all-features --exclude atlas
       #  - name: Test
       #    run: cargo test --verbose
       - name: Clippy
-        run: cargo clippy --all-features --all --workspace -- -D warnings -A dead_code
+        run: cargo clippy --all-features --workspace --exclude atlas -- -D warnings -A dead_code
       - name: Format
         run: cargo fmt --verbose --all --check

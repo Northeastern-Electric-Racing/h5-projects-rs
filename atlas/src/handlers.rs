@@ -92,7 +92,7 @@ impl Handlers {
         let image_size = u24(&data[1..4]);
         let expected_crc = u32be(&data[4..8]);
 
-        if image_size == 0 || image_size > APP_SIZE {
+        if image_size == 0 || image_size > app_size() {
             let _ = can.nack(START_UPDATE).await;
             return;
         }
