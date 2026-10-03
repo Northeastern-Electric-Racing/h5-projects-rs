@@ -26,7 +26,7 @@ pub mod voltage {
     }
     pub use alias::*;
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd)]
     pub struct Voltage { volts: f32 }
     impl Voltage {
         /// Create a new quantity from the given value and measurement unit.
@@ -57,7 +57,7 @@ pub mod temperature {
     /// Temperature!
     pub type UomTemperature = uom::si::f32::ThermodynamicTemperature;
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd)]
     pub struct Temperature { kelvin: f32 }
     impl Temperature {
         /// Create a new quantity from the given value and measurement unit.
@@ -86,7 +86,7 @@ pub mod current {
     /// Current!
     pub type UomCurrent = uom::si::f32::ElectricCurrent;
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd)]
     pub struct Current { amps: f32 }
     impl Current {
         /// Create a new quantity from the given value and measurement unit.
@@ -117,7 +117,7 @@ pub mod resistance {
     /// Ohms and such
     pub type UomResistance = uom::si::f32::ElectricalResistance;
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd)]
     pub struct Resistance { ohms: f32 }
     impl Resistance {
         /// Create a new quantity from the given value and measurement unit.
@@ -146,11 +146,13 @@ pub mod resistance_per_length {
     use core::marker::PhantomData;
 
     mod alias {
-        use super::{UomResistance, UomLength};
-        /// Resistance per unit length
-        pub type UomResistancePerLength = <UomResistance as core::ops::Div<UomLength>>::Output;
+        use uom::typenum::{P1, N2, N3, Z0};
+        pub type UomResistancePerLength = uom::si::Quantity<uom::si::ISQ<P1, P1, N3, N2, Z0, Z0, Z0>, uom::si::SI<f32>, f32>;
     }
     pub use alias::*;
+
+    // Checks that `UomResistancePerLength` is the same as what uom produces for `UomResistance / UomLength`.
+    const _: fn(<UomResistance as core::ops::Div<UomLength>>::Output) -> UomResistancePerLength = |x| x;
 
     /// Our custom unit for this (since `uom` doesnt have a resistance per lentgh unit or quantity)
     pub trait Unit {
@@ -167,7 +169,7 @@ pub mod resistance_per_length {
     impl Unit for ohm_per_millimeter { const OHMS_PER_METER: f32 = 1e3; }
 
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd)]
     pub struct ResistancePerLength { ohms_per_meter: f32 }
     impl ResistancePerLength {
         /// Create a new quantity from the given value and measurement unit.
@@ -192,7 +194,7 @@ pub mod length {
     /// Meters etc
     pub type UomLength = uom::si::f32::Length;
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd)]
     pub struct Length { meters: f32 }
     impl Length {
         /// Create a new quantity from the given value and measurement unit.
@@ -224,7 +226,7 @@ pub mod ratios {
     /// A ratio. Basically just a percent. The lowest value is at `0.0`, and the highest value is at `1.0`.
     pub type UomRatio = uom::si::f32::Ratio;
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd)]
     pub struct Ratio { ratio: f32 }
     impl Ratio {
         /// Create a new quantity from the given value and measurement unit.
@@ -248,6 +250,89 @@ pub mod ratios {
     }
 }
 pub use ratios::*;
+
+/// Operator overloading for the wrapper types.
+pub mod ops {
+    use super::*;
+    use core::ops::{Add, Sub, Mul, Div, AddAssign, SubAssign, MulAssign, DivAssign};
+
+    /// Implemented by every wrapper type.
+    pub trait Wrapper: Copy {
+        /// The `uom` type this wraps.
+        type Inner;
+        /// Turns this wrapper into its inner `uom` type.
+        fn as_inner(self) -> Self::Inner;
+        /// Creates this wrapper from its inner `uom` type.
+        fn from_inner(inner: Self::Inner) -> Self;
+    }
+
+    /// Implemented by every `uom` type that has a wrapper. This is just used to map the `uom` type back to its wrapper.
+    pub trait HasWrapper {
+        /// The wrapper for this `uom` type.
+        type Wrapper: Wrapper<Inner = Self>;
+    }
+
+    /// Forwards binary operations (like +).
+    macro_rules! forward_binop {
+        ($wrapper:ident, $inner:ty, $Trait:ident, $method:ident) => {
+            impl<R: Wrapper> $Trait<R> for $wrapper
+            where
+                $inner: $Trait<R::Inner>,
+                <$inner as $Trait<R::Inner>>::Output: HasWrapper,
+            {
+                type Output = <<$inner as $Trait<R::Inner>>::Output as HasWrapper>::Wrapper;
+                fn $method(self, rhs: R) -> Self::Output { Wrapper::from_inner(self.as_inner().$method(rhs.as_inner())) }
+            }
+        };
+    }
+
+    /// Forwards compound assignment operations (like +=)
+    macro_rules! forward_assign_op {
+        ($wrapper:ident, $inner:ty, $Trait:ident, $method:ident) => {
+            impl<R: Wrapper> $Trait<R> for $wrapper where $inner: $Trait<R::Inner> {
+                fn $method(&mut self, rhs: R) {
+                    let mut inner = self.as_inner();
+                    inner.$method(rhs.as_inner());
+                    *self = Self::from_inner(inner);
+                }
+            }
+        };
+    }
+
+    /// Implements everything for the wrappers.
+    macro_rules! wrapper_ops {
+        ($wrapper:ident, $inner:ty) => {
+            impl Wrapper for $wrapper {
+                type Inner = $inner;
+                fn as_inner(self) -> $inner { $wrapper::as_inner(self) }
+                fn from_inner(inner: $inner) -> Self { $wrapper::from_inner(inner) }
+            }
+            impl HasWrapper for $inner { type Wrapper = $wrapper; }
+
+            forward_binop!($wrapper, $inner, Add, add);
+            forward_binop!($wrapper, $inner, Sub, sub);
+            forward_binop!($wrapper, $inner, Mul, mul);
+            forward_binop!($wrapper, $inner, Div, div);
+            forward_assign_op!($wrapper, $inner, AddAssign, add_assign);
+            forward_assign_op!($wrapper, $inner, SubAssign, sub_assign);
+
+            // Scaling by a plain number.
+            impl Mul<f32> for $wrapper { type Output = Self; fn mul(self, rhs: f32) -> Self { Self::from_inner(self.as_inner() * rhs) } }
+            impl Div<f32> for $wrapper { type Output = Self; fn div(self, rhs: f32) -> Self { Self::from_inner(self.as_inner() / rhs) } }
+            impl Mul<$wrapper> for f32 { type Output = $wrapper; fn mul(self, rhs: $wrapper) -> $wrapper { $wrapper::from_inner(self * rhs.as_inner()) } }
+            impl MulAssign<f32> for $wrapper { fn mul_assign(&mut self, rhs: f32) { *self = *self * rhs; } }
+            impl DivAssign<f32> for $wrapper { fn div_assign(&mut self, rhs: f32) { *self = *self / rhs; } }
+        };
+    }
+
+    wrapper_ops!(Voltage, UomVoltage);
+    wrapper_ops!(Temperature, UomTemperature);
+    wrapper_ops!(Current, UomCurrent);
+    wrapper_ops!(Resistance, UomResistance);
+    wrapper_ops!(ResistancePerLength, UomResistancePerLength);
+    wrapper_ops!(Length, UomLength);
+    wrapper_ops!(Ratio, UomRatio);
+}
 
 /// Module for `const fn` constructors for certain units.
 /// 

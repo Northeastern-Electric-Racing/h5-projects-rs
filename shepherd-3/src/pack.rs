@@ -3,7 +3,7 @@ use strum::IntoEnumIterator;
 use crate::{
     state_machine::{BmsState}, state_machine,
     segments::{CellId, ChipId, ChipKind, SegmentId, IndexByChip, IndexByCell, IndexBySegment, ThermistorTemperatures, CacheData, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
-    units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm, consts::{from_ohms, from_volts, from_ohms_per_millimeter, from_millimeters, from_amps, from_ratio}},
+    units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm, consts::{from_ohms, from_volts, from_ohms_per_millimeter, from_millimeters, from_amps}},
 };
 use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
 
@@ -316,11 +316,11 @@ mod analyzer {
                 for cell in CellId::iter() {
                     let temp: Temperature = self.chip_data[chip].cell_temp[cell];
 
-                    if temp.as_inner() > self.max_temp.value().as_inner() {
+                    if temp > self.max_temp.value() {
                         self.max_temp = CriticalCellValue { value: temp, chip, cell }
                     }
 
-                    if temp.as_inner() < self.min_temp.value().as_inner() {
+                    if temp < self.min_temp.value() {
                         self.min_temp = CriticalCellValue { value: temp, chip, cell }
                     }
 
@@ -336,7 +336,7 @@ mod analyzer {
 
                 let die_temp: Temperature = self.chip_data[chip].die_temp;
                 
-                if self.max_chiptemp.value().as_inner() < die_temp.as_inner() {
+                if self.max_chiptemp.value() < die_temp {
                     self.max_chiptemp = CriticalChipValue { value: die_temp, chip }
                 }
             }
@@ -363,11 +363,11 @@ mod analyzer {
                 // The distance times the unit resistance, plus the resistance of the fuse
                 let (res, cell): (Resistance, CellId) = match chip.kind() {
                     ChipKind::Beta => {
-                        let res = Resistance::from_inner((UNIT_RES.as_inner() * TRACE_LEN_BETA.as_inner()) + FUSE_RES.as_inner() + TRACE_RES_ONBOARD_BETA.as_inner());
+                        let res = (UNIT_RES * TRACE_LEN_BETA) + FUSE_RES + TRACE_RES_ONBOARD_BETA;
                         (res, CellId::Cell13)
                     },
                     ChipKind::Alpha => {
-                        let res = Resistance::from_inner((UNIT_RES.as_inner() * TRACE_LEN_ALPHA.as_inner()) + FUSE_RES.as_inner() + TRACE_RES_ONBOARD_ALPHA.as_inner());
+                        let res = (UNIT_RES * TRACE_LEN_ALPHA) + FUSE_RES + TRACE_RES_ONBOARD_ALPHA;
                         (res, CellId::Cell1)
                     }
                 };
@@ -382,8 +382,7 @@ mod analyzer {
                 };
 
                 // I*R is the way
-                let voltage = &mut self.chip_data[chip].cell_voltages[cell];
-                *voltage = Voltage::from_inner(voltage.as_inner() + curr_bal.as_inner() * res.as_inner());
+                self.chip_data[chip].cell_voltages[cell] += curr_bal * res;
             }
         }
 
@@ -410,7 +409,7 @@ mod analyzer {
                         self.min_voltage = CriticalCellValue { value: self.chip_data[chip].cell_voltages[cell], chip, cell }
                     }
 
-                    if self.open_cell_voltage[chip][cell] < self.max_ocv.value() {
+                    if self.open_cell_voltage[chip][cell] < self.min_ocv.value() {
                         self.min_ocv = CriticalCellValue { value: self.open_cell_voltage[chip][cell], chip, cell }
                     }
 
@@ -437,8 +436,6 @@ mod analyzer {
         }
 
         pub async fn detect_cell_open_wire(&mut self) {
-            use crate::units::consts::ZERO_VOLTS;
-
             let mut open_wire_fault_active = false;
 
             for chip in ChipId::iter() {
@@ -471,7 +468,7 @@ mod analyzer {
 
                     let drop: Voltage = depends.baseline - depends.excited;
                     let drop_percent: Ratio = {
-                        if depends.baseline > ZERO_VOLTS {
+                        if depends.baseline > Voltage::zero() {
                             drop / depends.baseline
                         } else {
                             Ratio::new::<ratio>(0_f32)
@@ -479,7 +476,7 @@ mod analyzer {
                     };
 
                     /// Open-wire threshold while the S-ADC switch is active.
-                    const CELL_OPEN_WIRE_MAX_DROP_PERCENT: Ratio = from_ratio(0.15).expect("Invalid Ratio.");
+                    const CELL_OPEN_WIRE_MAX_DROP_PERCENT: Ratio = Ratio::from_ratio(0.15).expect("Invalid Ratio.");
 
                     let is_open = drop_percent > CELL_OPEN_WIRE_MAX_DROP_PERCENT;
                     self.ow_fault[chip][cell] = is_open;
