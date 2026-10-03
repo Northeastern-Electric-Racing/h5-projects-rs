@@ -1,33 +1,19 @@
 //! Build an ECU's bootloader and optionally download it or run with probe logs.
 
-use serde::Deserialize;
+#[path = "../config.rs"]
+mod build_config;
+
 use std::{
-    collections::BTreeMap,
-    env, fs,
+    env,
     io::{BufRead, BufReader},
     path::PathBuf,
     process::{Command, ExitCode, Stdio},
 };
 
-// Read only build selection here; the platform build script validates the full file.
-#[derive(Deserialize)]
-struct Config {
-    schema_version: u32,
-    ecus: BTreeMap<String, Ecu>,
-    platforms: BTreeMap<String, Platform>,
-}
-
-#[derive(Deserialize)]
-struct Ecu {
-    platform: String,
-}
-
-#[derive(Deserialize)]
-struct Platform {
-    cargo_package: String,
-    rust_target: String,
-    chip: String,
-}
+const PACKAGE: &str = "atlas";
+const TARGET: &str = "thumbv8m.main-none-eabihf";
+// Probe-rs uses this device name for the STM32H563ZIT6.
+const CHIP: &str = "STM32H563ZITx";
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
@@ -64,21 +50,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .parent()
         .unwrap()
         .to_owned();
-    let config: Config = serde_json::from_str(&fs::read_to_string(root.join("atlas/ecus.json"))?)?;
-    if config.schema_version != 1 {
-        return Err("Unsupported schema_version; expected 1".into());
-    }
-    let ecu = config.ecus.get(&name).ok_or_else(|| {
-        format!(
-            "Unknown ECU {name}; choose: {}",
-            config.ecus.keys().cloned().collect::<Vec<_>>().join(", ")
-        )
-    })?;
-    let platform = config
-        .platforms
-        .get(&ecu.platform)
-        .ok_or_else(|| format!("Unknown platform: {}", ecu.platform))?;
-    println!("Building {name} using {}", platform.cargo_package);
+    let config = build_config::Config::read(&root.join("atlas/ecus.json"))?;
+    config.select(&name)?;
+    println!("Building {name} using {PACKAGE}");
 
     let mut command = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
     command
@@ -87,9 +61,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "build",
             "--release",
             "--package",
-            &platform.cargo_package,
+            PACKAGE,
             "--target",
-            &platform.rust_target,
+            TARGET,
         ])
         .arg("--target-dir")
         .arg(root.join("target").join(format!("{name}-bootloader")))
@@ -108,7 +82,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         };
         if message["reason"] == "compiler-artifact"
-            && message["target"]["name"] == platform.cargo_package
+            && message["target"]["name"] == PACKAGE
             && let Some(path) = message["executable"].as_str()
         {
             executable = Some(path.to_owned());
@@ -122,9 +96,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(action) = action {
         // Inherit the terminal so probe selection and firmware logs remain visible.
         let mut probe = Command::new("probe-rs");
-        probe
-            .current_dir(&root)
-            .args([action, "--chip", &platform.chip]);
+        probe.current_dir(&root).args([action, "--chip", CHIP]);
         if action == "download" {
             probe.args(["--verify", "--reset"]);
         }

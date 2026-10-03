@@ -17,7 +17,7 @@ where
     DFU: NorFlash,
     STATE: NorFlash,
 {
-    if offset >= APP_SIZE || data.is_empty() || offset + data.len() as u32 > APP_SIZE {
+    if offset >= app_size() || data.is_empty() || offset + data.len() as u32 > app_size() {
         return false;
     }
 
@@ -41,7 +41,7 @@ where
     DFU: NorFlash,
     STATE: NorFlash,
 {
-    if image_size == 0 || image_size > APP_SIZE {
+    if image_size == 0 || image_size > app_size() {
         return None;
     }
 
