@@ -316,11 +316,11 @@ mod analyzer {
                 for cell in CellId::iter() {
                     let temp: Temperature = self.chip_data[chip].cell_temp[cell];
 
-                    if temp > self.max_temp.value() {
+                    if temp.as_inner() > self.max_temp.value().as_inner() {
                         self.max_temp = CriticalCellValue { value: temp, chip, cell }
                     }
 
-                    if temp < self.min_temp.value() {
+                    if temp.as_inner() < self.min_temp.value().as_inner() {
                         self.min_temp = CriticalCellValue { value: temp, chip, cell }
                     }
 
@@ -382,7 +382,8 @@ mod analyzer {
                 };
 
                 // I*R is the way
-                *self.chip_data[chip].cell_voltages[cell].inner_mut() += curr_bal.as_inner() * res.as_inner();
+                let voltage = &mut self.chip_data[chip].cell_voltages[cell];
+                *voltage = Voltage::from_inner(voltage.as_inner() + curr_bal.as_inner() * res.as_inner());
             }
         }
 

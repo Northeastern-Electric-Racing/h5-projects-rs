@@ -27,28 +27,24 @@ pub mod voltage {
     pub use alias::*;
 
     #[derive(Clone, Copy)]
-    pub struct Voltage { inner: UomVoltage }
+    pub struct Voltage { volts: f32 }
     impl Voltage {
         /// Create a new quantity from the given value and measurement unit.
-        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self { inner: UomVoltage::new::<N>(value) } }
+        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self::from_inner(UomVoltage::new::<N>(value)) }
         /// Retrieve the value of the quantity in the given measurement unit.
-        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.inner.get::<N>() }
+        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.as_inner().get::<N>() }
         /// Creates a `Voltage` from a value in Volts.
-        pub const fn from_volts(value: f32) -> Self { Self { inner: consts::from_volts(value) } }
+        pub const fn from_volts(value: f32) -> Self { Self::from_inner(consts::from_volts(value)) }
         /// Creates a `Voltage` from a value in mV.
-        pub const fn from_millivolts(value: f32) -> Self { Self { inner: consts::from_millivolts(value) } }
+        pub const fn from_millivolts(value: f32) -> Self { Self::from_inner(consts::from_millivolts(value)) }
         /// Creates a `Voltage` from a value in kV.
-        pub const fn from_kilovolts(value: f32) -> Self { Self { inner: consts::from_kilovolts(value) } }
+        pub const fn from_kilovolts(value: f32) -> Self { Self::from_inner(consts::from_kilovolts(value)) }
         /// Creates a `Voltage` at 0V.
-        pub const fn zero() -> Self { Self { inner: consts::ZERO_VOLTS } }
-        /// Gets a read-only reference to this instance's inner `UomVoltage`.
-        pub const fn inner(&self) -> &UomVoltage { &self.inner }
-        /// Gets a mutable reference to this instance's inner `UomVoltage`.
-        pub const fn inner_mut(&mut self) -> &mut UomVoltage { &mut self.inner }
+        pub const fn zero() -> Self { Self::from_inner(consts::ZERO_VOLTS) }
         /// Consumes this `Voltage` and turns it into its inner `UomVoltage`.
-        pub const fn as_inner(self) -> UomVoltage { self.inner }
+        pub const fn as_inner(self) -> UomVoltage { consts::from_volts(self.volts) }
         /// Creates a new `Voltage` from a `UomVoltage`.
-        pub const fn from_inner(inner: UomVoltage) -> Self { Self { inner } }
+        pub const fn from_inner(inner: UomVoltage) -> Self { Self { volts: inner.value } }
     }
 }
 pub use voltage::*;
@@ -62,26 +58,22 @@ pub mod temperature {
     pub type UomTemperature = uom::si::f32::ThermodynamicTemperature;
 
     #[derive(Clone, Copy)]
-    pub struct Temperature { inner: UomTemperature }
+    pub struct Temperature { kelvin: f32 }
     impl Temperature {
         /// Create a new quantity from the given value and measurement unit.
-        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self { inner: UomTemperature::new::<N>(value) } }
+        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self::from_inner(UomTemperature::new::<N>(value)) }
         /// Retrieve the value of the quantity in the given measurement unit.
-        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.inner.get::<N>() }
+        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.as_inner().get::<N>() }
         /// Creates a `Temperature` from a value in Celsius.
-        pub const fn from_celsius(value: f32) -> Self { Self { inner: consts::from_celsius(value) } }
+        pub const fn from_celsius(value: f32) -> Self { Self::from_inner(consts::from_celsius(value)) }
         /// Creates a `Temperature` from a value in Kelvin.
-        pub const fn from_kelvin(value: f32) -> Self { Self { inner: consts::from_kelvin(value) } }
+        pub const fn from_kelvin(value: f32) -> Self { Self::from_inner(consts::from_kelvin(value)) }
         /// Creates a `Temperature` from a value in millicelsius.
-        pub const fn from_millicelsius(value: f32) -> Self { Self { inner: consts::from_millicelsius(value) } }
-        /// Gets a read-only reference to this instance's inner `UomTemperature`.
-        pub const fn inner(&self) -> &UomTemperature { &self.inner }
-        /// Gets a mutable reference to this instance's inner `UomTemperature`.
-        pub const fn inner_mut(&mut self) -> &mut UomTemperature { &mut self.inner }
+        pub const fn from_millicelsius(value: f32) -> Self { Self::from_inner(consts::from_millicelsius(value)) }
         /// Consumes this `Temperature` and turns it into its inner `UomTemperature`.
-        pub const fn as_inner(self) -> UomTemperature { self.inner }
+        pub const fn as_inner(self) -> UomTemperature { consts::from_kelvin(self.kelvin) }
         /// Creates a new `Temperature` from a `UomTemperature`.
-        pub const fn from_inner(inner: UomTemperature) -> Self { Self { inner } }
+        pub const fn from_inner(inner: UomTemperature) -> Self { Self { kelvin: inner.value } }
     }
 }
 pub use temperature::*;
@@ -95,28 +87,24 @@ pub mod current {
     pub type UomCurrent = uom::si::f32::ElectricCurrent;
 
     #[derive(Clone, Copy)]
-    pub struct Current { inner: UomCurrent }
+    pub struct Current { amps: f32 }
     impl Current {
         /// Create a new quantity from the given value and measurement unit.
-        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self { inner: UomCurrent::new::<N>(value) } }
+        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self::from_inner(UomCurrent::new::<N>(value)) }
         /// Retrieve the value of the quantity in the given measurement unit.
-        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.inner.get::<N>() }
+        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.as_inner().get::<N>() }
         /// Creates a `Current` from a value in Amps.
-        pub const fn from_amps(value: f32) -> Self { Self { inner: consts::from_amps(value) } }
+        pub const fn from_amps(value: f32) -> Self { Self::from_inner(consts::from_amps(value)) }
         /// Creates a `Current` from a value in mA.
-        pub const fn from_milliamps(value: f32) -> Self { Self { inner: consts::from_milliamps(value) } }
+        pub const fn from_milliamps(value: f32) -> Self { Self::from_inner(consts::from_milliamps(value)) }
         /// Creates a `Current` from a value in kA. probably will not need to do that ever
-        pub const fn from_kiloamps(value: f32) -> Self { Self { inner: consts::from_kiloamps(value) } }
+        pub const fn from_kiloamps(value: f32) -> Self { Self::from_inner(consts::from_kiloamps(value)) }
         /// Creates a `Current` from a value in MA. definitely will not need to do that ever
-        pub const fn from_megaamps(value: f32) -> Self { Self { inner: consts::from_megaamps(value) } }
-        /// Gets a read-only reference to this instance's inner `UomCurrent`.
-        pub const fn inner(&self) -> &UomCurrent { &self.inner }
-        /// Gets a mutable reference to this instance's inner `UomCurrent`.
-        pub const fn inner_mut(&mut self) -> &mut UomCurrent { &mut self.inner }
+        pub const fn from_megaamps(value: f32) -> Self { Self::from_inner(consts::from_megaamps(value)) }
         /// Consumes this `Current` and turns it into its inner `UomCurrent`.
-        pub const fn as_inner(self) -> UomCurrent { self.inner }
+        pub const fn as_inner(self) -> UomCurrent { consts::from_amps(self.amps) }
         /// Creates a new `Current` from a `UomCurrent`.
-        pub const fn from_inner(inner: UomCurrent) -> Self { Self { inner } }
+        pub const fn from_inner(inner: UomCurrent) -> Self { Self { amps: inner.value } }
     }
 }
 pub use current::*;
@@ -130,28 +118,24 @@ pub mod resistance {
     pub type UomResistance = uom::si::f32::ElectricalResistance;
 
     #[derive(Clone, Copy)]
-    pub struct Resistance { inner: UomResistance }
+    pub struct Resistance { ohms: f32 }
     impl Resistance {
         /// Create a new quantity from the given value and measurement unit.
-        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self { inner: UomResistance::new::<N>(value) } }
+        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self::from_inner(UomResistance::new::<N>(value)) }
         /// Retrieve the value of the quantity in the given measurement unit.
-        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.inner.get::<N>() }
+        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.as_inner().get::<N>() }
         /// Creates a `Resistance` from a value in Ohms.
-        pub const fn from_ohms(value: f32) -> Self { Self { inner: consts::from_ohms(value) } }
+        pub const fn from_ohms(value: f32) -> Self { Self::from_inner(consts::from_ohms(value)) }
         /// Creates a `Resistance` from a value in mOhms.
-        pub const fn from_milliohms(value: f32) -> Self { Self { inner: consts::from_milliohms(value) } }
+        pub const fn from_milliohms(value: f32) -> Self { Self::from_inner(consts::from_milliohms(value)) }
         /// Creates a `Resistance` from a value in kOhms.
-        pub const fn from_kiloohms(value: f32) -> Self { Self { inner: consts::from_kiloohms(value) } }
+        pub const fn from_kiloohms(value: f32) -> Self { Self::from_inner(consts::from_kiloohms(value)) }
         /// Creates a `Resistance` from a value in MOhms.
-        pub const fn from_megaohms(value: f32) -> Self { Self { inner: consts::from_megaohms(value) } }
-        /// Gets a read-only reference to this instance's inner `UomResistance`.
-        pub const fn inner(&self) -> &UomResistance { &self.inner }
-        /// Gets a mutable reference to this instance's inner `UomResistance`.
-        pub const fn inner_mut(&mut self) -> &mut UomResistance { &mut self.inner }
+        pub const fn from_megaohms(value: f32) -> Self { Self::from_inner(consts::from_megaohms(value)) }
         /// Consumes this `Resistance` and turns it into its inner `UomResistance`.
-        pub const fn as_inner(self) -> UomResistance { self.inner }
+        pub const fn as_inner(self) -> UomResistance { consts::from_ohms(self.ohms) }
         /// Creates a new `Resistance` from a `UomResistance`.
-        pub const fn from_inner(inner: UomResistance) -> Self { Self { inner } }
+        pub const fn from_inner(inner: UomResistance) -> Self { Self { ohms: inner.value } }
     }
 }
 pub use resistance::*;
@@ -184,22 +168,18 @@ pub mod resistance_per_length {
 
 
     #[derive(Clone, Copy)]
-    pub struct ResistancePerLength { inner: UomResistancePerLength }
+    pub struct ResistancePerLength { ohms_per_meter: f32 }
     impl ResistancePerLength {
         /// Create a new quantity from the given value and measurement unit.
-        pub const fn new<N: Unit>(value: f32) -> Self { Self { inner: UomResistancePerLength { dimension: PhantomData, units: PhantomData, value: value * N::OHMS_PER_METER } } }
+        pub const fn new<N: Unit>(value: f32) -> Self { Self { ohms_per_meter: value * N::OHMS_PER_METER } }
         /// Retrieve the value of the quantity in the given measurement unit.
-        pub const fn get<N: Unit>(&self) -> f32 { self.inner.value / N::OHMS_PER_METER }
+        pub const fn get<N: Unit>(&self) -> f32 { self.ohms_per_meter / N::OHMS_PER_METER }
         /// Creates a `ResistancePerLength` from a value in Ohms per millimeter.
-        pub const fn from_ohms_per_millimeter(value: f32) -> Self { Self { inner: consts::from_ohms_per_millimeter(value) } }
-        /// Gets a read-only reference to this instance's inner `UomResistancePerLength`.
-        pub const fn inner(&self) -> &UomResistancePerLength { &self.inner }
-        /// Gets a mutable reference to this instance's inner `UomResistancePerLength`.
-        pub const fn inner_mut(&mut self) -> &mut UomResistancePerLength { &mut self.inner }
+        pub const fn from_ohms_per_millimeter(value: f32) -> Self { Self::from_inner(consts::from_ohms_per_millimeter(value)) }
         /// Consumes this `ResistancePerLength` and turns it into its inner `UomResistancePerLength`.
-        pub const fn as_inner(self) -> UomResistancePerLength { self.inner }
+        pub const fn as_inner(self) -> UomResistancePerLength { UomResistancePerLength { dimension: PhantomData, units: PhantomData, value: self.ohms_per_meter } }
         /// Creates a new `ResistancePerLength` from a `UomResistancePerLength`.
-        pub const fn from_inner(inner: UomResistancePerLength) -> Self { Self { inner } }
+        pub const fn from_inner(inner: UomResistancePerLength) -> Self { Self { ohms_per_meter: inner.value } }
     }
 }
 pub use resistance_per_length::*;
@@ -213,28 +193,24 @@ pub mod length {
     pub type UomLength = uom::si::f32::Length;
 
     #[derive(Clone, Copy)]
-    pub struct Length { inner: UomLength }
+    pub struct Length { meters: f32 }
     impl Length {
         /// Create a new quantity from the given value and measurement unit.
-        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self { inner: UomLength::new::<N>(value) } }
+        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self::from_inner(UomLength::new::<N>(value)) }
         /// Retrieve the value of the quantity in the given measurement unit.
-        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.inner.get::<N>() }
+        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.as_inner().get::<N>() }
         /// Creates a `Length` from a value in Meters.
-        pub const fn from_meters(value: f32) -> Self { Self { inner: consts::from_meters(value) } }
+        pub const fn from_meters(value: f32) -> Self { Self::from_inner(consts::from_meters(value)) }
         /// Creates a `Length` from a value in mm.
-        pub const fn from_millimeters(value: f32) -> Self { Self { inner: consts::from_millimeters(value) } }
+        pub const fn from_millimeters(value: f32) -> Self { Self::from_inner(consts::from_millimeters(value)) }
         /// Creates a `Length` from a value in km.
-        pub const fn from_kilometers(value: f32) -> Self { Self { inner: consts::from_kilometers(value) } }
+        pub const fn from_kilometers(value: f32) -> Self { Self::from_inner(consts::from_kilometers(value)) }
         /// Creates a `Length` from a value in Mm.
-        pub const fn from_megameters(value: f32) -> Self { Self { inner: consts::from_megameters(value) } }
-        /// Gets a read-only reference to this instance's inner `UomLength`.
-        pub const fn inner(&self) -> &UomLength { &self.inner }
-        /// Gets a mutable reference to this instance's inner `UomLength`.
-        pub const fn inner_mut(&mut self) -> &mut UomLength { &mut self.inner }
+        pub const fn from_megameters(value: f32) -> Self { Self::from_inner(consts::from_megameters(value)) }
         /// Consumes this `Length` and turns it into its inner `UomLength`.
-        pub const fn as_inner(self) -> UomLength { self.inner }
+        pub const fn as_inner(self) -> UomLength { consts::from_meters(self.meters) }
         /// Creates a new `Length` from a `UomLength`.
-        pub const fn from_inner(inner: UomLength) -> Self { Self { inner } }
+        pub const fn from_inner(inner: UomLength) -> Self { Self { meters: inner.value } }
     }
 }
 pub use length::*;
@@ -243,35 +219,32 @@ pub mod ratios {
     use super::consts;
     use uom::Conversion;
     use uom::si::ratio::Unit;
+    use core::marker::PhantomData;
 
     /// A ratio. Basically just a percent. The lowest value is at `0.0`, and the highest value is at `1.0`.
     pub type UomRatio = uom::si::f32::Ratio;
 
     #[derive(Clone, Copy)]
-    pub struct Ratio { inner: UomRatio }
+    pub struct Ratio { ratio: f32 }
     impl Ratio {
         /// Create a new quantity from the given value and measurement unit.
-        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self { inner: UomRatio::new::<N>(value) } }
+        pub fn new<N>(value: f32) -> Self where N: Unit + Conversion<f32, T = f32> { Self::from_inner(UomRatio::new::<N>(value)) }
         /// Retrieve the value of the quantity in the given measurement unit.
-        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.inner.get::<N>() }
+        pub fn get<N>(&self) -> f32 where N: Unit + Conversion<f32, T = f32> { self.as_inner().get::<N>() }
         /// Creates a `Ratio` from `value`. The `value` must range from `0.0` to `1.0`. If
         /// it is outside of that range, this will return `None`. This is meant to be used
         /// to initialize consts, so you can call this from a `const` context and then unwrap
         /// the result as a nice compile-time check that you've passed in a valid `value`.
-        pub const fn from_ratio(value: f32) -> Option<Self> { Some(Self { 
-            inner: match consts::from_ratio(value) { 
-                Some(s) => s, 
+        pub const fn from_ratio(value: f32) -> Option<Self> { Some(Self::from_inner(
+            match consts::from_ratio(value) {
+                Some(s) => s,
                 None => { return None; }
-            }})
+            }))
         }
-        /// Gets a read-only reference to this instance's inner `UomRatio`.
-        pub const fn inner(&self) -> &UomRatio { &self.inner }
-        /// Gets a mutable reference to this instance's inner `UomRatio`.
-        pub const fn inner_mut(&mut self) -> &mut UomRatio { &mut self.inner }
         /// Consumes this `Ratio` and turns it into its inner `UomRatio`.
-        pub const fn as_inner(self) -> UomRatio { self.inner }
+        pub const fn as_inner(self) -> UomRatio { UomRatio { dimension: PhantomData, units: PhantomData, value: self.ratio } }
         /// Creates a new `Ratio` from a `UomRatio`.
-        pub const fn from_inner(inner: UomRatio) -> Self { Self { inner } }
+        pub const fn from_inner(inner: UomRatio) -> Self { Self { ratio: inner.value } }
     }
 }
 pub use ratios::*;
