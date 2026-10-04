@@ -7,7 +7,6 @@ MEMORY
   RAM : ORIGIN = 0x20000000, LENGTH = 0xA0000
 }
 
-__bootloader_flash_address = ORIGIN(FLASH);
 __bootloader_active_address = ORIGIN(ACTIVE);
 __bootloader_active_size = LENGTH(ACTIVE);
 __bootloader_sram_start = ORIGIN(RAM);

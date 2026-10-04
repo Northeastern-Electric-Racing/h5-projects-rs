@@ -41,6 +41,11 @@ fn main() {
     )).unwrap();
 
     println!("cargo:rustc-link-arg-bins=--nmagic");
+    // Resolve link.x's memory include explicitly instead of using dependency search order.
+    println!(
+        "cargo:rustc-link-arg-bins=--remap-inputs=*memory.x={}",
+        manifest.join("memory.x").display()
+    );
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
     println!("cargo:rustc-link-search={}", manifest.display());
