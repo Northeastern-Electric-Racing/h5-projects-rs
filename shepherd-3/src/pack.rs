@@ -520,7 +520,10 @@ pub mod analyzer {
             // Run one loop of this task every time new Segments data arrives.
             segments_freshdata_subscription.wait().await;
 
-            let Ok(mut analyzer) = Analyzer::new() else { continue; };
+            let Ok(mut analyzer) = Analyzer::new() else {
+                defmt::warn!("pack: analyzer: skipped running `analyzer_task()` because the Cache has not been updated yet. Will try again next loop."); 
+                continue; 
+            };
 
             // this whole section is supposed to look pretty similar to the C code just so
             // we make sure we bring everything over correctly.
