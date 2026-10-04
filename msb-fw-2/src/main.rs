@@ -13,6 +13,7 @@ use msb_fw_2::multiplexor_handler::{self, MuxResources};
 use msb_fw_2::shock_pot;
 use msb_fw_2::steering_angle;
 use msb_fw_2::strain_guage;
+use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -91,6 +92,14 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(shock_pot::shock_pot_task().expect("Failed to spawn shock_pot::shock_pot_task()."));
     spawner.spawn(steering_angle::steering_angle_task().expect("Failed to spawn steering_angle::steering_angle_task()."));
     spawner.spawn(strain_guage::strain_gauge_task().expect("Failed to spawn strain_guage::strain_gauge_task()."));
+
+    let wheel_speed_resources = WheelSpeedResources {
+        left_timer: p.TIM1,
+        left_pin: p.PE9,
+        right_timer: p.TIM15,
+        right_pin: p.PC12,
+    };
+    spawner.spawn(wheel_speed::wheel_speed_task(wheel_speed_resources).expect("Failed to spawn wheel_speed::wheel_speed_task()."));
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
