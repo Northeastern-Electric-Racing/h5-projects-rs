@@ -32,8 +32,7 @@ pub(super) fn sram_end() -> u32 {
     core::ptr::addr_of!(__bootloader_sram_end) as u32
 }
 
-// H563 flash programming granularity and maximum host transfer block, in bytes.
-pub const WRITE_SIZE: usize = 16;
+// Maximum host transfer block, in bytes.
 pub const MAX_WRITE: usize = 256;
 // Maximum silence between packets of an in-progress WRITE_MEMORY command.
 pub const WRITE_TIMEOUT_MS: u64 = 5000;

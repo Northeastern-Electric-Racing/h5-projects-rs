@@ -2,6 +2,7 @@
 
 use embassy_boot_stm32::BlockingFirmwareUpdater;
 use embassy_stm32::can::frame::Frame;
+use embassy_stm32::flash::WRITE_SIZE;
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::can::{CanHandler, standard_id};

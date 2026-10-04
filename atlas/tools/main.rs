@@ -16,26 +16,27 @@ const TARGET: &str = "thumbv8m.main-none-eabihf";
 const CHIP: &str = "STM32H563ZITx";
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = env::args().skip(1);
+    let args: Vec<_> = env::args().skip(1).collect();
     let usage = "cargo {build-atlas|run-atlas|download-atlas} <ecu> [--offline]";
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("{usage}");
+        return Ok(());
+    }
+    let mut args = args.into_iter();
     let first = args.next().ok_or(usage)?;
     let (action, name) = match first.as_str() {
         "--run" => (Some("run"), args.next().ok_or(usage)?),
         "--download" => (Some("download"), args.next().ok_or(usage)?),
         _ => (None, first),
     };
-    if name == "--help" || name == "-h" {
-        println!("{usage}");
-        return Ok(());
-    }
-    let name = name.to_ascii_lowercase();
     let mut offline = false;
     for arg in args {
         match arg.as_str() {
             "--offline" => offline = true,
-            _ => return Err(format!("Unknown option: {arg}").into()),
+            _ => return Err(format!("Unexpected argument: {arg}; select exactly one ECU").into()),
         }
     }
+    let name = name.to_ascii_lowercase();
     // ECU names become directory names; reject path components before invoking Cargo.
     if name.is_empty()
         || !name

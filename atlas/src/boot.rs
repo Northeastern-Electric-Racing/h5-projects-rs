@@ -29,9 +29,7 @@ where
 
     // Serve updates after a DFU request or recover an invalid active image.
     loop {
-        let Some(frame) = can.recv().await else {
-            continue;
-        };
+        let frame = can.recv().await;
 
         let control = dispatch::run(&frame, can, updater, &mut handlers, &mut context).await;
         if !matches!(control, Control::Continue) {

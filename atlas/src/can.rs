@@ -58,7 +58,7 @@ impl<'d> CanHandler<'d> {
     }
 
     /// Wait for a bootloader frame, ignoring bus errors and unrelated traffic.
-    pub async fn recv(&mut self) -> Option<Frame> {
+    pub async fn recv(&mut self) -> Frame {
         loop {
             // A bus error or unrelated frame is not a receive timeout.
             let Ok(envelope) = self.can.as_mut().unwrap().read().await else {
@@ -70,7 +70,7 @@ impl<'d> CanHandler<'d> {
             };
 
             if id == REQUEST_ID || id == DATA_ID {
-                return Some(frame);
+                return frame;
             }
         }
     }
@@ -81,7 +81,6 @@ impl<'d> CanHandler<'d> {
         with_timeout(Duration::from_millis(timeout_ms), self.recv())
             .await
             .ok()
-            .flatten()
     }
 
     /// Queue a frame; success does not mean it has finished transmitting.

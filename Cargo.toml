@@ -3,6 +3,7 @@ members = ["msb-fw-2", "shepherd-3", "lightning", "cerberus-3", "atlas", "templa
 resolver = "3"
 
 [workspace.dependencies]
+atlas-app = { path = "atlas/app" }
 embassy-boot-stm32 = { version = "0.8.0", features = ["defmt"] }
 embassy-stm32 = { version = "0.6.0", features = ["defmt", "unstable-pac", "memory-x", "time", "time-driver-any", "exti", "stm32h563zi"] }
 embassy-sync = { version = "0.8.0", features = ["defmt"] }

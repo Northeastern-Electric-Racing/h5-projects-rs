@@ -2,6 +2,7 @@
 
 use crc::{CRC_32_MPEG_2, Crc};
 use embassy_boot_stm32::BlockingFirmwareUpdater;
+use embassy_stm32::flash::WRITE_SIZE;
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::app;
