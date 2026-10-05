@@ -19,8 +19,12 @@ where
     DFU: NorFlash,
     STATE: NorFlash,
 {
-    // Only an explicit application request keeps a valid image in bootloader mode.
-    if *boot_state != State::DfuDetach && app::active_valid() {
+    if *boot_state == State::DfuDetach {
+        // Consume entry once; stay here now, but let a later reset boot the old app.
+        if updater.mark_booted().is_err() {
+            defmt::error!("Failed to clear bootloader entry request; staying in update mode");
+        }
+    } else if app::active_valid() {
         return Control::StartApp;
     }
 

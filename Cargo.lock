@@ -156,6 +156,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "crc",
+ "defmt 1.1.1",
  "defmt-rtt",
  "embassy-boot-stm32",
  "embassy-executor",

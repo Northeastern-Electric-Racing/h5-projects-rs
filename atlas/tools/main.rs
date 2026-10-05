@@ -100,6 +100,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         probe.current_dir(&root).args([action, "--chip", CHIP]);
         if action == "download" {
             probe.args(["--verify", "--reset"]);
+        } else if action == "run" {
+            probe.arg("--no-catch-reset");
         }
         if !probe.arg(&executable).status()?.success() {
             return Err(format!("probe-rs {action} failed").into());

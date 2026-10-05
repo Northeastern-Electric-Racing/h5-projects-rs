@@ -45,6 +45,11 @@ linker symbols.
 An invalid application remains in update mode for recovery. A valid application
 must persist a DFU request and reset to enter the bootloader.
 
+The bootloader consumes that request on entry. Communication loss leaves the
+current update session open; resetting before activation starts the existing valid
+application. Retry from the application by requesting entry again. If clearing the
+request fails, the bootloader logs an error and stays in update mode.
+
 ## Application integration
 
 Add `atlas-app.workspace = true` to the application dependencies. Initialize CAN

@@ -160,7 +160,7 @@ case "$mode" in
         if [ -n "${FIRMWARE_LOG_FORMAT:-}" ]; then
             set -- --log-format "$FIRMWARE_LOG_FORMAT" "$@"
         fi
-        exec probe-rs run "$@"
+        exec probe-rs run --no-catch-reset "$@"
         ;;
     monitor)
         offer_update
