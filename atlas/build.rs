@@ -36,8 +36,8 @@ fn main() {
     .unwrap();
 
     fs::write(out.join("ecu_can.rs"), format!(
-        "pub const REQUEST_ID: u16 = {:#x};\npub const RESPONSE_ID: u16 = {:#x};\npub const DATA_ID: u16 = {:#x};\npub const DEFAULT_BIT_RATE: u32 = {};\n",
-        ecu.can.request_id, ecu.can.response_id, ecu.can.write_data_id, ecu.can.default_bit_rate,
+        "pub const REQUEST_ID: u16 = {:#x};\npub const RESPONSE_ID: u16 = {:#x};\npub const DATA_ID: u16 = {:#x};\npub const CAN_LINE_BITRATE: u32 = {};\n",
+        ecu.can.request_id, ecu.can.response_id, ecu.can.write_data_id, config.can_line_bitrate,
     )).unwrap();
 
     println!("cargo:rustc-link-arg-bins=--nmagic");

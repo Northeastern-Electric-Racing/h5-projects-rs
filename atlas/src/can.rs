@@ -35,7 +35,7 @@ impl<'d> CanHandler<'d> {
             reject_remote_standard_frames: true,
             reject_remote_extended_frames: true,
         }));
-        config.set_bitrate(DEFAULT_BIT_RATE); // Reset restores the configured initial rate.
+        config.set_bitrate(CAN_LINE_BITRATE); // Reset restores the configured line bitrate.
         Self::install_filters(&mut config);
 
         Self {

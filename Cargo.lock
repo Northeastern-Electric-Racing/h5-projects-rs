@@ -156,6 +156,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "crc",
+ "defmt 1.1.1",
  "defmt-rtt",
  "embassy-boot-stm32",
  "embassy-executor",
@@ -1864,7 +1865,6 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 name = "template-h5"
 version = "0.1.0"
 dependencies = [
- "atlas-app",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",
@@ -1875,7 +1875,6 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
- "embedded-can",
  "heapless",
  "panic-probe",
 ]

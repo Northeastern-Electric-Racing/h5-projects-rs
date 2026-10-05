@@ -1,4 +1,4 @@
-name: Bootloader CI
+name: Atlas CI
 
 on:
   push:
@@ -11,6 +11,21 @@ on:
       - develop
 
 jobs:
+  format:
+    name: Format Atlas
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v6
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Format firmware and application helper
+        run: cargo fmt --package atlas --package atlas-app --check
+      - name: Format host tools
+        run: cargo fmt --manifest-path atlas/tools/Cargo.toml --check
+
   ecu-configs:
     runs-on: ubuntu-latest
     outputs:
@@ -29,8 +44,8 @@ jobs:
 
           config = json.loads(Path("atlas/ecus.json").read_text())
           ecus = sorted(config["ecus"])
-          if not ecus or any(not re.fullmatch(r"[a-z0-9-]+", ecu) for ecu in ecus):
-              raise SystemExit("Expected ECU names containing lowercase letters, digits, or hyphens")
+          if not ecus or any(not re.fullmatch(r"[a-z0-9_-]+", ecu) for ecu in ecus):
+              raise SystemExit("Expected ECU names containing lowercase letters, digits, hyphens, or underscores")
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"ecus={json.dumps(ecus)}\n")
           PY
@@ -62,7 +77,5 @@ jobs:
           cargo clippy --release --all-features
           --package atlas
           --target thumbv8m.main-none-eabihf
-          --target-dir "target/$BOOTLOADER_ECU-bootloader"
+          --target-dir "target/${BOOTLOADER_ECU}-can-bootloader"
           -- -D warnings
-      - name: Format host tools
-        run: cargo fmt --manifest-path atlas/tools/Cargo.toml --check

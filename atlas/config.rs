@@ -13,6 +13,7 @@ type Result<T> = std::result::Result<T, String>;
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub schema_version: u32,
+    pub can_line_bitrate: u32,
     pub supported_bit_rates: Vec<u32>,
     pub ecus: BTreeMap<String, Ecu>,
 }
@@ -36,7 +37,6 @@ pub struct Hardware {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Can {
-    pub default_bit_rate: u32,
     #[serde(deserialize_with = "unsigned")]
     pub request_id: u16,
     #[serde(deserialize_with = "unsigned")]
@@ -124,6 +124,9 @@ impl Config {
         if self.supported_bit_rates != [125_000, 250_000, 500_000, 1_000_000] {
             return Err("supported_bit_rates must match the protocol bitrate codes".into());
         }
+        if !self.supported_bit_rates.contains(&self.can_line_bitrate) {
+            return Err("Unsupported can_line_bitrate".into());
+        }
         let mut ids = HashSet::new();
         for (name, ecu) in &self.ecus {
             if ecu.label.trim().is_empty() {
@@ -133,18 +136,15 @@ impl Config {
             if name.is_empty()
                 || !name
                     .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
             {
                 return Err(format!(
-                    "ECU name must use lowercase letters, digits, or hyphens: {name}"
+                    "ECU name must use lowercase letters, digits, hyphens, or underscores: {name}"
                 ));
             }
             ecu.hardware
                 .validate_h563_can()
                 .map_err(|e| format!("ecus.{name}.hardware: {e}"))?;
-            if !self.supported_bit_rates.contains(&ecu.can.default_bit_rate) {
-                return Err(format!("Unsupported default bitrate for {name}"));
-            }
             for id in [
                 ecu.can.request_id,
                 ecu.can.response_id,
@@ -252,7 +252,7 @@ mod tests {
             ("/schema_version", serde_json::json!(2)),
             ("/ecus/vcu/can/request_id", serde_json::json!(16)),
             ("/ecus/bms/can/request_id", serde_json::json!(2048)),
-            ("/ecus/bms/can/default_bit_rate", serde_json::json!(123)),
+            ("/can_line_bitrate", serde_json::json!(123)),
             (
                 "/ecus/bms/can/application_boot_request_data",
                 serde_json::json!([]),

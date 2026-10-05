@@ -8,6 +8,7 @@ publish = false
 cortex-m-rt.workspace = true
 cortex-m.workspace = true
 crc.workspace = true
+defmt.workspace = true
 defmt-rtt.workspace = true
 embassy-boot-stm32.workspace = true
 embassy-executor.workspace = true

@@ -7,7 +7,7 @@ swap/rollback. All ECU builds use one bootloader implementation and memory layou
 
 - `src/`: bootloader firmware.
 - `app/`: application helper and application linker layout.
-- `ecus.json`: ECU CAN IDs, bitrate, and CAN peripheral/pins.
+- `ecus.json`: shared `can_line_bitrate`, ECU CAN IDs, and CAN peripheral/pins.
 - `config.rs`: configuration parsing and validation.
 - `memory.x`: fixed flash/RAM regions and runtime bounds exported as linker symbols.
 - `build.rs`: CAN configuration generation and linker setup.
@@ -27,7 +27,7 @@ Use `cargo build-atlas --help` for usage.
 
 Install `probe-rs` for download/run. The package, Rust target, and probe chip are
 fixed in `tools/main.rs`. Firmware outputs go to
-`../target/<ecu>-bootloader/<rust_target>/release/<cargo_package>`.
+`../target/<ecu>-can-bootloader/<rust_target>/release/<cargo_package>`.
 
 The build script generates CAN bindings and constants from the selected ECU.
 Memory regions are defined directly in `memory.x`; runtime address checks use its
@@ -44,6 +44,11 @@ linker symbols.
 
 An invalid application remains in update mode for recovery. A valid application
 must persist a DFU request and reset to enter the bootloader.
+
+The bootloader consumes that request on entry. Communication loss leaves the
+current update session open; resetting before activation starts the existing valid
+application. Retry from the application by requesting entry again. If clearing the
+request fails, the bootloader logs an error and stays in update mode.
 
 ## Application integration
 
@@ -65,17 +70,9 @@ data frame persists the request and resets; the bootloader answers host commands
 afterward. Flash failures return an error without resetting. Projects that need
 to stop outputs first can check `is_request(&frame)` before calling `handle_frame`.
 
-Use `template-h5/build.rs` as the example for linking with `app/memory.x` at
-`0x0802E000`. The application helper does not stage firmware or perform swaps.
-
-The template includes CAN bootloader entry by default. Set the request ID, payload,
-and bitrate directly in `template-h5/src/boot.rs` to match the host's ECU settings.
-The receive filter and helper share the same request ID. CAN peripheral and pins
-also remain in application code; no application settings are generated from JSON.
-
-Flash Atlas for the same ECU first, then download the application ELF from
-`target/thumbv8m.main-none-eabihf/release/template-h5` without a chip erase.
-The template always links at the Atlas application address, `0x0802E000`.
+Applications using Atlas must link with `app/memory.x` at `0x0802E000`.
+The application helper does not stage firmware or perform swaps. Flash Atlas for
+the same ECU first, then download the application ELF without a chip erase.
 
 ## Adding an ECU
 

@@ -41,9 +41,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if name.is_empty()
         || !name
             .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
     {
-        return Err("ECU names must use letters, digits, or hyphens".into());
+        return Err("ECU names must use letters, digits, hyphens, or underscores".into());
     }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -67,7 +67,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             TARGET,
         ])
         .arg("--target-dir")
-        .arg(root.join("target").join(format!("{name}-bootloader")))
+        .arg(root.join("target").join(format!("{name}-can-bootloader")))
         .arg("--message-format=json-render-diagnostics")
         .env("BOOTLOADER_ECU", &name)
         .stdout(Stdio::piped());
@@ -100,6 +100,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         probe.current_dir(&root).args([action, "--chip", CHIP]);
         if action == "download" {
             probe.args(["--verify", "--reset"]);
+        } else if action == "run" {
+            probe.arg("--no-catch-reset");
         }
         if !probe.arg(&executable).status()?.success() {
             return Err(format!("probe-rs {action} failed").into());
