@@ -5,8 +5,8 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use embassy_futures::select::{Either, select};
 use defmt::{debug, error};
+use embassy_futures::select::{Either, select};
 use embassy_stm32::gpio::Output;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
@@ -138,14 +138,17 @@ pub async fn rtds_task(pin: Output<'static>, shutdown_closed: fn() -> bool) -> !
 
     loop {
         match rtds.sound_deadline {
-            Some(deadline) => { // if there is a deadline (sound is playing)
+            Some(deadline) => {
+                // if there is a deadline (sound is playing)
                 // wait until either there is a new command or the timer expires
-                let event: Either<RtdsCommand, ()> = select(COMMANDS.receive(), Timer::at(deadline)).await;
-                match event { // then if it is a new command, handle it, otherwise end the sound playing.
+                let event: Either<RtdsCommand, ()> =
+                    select(COMMANDS.receive(), Timer::at(deadline)).await;
+                match event {
+                    // then if it is a new command, handle it, otherwise end the sound playing.
                     Either::First(command) => rtds.handle_command(command),
                     Either::Second(()) => rtds.handle_sound_deadline(),
                 }
-            },
+            }
             None => rtds.handle_command(COMMANDS.receive().await), // wait for a new command, then handle it
         }
     }
