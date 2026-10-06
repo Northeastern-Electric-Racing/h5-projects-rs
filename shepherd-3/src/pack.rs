@@ -385,7 +385,7 @@ pub mod analyzer {
                 };
 
                 // I*R is the way
-                //self.chip_data[chip].cell_voltages[cell] += curr_bal * res;
+                self.chip_data[chip].cell_voltages[cell] += curr_bal * res;
             }
         }
 
