@@ -180,14 +180,14 @@ impl AdcMux {
 }
 
 /// The one [`AdcMux`], populated by [`adc1_task`] when it starts.
-static ADC_MUX: OnceLock<Mutex<ThreadModeRawMutex, AdcMux>> = OnceLock::new();
+static ADC_MUTEX: OnceLock<Mutex<ThreadModeRawMutex, AdcMux>> = OnceLock::new();
 
 /// Takes a snapshot of the latest readings.
 ///
 /// Waits for [`adc1_task`] to have started. The lock is held only long enough to
 /// copy the buffers out.
 pub async fn data() -> AdcMuxData {
-    ADC_MUX.get().await.lock().await.data()
+    ADC_MUTEX.get().await.lock().await.data()
 }
 
 /// Peripherals ADC1 and the analog mux are wired to.
@@ -227,7 +227,7 @@ pub async fn adc1_task(r: Adc1Resources) {
         Output::new(r.sel3, Level::Low, Speed::Low),
         Output::new(r.sel4, Level::Low, Speed::Low),
     ];
-    let _ = ADC_MUX.init(Mutex::new(AdcMux::new(sel_pins)));
+    let _ = ADC_MUTEX.init(Mutex::new(AdcMux::new(sel_pins)));
 
     let mut config = Config::default();
     config.resolution = Some(Resolution::Bits12);
@@ -255,7 +255,7 @@ pub async fn adc1_task(r: Adc1Resources) {
         sequence.read(&mut buffer).await;
 
         {
-            let mut mux = ADC_MUX.get().await.lock().await;
+            let mut mux = ADC_MUTEX.get().await.lock().await;
             mux.update(&buffer);
             mux.flip();
         }
@@ -297,12 +297,12 @@ pub async fn adc2_task(r: Adc2Resources) {
 
     let mut buffer = [0u16; Adc2Channels::VARIANT_COUNT];
 
-    let _ = ADC2_MUX.init(Mutex::new(PedalBuffer::new()));
+    let _ = ADC2_MUTEX.init(Mutex::new(PedalBuffer::new()));
 
     loop {
         sequence.read(&mut buffer).await;
 
-        let mut mux = ADC2_MUX.get().await.lock().await;
+        let mut mux = ADC2_MUTEX.get().await.lock().await;
 
         mux.update(&buffer);
 
@@ -311,14 +311,14 @@ pub async fn adc2_task(r: Adc2Resources) {
 }
 
 /// The one [`AdcMux`], populated by [`adc1_task`] when it starts.
-static ADC2_MUX: OnceLock<Mutex<ThreadModeRawMutex, PedalBuffer>> = OnceLock::new();
+static ADC2_MUTEX: OnceLock<Mutex<ThreadModeRawMutex, PedalBuffer>> = OnceLock::new();
 
 /// Takes a snapshot of the latest readings.
 ///
 /// Waits for [`adc1_task`] to have started. The lock is held only long enough to
 /// copy the buffers out.
 pub async fn pedal_data() -> RawPedalData {
-    ADC2_MUX.get().await.lock().await.get_pedal_data()
+    ADC2_MUTEX.get().await.lock().await.get_pedal_data()
 }
 
 #[derive(Clone, Copy)]
