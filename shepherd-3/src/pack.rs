@@ -222,6 +222,11 @@ pub mod analyzer {
         pub avg_ocv: Voltage,
         pub delta_ocv: Voltage,
         pub pack_ocv: Voltage,
+        /// When the last OCV snapshot was taken
+        pub last_settled_at: Option<Instant>,
+
+        /// State of Charge (SoC) of the pack.
+        pub soc: Ratio,
 
         /// The highest current chip temperature, for faulting.
         pub max_chiptemp: CriticalChipValue<Temperature>,
@@ -237,9 +242,6 @@ pub mod analyzer {
 
         /// Voltage of pack
         pub pack_voltage: Voltage,
-
-        /// State of Charge (SoC) of the pack.
-        pub soc: Ratio,
     }
     impl Analyzer {
         /// Creates a new Analyzer with current cache data, and blank data for all the
@@ -306,6 +308,7 @@ pub mod analyzer {
                 pack_voltage: Voltage::new::<volt>(f32::MIN),
 
                 soc: Ratio::new::<ratio>(0.0_f32),
+                last_settled_at: None,
             })
         }
     }
@@ -506,21 +509,17 @@ pub mod analyzer {
         }
 
         fn calc_open_cell_voltage(&mut self, ocv: &mut OcvState) {
-            use core::sync::atomic::{AtomicBool, Ordering};
             use crate::helpers::Deadline;
             use embassy_time::{Duration};
 
             const OCV_CURR_THRESH: Current = Current::from_amps(0.5_f32);
             const OCV_TIMER_DURATION: Duration = Duration::from_millis(1500);
             
-            let Ok(data) = crate::hv_plate::cache().get_current_voltage().try_nice() else { return; };
-            let mut pack_current = data.pack_current;
+            let Some(mut pack_current) = crate::hv_plate::pack_current() else { return; };
             let mut update_ocv = false;
 
             let ocv_update_allowed: bool = {
                 pack_current.abs() < OCV_CURR_THRESH
-                // u_TODO: && crate::state_machine::charger_output_disabled()
-                // u_TODO: && crate::state_machine::balancing_active()
             };
 
             if ocv.is_first_reading {
@@ -554,6 +553,7 @@ pub mod analyzer {
                         ocv.open_cell_voltage[chip][cell] = self.chip_data[chip].cell_voltages[cell];
                     }
                 }
+                ocv.settled_at = Some(Instant::now());
             }
 
             // Always copy the current open_cell_voltage from state into the analyzer
@@ -561,6 +561,7 @@ pub mod analyzer {
             // or maybe just have the analyzer task read the current global Analyzer and pass a ref in here
             // so we have that context.
             self.open_cell_voltage = ocv.open_cell_voltage;
+            self.last_settled_at = ocv.settled_at;
         }
     }
 
@@ -572,6 +573,7 @@ pub mod analyzer {
         timer: Option<Deadline>,
         is_first_reading: bool,
         open_cell_voltage: IndexByChip<IndexByCell<Voltage>>,
+        settled_at: Option<Instant>,
     }
     impl OcvState {
         pub fn new() -> Self {
@@ -579,6 +581,7 @@ pub mod analyzer {
                 timer: None,
                 is_first_reading: true,
                 open_cell_voltage: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| Voltage::new::<volt>(f32::MIN))),
+                settled_at: None,
             }
         }
     }
@@ -618,6 +621,10 @@ pub mod analyzer {
             analyzer.calc_cell_voltages();
             analyzer.calc_open_cell_voltage(&mut ocv_state);
             analyzer.calc_pack_voltage_stats();
+
+            // State of charge lives in hv_plate, which owns the shunt accumulator. Zero until an
+            // open-circuit voltage seeds the count.
+            analyzer.soc = crate::hv_plate::state_of_charge().unwrap_or(Ratio::new::<ratio>(0.0_f32));
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
 
@@ -718,13 +725,13 @@ pub mod analyzer {
 
             can::send(PackSocStatus {
                 pack_soc: analyzer.soc.get::<ratio>(),
-                pack_soc_drift: f32::MIN, // u_TODO make this real eventually
+                pack_soc_drift: crate::hv_plate::soc_drift(),
             }.as_frame()).await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
                 defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge. This is a ratio/percentage from 0.0 to 1.0", "{=f32}", analyzer.soc.get::<ratio>());
-                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Pack SoC drift. CURRENTLY NOT A REAL VALUE.", "{=f32}", f32::MIN);
+                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Gap the last OCV seed found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", crate::hv_plate::soc_drift());
             }
 
             #[cfg(defmt_monitor)]

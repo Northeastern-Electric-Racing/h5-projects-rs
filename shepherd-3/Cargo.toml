@@ -34,7 +34,7 @@ strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 uom = { version = "0.38.0", default-features = false, features = ["si", "f32"] }
 
 adbms6830b = { git = "https://github.com/bjackson312006/firmware-rs.git", branch = "adbms6830b", features = ["defmt"] }
-adbms2950 = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "c025b371ec29457eeeebb62647350d6e431f3a7a", features = ["defmt"] }
+adbms2950 = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "7f6976dba961e29d9d14e0010bf43cc5df1a01dd", features = ["defmt"] }
 defmt-monitor = { git = "https://github.com/bjackson312006/defmt-monitor.git", branch = "main" }
 libm = { version = "0.2.16" }
 

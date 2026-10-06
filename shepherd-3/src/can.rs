@@ -441,12 +441,68 @@ mod handler {
         }
     }
 
-    /// Reads incoming CAN frames from the software queue.
+    /// Reads incoming CAN frames from the software queue and dispatches them.
     #[embassy_executor::task]
     pub async fn can_rx_processer() -> ! {
+        use embedded_can::Id;
+        use crate::{hv_plate, state_machine};
+
+        const CHARGER_BOX: u32 = 0x18FF_50E5;
+        const DTI_DC_CURRENT: u16 = 0x436;
+        const DTI_INPUT_VOLTAGE: u16 = 0x416;
+
         loop {
-            let _frame = super::channels::INCOMING.receive().await;
+            let frame = super::channels::INCOMING.receive().await;
+
+            match frame.id() {
+                Id::Extended(id) if id.as_raw() == CHARGER_BOX => {
+                    state_machine::charger_frame_received();
+                    if let Some(current) = decode_current(frame.data()) {
+                        hv_plate::store_pack_current(current);
+                    }
+                    if let Some(voltage) = decode_charger_voltage(frame.data()) {
+                        hv_plate::store_ts_voltage(voltage);
+                    }
+                },
+                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !crate::state_machine::charger_connected() => {
+                    if let Some(current) = decode_current(frame.data()) {
+                        hv_plate::store_pack_current(current);
+                    }
+                },
+                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !crate::state_machine::charger_connected() => {
+                    if let Some(voltage) = decode_dti_voltage(frame.data()) {
+                        hv_plate::store_ts_voltage(voltage);
+                    }
+                },
+                _ => {},
+            }
         }
+    }
+
+    // u_TODO: change to use FromCanFrame later
+
+    /// Decodes pack current from a DTI or charger frame.
+    fn decode_current(data: &[u8]) -> Option<crate::units::Current> {
+        use uom::si::electric_current::ampere;
+
+        let raw = i16::from_be_bytes([*data.get(2)?, *data.get(3)?]);
+        Some(crate::units::Current::new::<ampere>(f32::from(raw) / 10.0))
+    }
+
+    /// TS voltage from a DTI input-voltage frame
+    fn decode_dti_voltage(data: &[u8]) -> Option<crate::units::Voltage> {
+        use uom::si::electric_potential::volt;
+
+        let raw = i16::from_be_bytes([*data.get(6)?, *data.get(7)?]);
+        Some(crate::units::Voltage::new::<volt>(f32::from(raw)))
+    }
+
+    /// TS voltage from a charger frame: big-endian `i16` at bytes 0..2, 0.1 V per LSB.
+    fn decode_charger_voltage(data: &[u8]) -> Option<crate::units::Voltage> {
+        use uom::si::electric_potential::volt;
+
+        let raw = i16::from_be_bytes([*data.get(0)?, *data.get(1)?]);
+        Some(crate::units::Voltage::new::<volt>(f32::from(raw) / 10.0))
     }
 
     /// Publishes CAN health diagnostics exposed by embassy-stm32.
