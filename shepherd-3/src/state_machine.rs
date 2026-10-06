@@ -350,7 +350,7 @@ mod api {
     }
 
     /// Whether a charger has announced itself since the last pass through `Boot`.
-    pub(super) fn charger_connected() -> bool {
+    pub fn charger_connected() -> bool {
         CHARGER_CONNECTED.load(Ordering::Relaxed)
     }
 
