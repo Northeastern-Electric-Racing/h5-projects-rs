@@ -2,10 +2,17 @@
 
 use embassy_time::{Instant, Duration};
 
+#[derive(Copy, Clone)]
 pub struct Deadline {
     inner: Instant,
 }
 impl Deadline {
+    /// Creates a `Deadline` that expires at earliest instant that can possibly be represented
+    /// by an `Instant`.
+    pub const fn expire_at_beginning_of_time() -> Self {
+        Self { inner: Instant::MIN }
+    }
+
     /// Creates a `Deadline` that expires in `duration` seconds.
     pub fn expire_in(duration: Duration) -> Self {
         Self { inner: Instant::now() + duration }

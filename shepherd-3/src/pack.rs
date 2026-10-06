@@ -1,4 +1,5 @@
 use crate::{
+    helpers::Deadline,
     state_machine::{BmsState}, state_machine,
     segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
     units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm},
@@ -384,7 +385,7 @@ pub mod analyzer {
                 };
 
                 // I*R is the way
-                self.chip_data[chip].cell_voltages[cell] += curr_bal * res;
+                //self.chip_data[chip].cell_voltages[cell] += curr_bal * res;
             }
         }
 
@@ -396,6 +397,8 @@ pub mod analyzer {
             let mut total_volt: Voltage = Voltage::new::<volt>(0_f32);
             let mut total_ocv: Voltage = Voltage::new::<volt>(0_f32);
             let mut total_seg_volt: Voltage = Voltage::new::<volt>(0_f32);
+
+            static BETA_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
             for chip in ChipId::iter() {
                 for cell in CellId::iter() {
@@ -420,12 +423,15 @@ pub mod analyzer {
                     total_seg_volt += self.open_cell_voltage[chip][cell];
                 }
                 if chip.is_beta() {
+                    BETA_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
                     // calculate average voltage across a segment
                     self.segment_average_volts[chip.segment()] = total_seg_volt / (NUM_CELLS_PER_SEGMENT as f32);
                     self.segment_total_volts[chip.segment()] = total_seg_volt;
                     self.segment_delta_volts[chip.segment()] = self.max_voltage.value() - self.min_voltage.value();
                     total_seg_volt = Voltage::new::<volt>(0_f32);
                 }
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/BETA_COUNT", desc = "Times is_beta() has been true!", "{=u32}", BETA_COUNT.load(core::sync::atomic::Ordering::Relaxed));
+
             }
 
             // calculate some voltage stats
@@ -498,6 +504,83 @@ pub mod analyzer {
                 faults::queue(FaultCommand::CellOpenWireFault(PassFailAction::NotifyOkay)).await;
             }
         }
+
+        fn calc_open_cell_voltage(&mut self, ocv: &mut OcvState) {
+            use core::sync::atomic::{AtomicBool, Ordering};
+            use crate::helpers::Deadline;
+            use embassy_time::{Duration};
+
+            const OCV_CURR_THRESH: Current = Current::from_amps(0.5_f32);
+            const OCV_TIMER_DURATION: Duration = Duration::from_millis(1500);
+            
+            let Ok(data) = crate::hv_plate::cache().get_current_voltage().try_nice() else { return; };
+            let mut pack_current = data.pack_current;
+            let mut update_ocv = false;
+
+            let ocv_update_allowed: bool = {
+                pack_current.abs() < OCV_CURR_THRESH
+                // u_TODO: && crate::state_machine::charger_output_disabled()
+                // u_TODO: && crate::state_machine::balancing_active()
+            };
+
+            if ocv.is_first_reading {
+                let last_cell: Voltage = self.chip_data[ChipId::last()].cell_voltages[CellId::last()];
+
+                if last_cell > Voltage::from_volts(1.0_f32) && last_cell < Voltage::from_volts(5.0_f32) {
+                    ocv.is_first_reading = false;
+                    update_ocv = true;
+                }
+            }
+
+            if ocv_update_allowed {
+                match ocv.timer {
+                    // Timer is expired so we should update OCV.
+                    Some(deadline) if deadline.past() => update_ocv = true,
+
+                    // Timer is still active so keep waiting.
+                    Some(_) => {},
+
+                    // No timer, but update is allowed now, so we should start it
+                    None => ocv.timer = Some(Deadline::expire_in(OCV_TIMER_DURATION)),
+
+                }
+            } else {
+                ocv.timer = None;
+            }
+
+            if update_ocv {
+                for chip in ChipId::iter() {
+                    for cell in CellId::iter() {
+                        ocv.open_cell_voltage[chip][cell] = self.chip_data[chip].cell_voltages[cell];
+                    }
+                }
+            }
+
+            // Always copy the current open_cell_voltage from state into the analyzer
+            // u_TODO - when eventually Analyzer persists across task cycles we should get rid of this
+            // or maybe just have the analyzer task read the current global Analyzer and pass a ref in here
+            // so we have that context.
+            self.open_cell_voltage = ocv.open_cell_voltage;
+        }
+    }
+
+    /// Persistent OCV State.
+    /// 
+    /// u_TODO this is a janky workaround. we probably should just be modifying analyzer in place
+    #[derive(Copy, Clone)]
+    struct OcvState {   
+        timer: Option<Deadline>,
+        is_first_reading: bool,
+        open_cell_voltage: IndexByChip<IndexByCell<Voltage>>,
+    }
+    impl OcvState {
+        pub fn new() -> Self {
+            Self {
+                timer: None,
+                is_first_reading: true,
+                open_cell_voltage: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| Voltage::new::<volt>(f32::MIN))),
+            }
+        }
     }
 
     /// Task that runs and updates the analyzer (to do run some calculations on chip data).
@@ -511,10 +594,13 @@ pub mod analyzer {
             units::{degree_celsius, volt},
         };
 
-
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
         let mut segments_openwire_subscription = SEGMENTS_OPENWIRE_RAN_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
+        
+        let mut ocv_state = OcvState::new();
+
+        let mut analyzer_task_run_count: usize = 0;
 
         loop {
             // Run one loop of this task every time new Segments data arrives.
@@ -530,7 +616,7 @@ pub mod analyzer {
             // calc_cell_temps() is in the C code, but is not needed here because the chipdata already calculates cell temps.
             analyzer.calc_pack_temps();
             analyzer.calc_cell_voltages();
-            // calc_open_cell_voltage u_TODO - probably do this later once full scope of how much hv plate data is needed here is known
+            analyzer.calc_open_cell_voltage(&mut ocv_state);
             analyzer.calc_pack_voltage_stats();
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
@@ -640,7 +726,23 @@ pub mod analyzer {
                 defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge. This is a ratio/percentage from 0.0 to 1.0", "{=f32}", analyzer.soc.get::<ratio>());
                 defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Pack SoC drift. CURRENTLY NOT A REAL VALUE.", "{=f32}", f32::MIN);
             }
-            
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/avg_voltage", desc = "Average voltage, in volts.", "{=f32}", analyzer.avg_voltage.get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/pack_voltage", desc = "Pack voltage, in volts.", "{=f32}", analyzer.pack_voltage.get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/delta_voltage", desc = "Delta voltage, in volts.", "{=f32}", analyzer.delta_voltage.get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/avg_ocv", desc = "Average Open Cell Voltage, in volts.", "{=f32}", analyzer.avg_ocv.get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/pack_ocv", desc = "Pack Open Cell Voltage, in volts.", "{=f32}", analyzer.pack_ocv.get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/delta_ocv", desc = "Delta Open Cell Voltage, in volts.", "{=f32}", analyzer.delta_ocv.get::<volt>());
+            }
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                defmt_monitor::monitor!("AnalyzerDebug/analyzer_task_run_count", desc = "Times this task has run.", "{=usize}", &analyzer_task_run_count);
+            }
+
+            analyzer_task_run_count += 1;
         }
     }
 }

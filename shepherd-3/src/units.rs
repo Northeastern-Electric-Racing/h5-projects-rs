@@ -105,6 +105,8 @@ pub mod current {
         pub const fn as_inner(self) -> UomCurrent { consts::from_amps(self.amps) }
         /// Creates a new `Current` from a `UomCurrent`.
         pub const fn from_inner(inner: UomCurrent) -> Self { Self { amps: inner.value } }
+        /// Computes the absolute value of this.
+        pub const fn abs(&mut self) -> Self { Self { amps: self.amps.abs() } }
     }
 }
 pub use current::*;

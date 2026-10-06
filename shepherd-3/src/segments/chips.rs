@@ -69,6 +69,11 @@ pub mod cells {
             // We need to add 1 because the enum variants start at 0 in their raw underlying representation
             ((self.as_u8() + 1) % 2) == 0
         }
+
+        /// Returns the last CellId in the enum.
+        pub const fn last() -> CellId {
+            Self::VARIANTS[Self::COUNT - 1]
+        }
     }
 
     /// Like IndexByChip but for cells
@@ -251,6 +256,11 @@ impl ChipId {
     /// Whether or not this chip is Beta.
     pub const fn is_beta(&self) -> bool {
         matches!(self.kind(), ChipKind::Beta)
+    }
+
+    /// Returns the last ChipId in the enum.
+    pub const fn last() -> ChipId {
+        Self::VARIANTS[Self::COUNT - 1]
     }
 
     /// Indicates what segment this chip is on.
