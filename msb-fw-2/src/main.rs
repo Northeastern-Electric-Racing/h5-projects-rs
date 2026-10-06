@@ -14,6 +14,10 @@ use embassy_stm32::{time::Hertz, wdg};
 use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
+use msb_fw_2::shock_pot;
+use msb_fw_2::steering_angle;
+use msb_fw_2::strain_guage;
+use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
 use msb_fw_2::{shock_pot, steering_angle, strain_guage, magnetometer, hdc2021, load_cell, thermocouple, imu}; 
 
 use {defmt_rtt as _, panic_probe as _};
@@ -130,6 +134,14 @@ async fn main(spawner: Spawner) -> ! {
 
 
 
+
+    let wheel_speed_resources = WheelSpeedResources {
+        left_timer: p.TIM1,
+        left_pin: p.PE9,
+        right_timer: p.TIM15,
+        right_pin: p.PC12,
+    };
+    spawner.spawn(wheel_speed::wheel_speed_task(wheel_speed_resources).expect("Failed to spawn wheel_speed::wheel_speed_task()."));
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
