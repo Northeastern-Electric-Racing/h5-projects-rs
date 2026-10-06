@@ -291,7 +291,7 @@ pub async fn adc2_task(r: Adc2Resources) {
         (r.bse2.degrade_adc(), SAMPLE_TIME2),
     ];
 
-    let mut adc2 = Adc::new(r.adc, Irqs, Default::default());
+    let mut adc2 = Adc::new(r.adc, Irqs, config);
 
     let mut sequence = adc2.configure_sequence(r.dma, sequence.into_iter(), Irqs);
 

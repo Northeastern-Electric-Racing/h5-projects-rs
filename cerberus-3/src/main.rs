@@ -4,7 +4,7 @@
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::info;
-use defmt::{debug, println};
+use defmt::{debug};
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::gpio::Level;
@@ -20,7 +20,7 @@ mod can;
 mod efuses;
 mod rtds;
 
-use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task, pedal_data};
+use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
 use ner_can::{can_rx, can_tx};
