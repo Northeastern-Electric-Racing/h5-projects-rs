@@ -114,8 +114,8 @@ impl Service {
         let action = self.step(api, now);
 
         let report = match self.state {
-            State::Normal | State::ServiceSuccess => crate::faults::PassFailAction::NotifyOkay,
-            State::BreakDetected | State::Verifying | State::ServiceFailed => crate::faults::PassFailAction::NotifyBad,
+            State::ServiceFailed => crate::faults::PassFailAction::NotifyBad,
+            _ => crate::faults::PassFailAction::NotifyOkay,
         };
         let _ = crate::faults::try_queue(crate::faults::FaultCommand::HvPlateCommsFault(report));
 
