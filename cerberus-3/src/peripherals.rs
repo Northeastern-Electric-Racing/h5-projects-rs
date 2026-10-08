@@ -1,17 +1,12 @@
-use core::f32::consts::PI;
-
 use cangen::ToCanFrame;
-use defmt::{info, warn};
+use defmt::{error, info, warn};
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_stm32::can::Frame;
-use embassy_stm32::can::frame::Header;
 use embassy_stm32::gpio::Output;
-use embassy_stm32::i2c::{I2c, Master};
-use embassy_stm32::mode::{Async, Blocking};
+use embassy_stm32::mode::Async;
 use embassy_stm32::spi::{self, Spi};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::{Channel, DynamicSender};
+use embassy_sync::channel::DynamicSender;
 use embassy_time::{Delay, Timer};
 use lsm6dsv16x_rs::asynchronous::Lsm6dsv16x;
 use lsm6dsv16x_rs::asynchronous::register::MainBank;
@@ -19,16 +14,14 @@ use lsm6dsv16x_rs::asynchronous::register::main::{
     FiltGyLp1Bandwidth, FiltSettlingMask, FiltXlLp2Bandwidth, GyFullScale, Odr, Reset, XlFullScale,
 };
 use st_mems_bus::asynchronous::SpiBus;
-use uom::si::acceleration::{meter_per_second_squared, standard_gravity};
-use uom::si::angular_acceleration::{self, degree_per_second_squared, radian_per_second_squared};
+use uom::si::acceleration::meter_per_second_squared;
 use uom::si::angular_velocity::degree_per_second;
 use uom::si::f32::*;
-use uom::si::length::meter;
 
 unit! {
     system: uom::si;
     quantity: uom::si::acceleration;
-    @milligravity: 0.001; "mG", "milligravity", "milligravities"; // Singular abbreviation, singular name, plural name
+    @milligravity: 9.80665e-3; "mG", "milligravity", "milligravities"; // Singular abbreviation, singular name, plural name
 }
 
 // each unit! expansion emits its own `__system`/`__quantity`/`Conversion`/`Unit`
@@ -43,10 +36,9 @@ mod mdps {
 }
 use mdps::millidegree_per_second;
 
-pub type ImuI2c = I2cDevice<'static, ThreadModeRawMutex, I2c<'static, Blocking, Master>>;
 pub type ImuSpi =
     SpiDevice<'static, ThreadModeRawMutex, Spi<'static, Async, spi::mode::Master>, Output<'static>>;
-const ID: u8 = 0;
+const ID: u8 = 0x70;
 pub struct IMU {
     imu: Lsm6dsv16x<SpiBus<ImuSpi>, Delay, MainBank>,
     // imu: Lsm6dsox<ImuI2c, Delay>,
@@ -59,6 +51,10 @@ pub struct AccelVec {
     z: Acceleration,
 }
 
+pub enum ImuInitError {
+    WrongId,
+}
+
 pub struct AngularVelVec {
     roll_rate: AngularVelocity,
     pitch_rate: AngularVelocity,
@@ -66,6 +62,7 @@ pub struct AngularVelVec {
 }
 
 impl AngularVelVec {
+    #[allow(dead_code)] // This might come in handy later
     fn from_rads_per_s(p: f32, q: f32, r: f32) -> Self {
         AngularVelVec {
             roll_rate: AngularVelocity::new::<degree_per_second>(p),
@@ -80,12 +77,10 @@ impl AngularVelVec {
             yaw_rate: AngularVelocity::new::<millidegree_per_second>(raws[2] as f32),
         }
     }
-    fn norm(&self) -> meter_per_second_squared {
-        todo!("lazy bum")
-    }
 }
 
 impl AccelVec {
+    #[allow(dead_code)] // This might come in handy later
     fn from_mps_sq(x: f32, y: f32, z: f32) -> Self {
         AccelVec {
             x: Acceleration::new::<meter_per_second_squared>(x),
@@ -100,9 +95,6 @@ impl AccelVec {
             y: Acceleration::new::<milligravity>(from_fs2_to_mg(raw[1])),
             z: Acceleration::new::<milligravity>(from_fs2_to_mg(raw[2])),
         }
-    }
-    fn norm(&self) -> meter_per_second_squared {
-        todo!("lazy bum")
     }
 }
 
@@ -132,36 +124,36 @@ impl IMU {
 
     async fn send_accel(&self, accel: AccelVec) {
         let frame = cangen::ImuAccelerometer::new()
-            .with_imu_accelerometer_x(accel.x.value)
-            .with_imu_accelerometer_y(accel.y.value)
-            .with_imu_accelerometer_z(accel.z.value);
+            .with_imu_accelerometer_x(accel.x.get::<milligravity>())
+            .with_imu_accelerometer_y(accel.y.get::<milligravity>())
+            .with_imu_accelerometer_z(accel.z.get::<milligravity>());
         self.can_tx.send(frame.to_can_frame()).await;
     }
 
     async fn send_angular_vel(&self, vel: AngularVelVec) {
         let frame = cangen::ImuGyro::new()
-            .with_imu_gyro_x(vel.roll_rate.get::<degree_per_second>() / 1000.0)
-            .with_imu_gyro_y(vel.pitch_rate.get::<degree_per_second>() / 1000.0)
-            .with_imu_gyro_z(vel.yaw_rate.get::<degree_per_second>() / 1000.0);
+            .with_imu_gyro_x(vel.roll_rate.get::<mdps::millidegree_per_second>())
+            .with_imu_gyro_y(vel.pitch_rate.get::<mdps::millidegree_per_second>())
+            .with_imu_gyro_z(vel.yaw_rate.get::<mdps::millidegree_per_second>());
         self.can_tx.send(frame.to_can_frame()).await;
     }
     async fn get_anguar_vel(&mut self) -> Option<AngularVelVec> {
         match self.imu.flag_data_ready_get().await {
             Ok(f) => {
                 let raw_rate = self.imu.angular_rate_raw_get().await;
-                if f.drdy_xl == 1 && raw_rate.is_ok() {
+                if f.drdy_gy == 1 && raw_rate.is_ok() {
                     Some(AngularVelVec::from_raws(raw_rate.unwrap()))
                 } else {
                     None
                 }
             }
-            Err(e) => {
+            Err(_) => {
                 warn!("Reading accelerometer failed!");
                 None
             }
         }
     }
-    async fn init(&mut self) {
+    async fn init(&mut self) -> Result<(), ImuInitError> {
         // All of this is ripped from the example code
         Timer::after_millis(5).await;
 
@@ -169,8 +161,8 @@ impl IMU {
         let id = self.imu.device_id_get().await.unwrap();
         info!("Device ID: {:x}", id);
         if id != ID {
-            info!("Unexpected device ID: {:x}", id);
-            loop {}
+            error!("Unexpected device ID: {:x}", id);
+            return Err(ImuInitError::WrongId);
         }
 
         // Restore default configuration
@@ -217,12 +209,13 @@ impl IMU {
             .unwrap();
 
         info!("Configuration ended, check the output on the UART channel");
+        Ok(())
     }
 }
 #[embassy_executor::task]
 pub async fn imu_task(spi: ImuSpi, can_tx: DynamicSender<'static, Frame>) -> ! {
     let mut imu: IMU = IMU::new(spi, Delay, can_tx);
-    imu.init().await;
+    imu.init().await.expect("Failed to init IMU");
     loop {
         let latest_accel = imu.get_accel().await;
         if latest_accel.is_some() {
