@@ -50,14 +50,14 @@ mod api {
         let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
         let can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None);
 
-        let (tx, rx, props) = can.start();
+        let (tx, rx, _props) = can.start();
 
         spawner.spawn(handler::can_tx(tx).expect("Failed to spawn can_handler::can_tx()."));
         spawner.spawn(handler::can_rx(rx).expect("Failed to spawn can_handler::can_rx()."));
         spawner.spawn(handler::can_rx_processer().expect("Failed to spawn can_handler::can_rx_processer()."));
 
         #[cfg(defmt_monitor)]
-        spawner.spawn(handler::can_props(props).expect("Failed to spawn can_handler::can_props()."));
+        spawner.spawn(handler::can_props(_props).expect("Failed to spawn can_handler::can_props()."));
     }
 }
 pub use api::*;

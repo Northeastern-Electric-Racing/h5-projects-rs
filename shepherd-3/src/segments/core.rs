@@ -476,7 +476,7 @@ pub mod jobs {
         /// Also, this basically takes the place of `segment_run_cell_open_wire_test()`, except for the fact that it
         /// doesn't read the normal S ADC voltages beforehand (since those are already read by the snap job).
         pub async fn job_update_open_wire(&mut self) -> Result<(), UpdateError> {
-            use adbms6830b::chip::commands::{self, adc::{AutoAcquisition, OpenWire, AdcvRedundancy, Acquisition, ResetFilter}};
+            use adbms6830b::chip::commands::{self, adc::{AutoAcquisition, OpenWire, Acquisition}};
             
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
             let run = DIAGNOSTICS.start();

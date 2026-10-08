@@ -506,7 +506,6 @@ pub mod analyzer {
         }
 
         fn calc_open_cell_voltage(&mut self, ocv: &mut OcvState) {
-            use core::sync::atomic::{AtomicBool, Ordering};
             use crate::helpers::Deadline;
             use embassy_time::{Duration};
 
@@ -600,6 +599,7 @@ pub mod analyzer {
         
         let mut ocv_state = OcvState::new();
 
+        #[allow(unused)]
         let mut analyzer_task_run_count: usize = 0;
 
         loop {
@@ -739,10 +739,9 @@ pub mod analyzer {
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
+                analyzer_task_run_count += 1;
                 defmt_monitor::monitor!("AnalyzerDebug/analyzer_task_run_count", desc = "Times this task has run.", "{=usize}", &analyzer_task_run_count);
             }
-
-            analyzer_task_run_count += 1;
         }
     }
 }

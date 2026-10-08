@@ -689,18 +689,6 @@ pub mod gpios {
         calc_temp(&res)
     }
 
-    /// Struct for each cell temperature.
-    pub struct CellTemperatures {
-        inner: IndexByCell<Temperature>,
-    }
-    impl core::ops::Deref for CellTemperatures {
-        type Target = IndexByCell<Temperature>;
-
-        fn deref(&self) -> &Self::Target {
-            &self.inner
-        }
-    }
-
     /// Struct that represents the GPIO voltages, but converted into temperatures.
     ///
     /// The layout of this struct and the temperature calculations are based on the comment near the top of this module.
