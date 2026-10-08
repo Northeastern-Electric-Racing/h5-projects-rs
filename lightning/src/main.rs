@@ -7,7 +7,8 @@ mod state;
 use crate::hardware::Leds;
 use crate::inbox::FaultframeState;
 use crate::inbox::inbox::{BMS_CAN_ID, IMD_CAN_ID, LATCHING_CAN_ID};
-use can_handler::{NerCan, can_handler, interrupts::Irqs as IrqsCan};
+use can_handler::NerCan;
+use can_handler::{ExtFilter, StdFilter};
 use core::fmt::Write;
 use core::num::{NonZeroU8, NonZeroU16};
 use cortex_m::peripheral::SCB;
@@ -16,6 +17,7 @@ use defmt::debug;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_stm32::can::Frame;
+use embassy_stm32::can::filter::ExtendedFilter;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::Uart;
 use embassy_stm32::{Config, can, dma, peripherals, usart};
@@ -29,6 +31,11 @@ use heapless::String;
 use heapless::mpmc::Queue;
 
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct IrqsCan {
+    FDCAN2_IT0 => can::IT0InterruptHandler<peripherals::FDCAN2>;
+    FDCAN2_IT1 => can::IT1InterruptHandler<peripherals::FDCAN2>;
+});
 
 bind_interrupts!(struct IrqsUsart {
     LPUART1 => usart::InterruptHandler<peripherals::LPUART1>;
@@ -84,15 +91,24 @@ async fn main(_spawner: Spawner) -> ! {
     // initialize the project, ensure we can debug during sleep
     let p = embassy_stm32::init(config);
 
-    let mut ner_can = NerCan::init(can::CanConfigurator::new(p.FDCAN2, p.PB12, p.PB13, IrqsCan));
-    ner_can = ner_can
-        .add_standard_filter(
-            can::filter::StandardFilterSlot::_0,
-            LATCHING_CAN_ID,
-            None, // Some(IMD_CAN_ID),
-        )
-        .add_extended_filter(can::filter::ExtendedFilterSlot::_1, BMS_CAN_ID, None)
-        .add_standard_filter(can::filter::StandardFilterSlot::_2, IMD_CAN_ID, None);
+    let mut ner_can = NerCan::init(can::CanConfigurator::new(p.FDCAN2, p.PB12, p.PB13, IrqsCan))
+        .with_standard_filters(&[
+            StdFilter {
+                slot: can::filter::StandardFilterSlot::_0,
+                id1: LATCHING_CAN_ID,
+                id2: None,
+            },
+            StdFilter {
+                slot: can::filter::StandardFilterSlot::_1,
+                id1: IMD_CAN_ID,
+                id2: None,
+            },
+        ])
+        .with_extended_filters(&[ExtFilter {
+            slot: can::filter::ExtendedFilterSlot::_2,
+            id1: BMS_CAN_ID,
+            id2: None,
+        }]);
 
     // There used to be some configuration here, but I removed it s.t I wouldn't step on NerCan's toes
     let mut usart_config = usart::Config::default();
@@ -116,17 +132,7 @@ async fn main(_spawner: Spawner) -> ! {
     static QUEUTEX: Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>> =
         Mutex::new(&FFS_QUEUE);
 
-    static RX_CHANNEL: Channel<ThreadModeRawMutex, Frame, 16> = Channel::new();
-    static TX_CHANNEL: Channel<ThreadModeRawMutex, Frame, 16> = Channel::new();
-
-    _spawner.spawn(
-        can_handler(
-            ner_can.can_configurator,
-            RX_CHANNEL.sender(),
-            TX_CHANNEL.receiver(),
-        )
-        .expect("Failed to init candler"),
-    );
+    let (can_tx, can_rx, can_props) = ner_can.start();
 
     let mut s: String<128> = String::new();
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();
@@ -137,7 +143,7 @@ async fn main(_spawner: Spawner) -> ! {
     let mut ticker = Ticker::every(Duration::from_millis(500));
 
     _spawner.spawn(
-        inbox::inbox::populate_queue(RX_CHANNEL.receiver(), &QUEUTEX)
+        inbox::inbox::populate_queue(can_rx, &QUEUTEX)
             .expect("Failed to spawn inbox queue populator"),
     );
 

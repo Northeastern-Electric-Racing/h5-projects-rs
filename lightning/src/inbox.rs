@@ -3,7 +3,7 @@ pub mod inbox {
     use core::fmt::Debug;
 
     use defmt::{debug, warn};
-    use embassy_stm32::can::Frame;
+    use embassy_stm32::can::{CanRx, Frame};
     use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Receiver, mutex::Mutex};
     const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -42,44 +42,50 @@ pub mod inbox {
 
     #[embassy_executor::task]
     pub async fn populate_queue(
-        receiver: Receiver<'static, ThreadModeRawMutex, Frame, 16>,
+        mut receiver: CanRx<'static>,
         quetex: &'static Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>>,
     ) -> ! {
         let boot_time: Instant = Instant::now();
-        receiver.clear(); // The IMD goes a bit crazy on init, this gets rid of the frame.
+        // receiver.read(); // The IMD goes a bit crazy on init, this gets rid of the frame.
         loop {
             let latest: Option<FaultframeState> =
-                match receiver.receive().with_timeout(CAN_RECV_TIMEOUT).await {
-                    Ok(frame) => match frame.id() {
-                        &IMD_CAN_ID_PROCESSED => {
-                            // Only the 4th and 5th bits mean there is an error on the IMD
-                            match (u16::from_le_bytes([
-                                *frame.data().get(4).unwrap_or(&1),
-                                *frame.data().get(4).unwrap_or(&1),
-                            ]) & 0x07FF)
-                            {
-                                0 => Some(FaultframeState::IMDOk),
-                                _ => {
-                                    debug!("IMD Fault data: {}", frame.data());
-                                    Some(FaultframeState::IMDFault)
+                match receiver.read().with_timeout(CAN_RECV_TIMEOUT).await {
+                    Ok(frame) => match frame {
+                        Ok(envelope) => match envelope.frame.id() {
+                            &IMD_CAN_ID_PROCESSED => {
+                                // Only the 4th and 5th bits mean there is an error on the IMD
+                                match (u16::from_le_bytes([
+                                    *envelope.frame.data().get(4).unwrap_or(&1),
+                                    *envelope.frame.data().get(4).unwrap_or(&1),
+                                ]) & 0x07FF)
+                                {
+                                    0 => Some(FaultframeState::IMDOk),
+                                    _ => {
+                                        debug!("IMD Fault data: {}", envelope.frame.data());
+                                        Some(FaultframeState::IMDFault)
+                                    }
                                 }
                             }
-                        }
-                        &BMS_CAN_ID_PROCESSED => match frame.data()[0] & 0x80 {
-                            0 => Some(FaultframeState::BMSOk),
-                            _ => Some(FaultframeState::BMSFault),
+                            &BMS_CAN_ID_PROCESSED => match envelope.frame.data()[0] & 0x80 {
+                                0 => Some(FaultframeState::BMSOk),
+                                _ => Some(FaultframeState::BMSFault),
+                            },
+                            &LATCHING_CAN_ID_PROCESSED => match envelope.frame.data()[0] & 0x80 {
+                                0 => None, // Nothing needs to be done if no reset it requested
+                                _ => Some(FaultframeState::ResetRequested),
+                            },
+                            _id => {
+                                warn!("Unknown ID. Somthing is wrong with the filters. ");
+                                None
+                            }
                         },
-                        &LATCHING_CAN_ID_PROCESSED => match frame.data()[0] & 0x80 {
-                            0 => None, // Nothing needs to be done if no reset it requested
-                            _ => Some(FaultframeState::ResetRequested),
-                        },
-                        _id => {
-                            warn!("Unknown ID. Somthing is wrong with the filters. ");
+                        Err(e) => {
+                            // warn!("Did not receive CAN Frame. Error: {}", e);
                             None
                         }
                     },
                     Err(e) => {
-                        // warn!("Did not receive CAN Frame. Error: {}", e);
+                        warn!("timeout");
                         None
                     }
                 };
