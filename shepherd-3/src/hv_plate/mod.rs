@@ -10,6 +10,9 @@
 mod board;
 mod cache;
 mod core;
+mod precharge;
+mod isospi_recovery;
+mod soc;
 #[cfg(feature = "hil")]
 mod hil;
 
@@ -19,5 +22,7 @@ pub const fn cache() -> &'static CacheData {
 }
 
 // Re-exports
-pub use core::task::{hv_plate_task, signal::HV_PLATE_FRESH_DATA_SIGNAL};
 pub use cache::{CacheData, RegisterCacheData, UpdateError, accumulated, aux, current_voltage, flag, status, voltages};
+pub use core::api::{pack_current, soc_drift, state_of_charge, store_pack_current, store_ts_voltage, ts_voltage};
+pub use core::task::{hv_plate_task, signal::HV_PLATE_FRESH_DATA_SIGNAL};
+pub use precharge::{State as PrechargeState, state as precharge_state};

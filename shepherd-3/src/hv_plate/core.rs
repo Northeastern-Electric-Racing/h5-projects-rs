@@ -1,15 +1,19 @@
 //! Device construction, startup configuration, read jobs, and the HV plate task.
 
+use adbms2950::api::SnappedError;
 use adbms2950::chip::commands;
-use adbms2950::line::Error;
-#[cfg(not(feature = "hil"))]
-use embassy_time::Duration;
-use embassy_time::{Instant, Timer};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use static_cell::StaticCell;
 
+use crate::helpers::Deadline;
+
 use super::cache::{self, UpdateError};
-use crate::job_diagnostics::JobDiagnosticsContainer;
+use super::isospi_recovery;
+use super::precharge;
+use super::soc;
 use crate::broadcast::Broadcast;
+use crate::job_diagnostics::JobDiagnosticsContainer;
+use adbms2950::line::Error;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 
 #[cfg(not(feature = "hil"))]
@@ -25,7 +29,7 @@ pub mod alias {
     use embassy_stm32::{
         gpio::Output,
         mode::Async,
-        spi::{mode::Master, Spi},
+        spi::{Spi, mode::Master},
     };
     #[cfg(not(feature = "hil"))]
     use embassy_time::Delay;
@@ -51,21 +55,20 @@ pub mod alias {
     pub type Api = adbms2950::api::Api<SpiDevice>;
 }
 
-/// Guy in charge of the HV plate.
-pub(super) struct HvPlate {
+/// Holds the ADBMS2950B device api
+struct HvPlate {
+    /// isoSPI break detection and recovery.
+    recovery_service: isospi_recovery::Service,
     api: &'static mut alias::Api,
-    /// Whether the startup sequence has completed since the last reset.
-    started: bool,
 }
 
 impl HvPlate {
-    pub fn new(r: crate::HvPlateResources) -> Self {
+    fn new(r: crate::HvPlateResources) -> Self {
         #[cfg(not(feature = "hil"))]
         let (line_a, line_b) = {
             use embassy_time::Delay;
             use embedded_hal_bus::spi::ExclusiveDevice;
 
-            // The C project clocks both SPI3 and SPI4 at 2 MBit/s (prescaler 32).
             let mut spi_config = embassy_stm32::spi::Config::default();
             spi_config.frequency = embassy_stm32::time::mhz(2);
 
@@ -86,74 +89,138 @@ impl HvPlate {
         static API: StaticCell<alias::Api> = StaticCell::new();
         let api: &'static mut alias::Api = API.init(alias::Api::new(line_a, line_b));
 
-        Self { api, started: false }
+        Self { api, recovery_service: isospi_recovery::Service::new(Instant::now()) }
     }
 
-    /// Brings the chip from reset to converting, if it hasn't been already.
-    ///
-    /// Safe to call every cycle: returns immediately once startup has succeeded, and on failure
-    /// leaves `started` false so the next cycle retries.
-    pub async fn startup(&mut self) -> Result<(), Error<alias::SpiError>> {
-        use adbms2950::chip::registers::config_a::{ConfigA, types::*};
+    /// Keeps the chip configured and the isoSPI link on a working port.
+    async fn run_service(&mut self) -> bool {
+        let startup = async |api: &mut alias::Api| -> Result<(), Error<alias::SpiError>> {
+            use adbms2950::chip::registers::config_a::{ConfigA, types::*};
 
-        if self.started {
-            return Ok(());
-        }
+            #[cfg(not(feature = "hil"))]
+            {
+                // Reset to a known state and wait out the regulator startup.
+                api.reset().await?;
 
-        // HIL shares configuration startup but skips physical reset/reference polling.
-        #[cfg(not(feature = "hil"))]
-        {
-            // Reset to a known state and wait out the regulator startup.
-            self.api.reset().await?;
+                // Measurements before the references are up are not trustworthy.
+                api.wait_for_reference().await?;
+            }
 
-            // Measurements before the references are up are not trustworthy.
-            self.api.wait_for_reference().await?;
-        }
+            // Set up ConfigA
+            let config_a = const {
+                ConfigA::new()
+                    // BATT and TS dividers sit on the 1.25 V rail, the shunt thermistor on ground.
+                    .with_vs1(VoltageReferenceWide::Vref1p25)
+                    .with_vs2(VoltageReferenceWide::Vref1p25)
+                    .with_vs7(VoltageReference::Sgnd)
+                    .with_acci(soc::ACCUMULATOR_DEPTH)
+                    // HV control relay, open drain and active low. Starts released.
+                    .with_gpo4c(GpoOutputState::Driven)
+                    .with_gpo4od(GpoDriveMode::OpenDrain)
+            };
+            api.set_configa(config_a).await?;
 
-        // Set up ConfigA
-        let config_a = const {
-            ConfigA::new()
-                // BATT and TS dividers sit on the 1.25 V rail, the shunt thermistor on ground.
-                .with_vs1(VoltageReferenceWide::Vref1p25)
-                .with_vs2(VoltageReferenceWide::Vref1p25)
-                .with_vs7(VoltageReference::Sgnd)
-                .with_acci(AccumulatorDepth::Samples8)
-                // HV control relay, open drain and active low. Starts released.
-                .with_gpo4c(GpoOutputState::Driven)
-                .with_gpo4od(GpoDriveMode::OpenDrain)
+            // Fault latches power up asserted. Clear them or everything reads as a live fault.
+            api.write(adbms2950::chip::registers::flag::Flag::new().with_thsd(true)).await?;
+
+            // Start continuous conversion. ACCI only relatches on ADI1, so this must stay after
+            // `set_configa`.
+            api.command(commands::adc::adi1(commands::adc::Redundancy::Enabled, commands::adc::Acquisition::Continuous, commands::adc::Diagnostic::Normal, commands::adc::OpenWire::Off)).await?;
+
+            // Wait for the IxADC to finish calibrating
+            {
+                use adbms2950::chip::registers::status::{Status, types::InitializationStatus};
+
+                let deadline = Instant::now() + Duration::from_millis(adbms2950::line::conversion_times::IXADC_INIT_MAX_MS as u64);
+
+                loop {
+                    if let Ok(status) = api.read::<Status>().await
+                        && status.i1cal() == InitializationStatus::Complete
+                    {
+                        break;
+                    }
+
+                    if Instant::now() >= deadline {
+                        defmt::warn!("HvPlate: startup: I1CAL never asserted within tIxADC_INIT; continuing anyway.");
+                        break;
+                    }
+
+                    Timer::after_millis(1).await;
+                }
+            }
+
+            defmt::info!("HvPlate: startup complete.");
+
+            Ok(())
         };
-        self.api.set_configa(config_a).await?;
 
-        // Fault latches power up asserted. Clear them or everything reads as a live fault.
-        self.api.write(adbms2950::chip::registers::flag::Flag::new().with_thsd(true)).await?;
-
-        // Start continuous conversion
-        self.api.command(commands::adc::adi1(commands::adc::Redundancy::Enabled, commands::adc::Acquisition::Continuous, commands::adc::Diagnostic::Normal, commands::adc::OpenWire::Off)).await?;
-
-        // Wait for the first conversion to land
-        Timer::after_millis(adbms2950::line::conversion_times::IXADC_STARTUP_MAX_MS as u64).await;
-
-        defmt::info!("HvPlate: startup complete.");
-        self.started = true;
-
-        Ok(())
+        self.recovery_service.run(self.api, startup).await
     }
 
-    /// Drives the HV control relay on GPO4. Active low.
-    #[allow(unused)]
-    pub async fn set_hv_relay(&mut self, energized: bool) -> Result<(), Error<alias::SpiError>> {
+    /// Drives the HV control relay on GPO4. Active low, open drain.
+    async fn set_hv_relay(&mut self, energized: bool) -> Result<(), Error<alias::SpiError>> {
         use adbms2950::chip::registers::config_a::types::GpoOutputState;
 
-        let state = if energized { GpoOutputState::PulledLow } else { GpoOutputState::Driven };
+        let state = if energized {
+            GpoOutputState::PulledLow
+        } else {
+            GpoOutputState::Driven
+        };
         self.api.modify_configa(|cfg| cfg.with_gpo4c(state)).await
     }
+}
 
-    /// Device health: command counter, PEC tallies, and when we last heard from the chip.
-    ///
-    /// `DeviceState::suspected_reset()` means the chip rebooted and dropped its configuration.
-    #[allow(unused)]
-    pub const fn device(&self) -> &adbms2950::api::DeviceState {
-        self.api.device()
+/// PUBLIC API! for HV Plate
+pub mod api {
+    use crate::units::{Current, Ratio, Voltage};
+    use core::cell::Cell;
+    use embassy_sync::blocking_mutex::ThreadModeMutex;
+
+    static TS_VOLTAGE: ThreadModeMutex<Cell<Option<Voltage>>> = ThreadModeMutex::new(Cell::new(None));
+    static PACK_CURRENT: ThreadModeMutex<Cell<Option<Current>>> = ThreadModeMutex::new(Cell::new(None));
+    static SOC: ThreadModeMutex<Cell<Option<Ratio>>> = ThreadModeMutex::new(Cell::new(None));
+    static SOC_DRIFT: ThreadModeMutex<Cell<f32>> = ThreadModeMutex::new(Cell::new(0.0));
+
+    /// Pack current
+    pub fn pack_current() -> Option<Current> {
+        shunt_current().or_else(|| PACK_CURRENT.lock(|cell| cell.get()))
+    }
+
+    /// The 2950 shunt reading, negated into "positive is discharge".
+    fn shunt_current() -> Option<Current> {
+        let raw = super::cache::CACHE.get_current_voltage();
+        raw.try_nice().map(|n| -n.pack_current).ok()
+    }
+
+    /// Records a pack current reading from CAN. **Positive is discharge**
+    pub fn store_pack_current(current: Current) {
+        PACK_CURRENT.lock(|cell| cell.set(Some(current)));
+    }
+
+    /// State of charge, 0..1. `None` until an open-circuit voltage has seeded the count.
+    pub fn state_of_charge() -> Option<Ratio> {
+        SOC.lock(|cell| cell.get())
+    }
+
+    /// Signed drift
+    pub fn soc_drift() -> f32 {
+        SOC_DRIFT.lock(|cell| cell.get())
+    }
+
+    /// Publishes what `SocTracker` currently knows. Called by the HV plate task.
+    pub(super) fn store_soc(state_of_charge: Option<Ratio>, drift: f32) {
+        SOC.lock(|cell| cell.set(state_of_charge));
+        SOC_DRIFT.lock(|cell| cell.set(drift));
+    }
+
+    /// Tractive-system voltage
+    pub fn ts_voltage() -> Option<Voltage> {
+        TS_VOLTAGE.lock(|cell| cell.get())
+    }
+
+    /// Records a TS voltage reading. Called by the CAN RX processor.
+    pub fn store_ts_voltage(voltage: Voltage) {
+        TS_VOLTAGE.lock(|cell| cell.set(Some(voltage)));
     }
 }
 
@@ -175,15 +242,20 @@ pub mod jobs {
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
             let run = DIAGNOSTICS.start();
 
-            // Error paths leave the registers snapped; the next cycle's SNAP/UNSNAP clears it.
-            self.api.command(commands::misc::snap()).await.map_err(UpdateError::SnapError)?;
-
-            cache::CACHE.update_current_voltage(self.api).await?;
-            #[cfg(not(feature = "hil"))]
-            cache::CACHE.update_accumulated(self.api).await?;
-            cache::CACHE.update_flag(self.api).await?;
-
-            self.api.command(commands::misc::unsnap()).await.map_err(UpdateError::UnsnapError)?;
+            self.api
+                .snapped(async |api| {
+                    cache::CACHE.update_flag(api).await?;
+                    #[cfg(not(feature = "hil"))]
+                    cache::CACHE.update_accumulated(api).await?;
+                    cache::CACHE.update_current_voltage(api).await?;
+                    Ok(())
+                })
+                .await
+                .map_err(|err| match err {
+                    SnappedError::Snap(err) => UpdateError::SnapError(err),
+                    SnappedError::Body(err) => err,
+                    SnappedError::Unsnap(err) => UpdateError::UnsnapError(err),
+                })?;
 
             job_diagnostics::log_job_diagnostics!("HvPlate", "job_update_snap_registers", run.finish());
 
@@ -259,10 +331,11 @@ pub mod task {
         /// emitted by `crate::debug::hv_plate_debug`
         #[cfg(not(feature = "hil"))]
         fn log_diagnostics(&self) {
-            let device = self.api.device();
-            defmt_monitor::monitor!("HvPlate/Device/ActiveLine", desc = "Which isoSPI line is currently in use.", "{}", self.api.active_line());
-            defmt_monitor::monitor!("HvPlate/Device/LineAErrorCount", desc = "Transactions that have failed on isoSPI line A since boot.", "{=u32}", self.api.line_error_count(adbms2950::api::LineId::A));
-            defmt_monitor::monitor!("HvPlate/Device/LineBErrorCount", desc = "Transactions that have failed on isoSPI line B since boot.", "{=u32}", self.api.line_error_count(adbms2950::api::LineId::B));
+            let api = &self.api;
+            let device = api.device();
+            defmt_monitor::monitor!("HvPlate/Device/ActiveLine", desc = "Which isoSPI line is currently in use. The service switches this when a line's failure rate goes over threshold.", "{}", api.active_line());
+            defmt_monitor::monitor!("HvPlate/Device/LineAErrorCount", desc = "Transactions that have failed on isoSPI line A since boot.", "{=u32}", api.line_error_count(adbms2950::api::LineId::A));
+            defmt_monitor::monitor!("HvPlate/Device/LineBErrorCount", desc = "Transactions that have failed on isoSPI line B since boot.", "{=u32}", api.line_error_count(adbms2950::api::LineId::B));
             defmt_monitor::monitor!("HvPlate/Device/PecSuccessCount", desc = "Reads whose data PEC verified, since boot.", "{=u32}", device.pec_success_count());
             defmt_monitor::monitor!("HvPlate/Device/PecFailedCount", desc = "Reads whose data PEC did not verify, since boot.", "{=u32}", device.pec_failed_count());
             defmt_monitor::monitor!("HvPlate/Device/ExpectedCommandCounter", desc = "Command counter we expect the chip to report next.", "{=u8}", device.expected_command_counter());
@@ -273,51 +346,124 @@ pub mod task {
 
     #[embassy_executor::task]
     pub async fn hv_plate_task(r: crate::HvPlateResources) {
-        /// Frequency (in ms) at which the HV plate task should run.
-        const HV_PLATE_TASK_FREQUENCY_MS: u64 = 100;
+        /// Read period.
+        ///
+        /// With [`soc::ACCUMULATOR_DEPTH`] at `Samples32` (ACCN = 32) and `IXADC_CONVERSION_MS = 1`,
+        /// IVB1ACC is overwritten every 32 ms *nominally*, but the internal oscillator runs up to
+        /// 10% fast, so a window can close in 32/1.1 = 29.09 ms. Reads must stay inside that --
+        /// the guidance figure is 28.8 ms, and 25 ms leaves headroom for jitter on top. ~22%
+        /// margin for jitter.
+        const TICK: Duration = Duration::from_millis(25);
+        /// How often the diagnostic reads run.
+        const DIAGNOSTIC_PERIOD: Duration = Duration::from_secs(1);
 
         let mut hv_plate = HvPlate::new(r);
 
+        // Per-run state
+        let mut precharge = precharge::Precharge::new();
+        let mut soc = soc::SocTracker::new(Instant::now());
+
+        let mut ticker = Ticker::every(TICK);
+
+        // Aux fires on the first pass so there are diagnostics before the first second is out;
+        // status is offset half a period so the two tend not to share a tick.
+        let mut aux_due = Deadline::expire_at_beginning_of_time();
+        let mut status_due = Deadline::expire_in(DIAGNOSTIC_PERIOD / 2);
+
         loop {
-            let start_time = Instant::now();
+            let tick_start = Instant::now();
 
-            // No-op once startup has succeeded; retries every cycle until then.
-            if let Err(err) = hv_plate.startup().await {
-                defmt::error!("HvPlate: Inside `hv_plate_task()`: `startup()` failed, will retry. Error: {}", err);
+            // Run service to configure chip and also detect and recover from isospi break
+            let restarted = hv_plate.run_service().await;
+
+            // ADI1 zeroed I1CNT and relatched ACCI
+            if restarted {
+                soc.restart(Instant::now());
             }
 
-            // Do the SPI transactions to update the register caches.
-            let mut all_successful: bool = true;
+            '_normal: {
+                let snap_ok = match hv_plate.job_update_snap_registers().await {
+                    Ok(()) => true,
+                    Err(err) => {
+                        defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_snap_registers()` failed. Error: {}", err);
+                        false
+                    },
+                };
 
-            if let Err(err) = hv_plate.job_update_snap_registers().await {
-                defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_snap_registers()` failed. Error: {}", err);
-                all_successful = false;
+                let voltage_ok = match hv_plate.job_update_voltage_registers().await {
+                    Ok(()) => true,
+                    Err(err) => {
+                        defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_voltage_registers()` failed. Error: {}", err);
+                        false
+                    },
+                };
+
+                if snap_ok & voltage_ok {
+                    signal::HV_PLATE_FRESH_DATA_SIGNAL.signal();
+                }
+
+                // Re-seeds on every new rest period
+                // `SocTracker::seed` ignores a snapshot it has already applied
+                if let Some(analyzer) = crate::pack::analyzer::analyzer()
+                    && let Some(settled_at) = analyzer.data.last_settled_at
+                {
+                    soc.seed(&soc::OcvSeed { min_cell_ocv: analyzer.data.min_ocv.value(), settled_at });
+                }
+
+                // Gated on a clean snap so IVB1ACC and FLAG are from the same window.
+                if snap_ok {
+                    soc.accumulate();
+                }
+
+                api::store_soc(soc.state_of_charge().and_then(crate::units::Ratio::from_ratio), soc.soc_drift());
+            };
+
+            // Run precharge and set relay
+            let action = precharge.tick(Instant::now());
+            defmt::trace!("HvPlate: precharge: {}", action.state);
+            if let Err(err) = hv_plate.set_hv_relay(action.relay_closed).await {
+                defmt::error!("HvPlate: precharge: relay write failed, will retry next tick. Error: {}", err);
             }
 
-            if let Err(err) = hv_plate.job_update_voltage_registers().await {
-                defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_voltage_registers()` failed. Error: {}", err);
-                all_successful = false;
+            '_diagnostic: {
+                if aux_due.past() {
+                    aux_due = Deadline::expire_in(DIAGNOSTIC_PERIOD);
+
+                    if let Err(err) = hv_plate.job_update_aux_registers().await {
+                        defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_aux_registers()` failed. Error: {}", err);
+                    }
+                }
+
+                if status_due.past() {
+                    status_due = Deadline::expire_in(DIAGNOSTIC_PERIOD);
+
+                    if let Err(err) = hv_plate.job_update_status_registers().await {
+                        defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_status_registers()` failed. Error: {}", err);
+                    }
+
+                    #[cfg(not(feature = "hil"))]
+                    hv_plate.log_diagnostics();
+
+                    defmt_monitor::monitor!("HvPlate/Soc/MissedWindows", desc = "Accumulator windows overwritten before the task read them. Should stay at zero; non-zero means the 25 ms budget is blown.", "{=u32}", soc.missed_windows());
+                    defmt_monitor::monitor!("HvPlate/Soc/Desyncs", desc = "Observations rejected because I1CNT could have lapped (a gap over ~2 s).", "{=u32}", soc.desyncs());
+
+                    if let Some(sample) = soc.last_sample() {
+                        defmt_monitor::monitor!("HvPlate/Soc/AverageCurrent", desc = "Mean shunt current over the most recent accumulator window, in amps. Cross-check against the instantaneous reading from IVB1.", "{=f32}", sample.average_current.get::<uom::si::electric_current::ampere>());
+                        defmt_monitor::monitor!("HvPlate/Soc/StateOfCharge", desc = "State of charge 0..1, or -1 while unreferenced.", "{=f32}", soc.state_of_charge().unwrap_or(-1.0));
+                        defmt_monitor::monitor!("HvPlate/Soc/SampleCharge", desc = "Charge moved in the most recent accumulator window, in microcoulombs.", "{=i64}", sample.charge_microcoulombs);
+                        defmt_monitor::monitor!("HvPlate/Soc/WindowsElapsed", desc = "Accumulator windows covered by the most recent sample. 1 is clean.", "{=u16}", sample.windows_elapsed);
+                        defmt_monitor::monitor!("HvPlate/Soc/TConvUs", desc = "Measured t_CONV, the accumulator window, in us. Nominally 32000; drift from that is the internal oscillator, specified at +/-10%.", "{=u64}", soc.t_conv().as_micros());
+                        defmt_monitor::monitor!("HvPlate/Soc/CC", desc = "The datasheet's CC: net charge moved since boot, in microcoulombs. Positive is discharge. Never reset -- not by a chip restart, not by a reseed.", "{=i64}", soc.cc_microcoulombs());
+                        defmt_monitor::monitor!("HvPlate/Soc/Drift", desc = "Gap the last accepted OCV found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", soc.soc_drift());
+                    }
+
+                    defmt_monitor::monitor!("HvPlate/Precharge/State", desc = "Precharge supervisor state: 0 Open, 1 Floating, 2 Closed.", "{}", precharge::state());
+                }
             }
 
-            if let Err(err) = hv_plate.job_update_aux_registers().await {
-                defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_aux_registers()` failed. Error: {}", err);
-                all_successful = false;
-            }
+            defmt_monitor::monitor!("HvPlate/TaskDiagnostics/last_duration", desc = "Duration of the most recent hv_plate task cycle, in ms.", "{=u64}", Instant::now().saturating_duration_since(tick_start).as_millis());
 
-            if let Err(err) = hv_plate.job_update_status_registers().await {
-                defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_status_registers()` failed. Error: {}", err);
-                all_successful = false;
-            }
-
-            if all_successful {
-                signal::HV_PLATE_FRESH_DATA_SIGNAL.signal();
-            }
-
-            #[cfg(not(feature = "hil"))]
-            hv_plate.log_diagnostics();
-            defmt_monitor::monitor!("HvPlate/TaskDiagnostics/last_duration", desc = "Duration of the most recent hv_plate task cycle, in ms.", "{=u64}", Instant::now().saturating_duration_since(start_time).as_millis());
-
-            Timer::after_millis(HV_PLATE_TASK_FREQUENCY_MS).await;
+            ticker.next().await;
         }
     }
 }
