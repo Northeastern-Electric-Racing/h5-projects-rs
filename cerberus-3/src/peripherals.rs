@@ -51,6 +51,7 @@ pub struct AccelVec {
     z: Acceleration,
 }
 
+#[derive(Debug)]
 pub enum ImuInitError {
     WrongId,
 }
