@@ -1,5 +1,4 @@
 /// Various helper types that can be used throughout this project.
-
 use embassy_time::{Instant, Duration};
 
 #[derive(Copy, Clone)]
@@ -24,13 +23,15 @@ impl Deadline {
     }
 
     /// Creates a `Deadline` that expires immediately.
-    /// 
+    ///
     /// This could be useful if you need something to run immediately on the first
-    /// iteration, but then run at a later deadline after that. 
+    /// iteration, but then run at a later deadline after that.
     pub fn expire_now() -> Self {
         Self { inner: Instant::now() }
     }
-    
+
     /// Checks if we are currently based the scheduled deadline.
-    pub fn past(&self) -> bool { self.inner < Instant::now() }
+    pub fn past(&self) -> bool {
+        self.inner < Instant::now()
+    }
 }

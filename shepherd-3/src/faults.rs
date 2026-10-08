@@ -20,9 +20,13 @@ mod system {
     }
     impl FaultConfig {
         /// If this fault is critical or noncritical.
-        pub const fn severity(&self) -> FaultSeverity { self.severity }
+        pub const fn severity(&self) -> FaultSeverity {
+            self.severity
+        }
         /// The kind of fault this is.
-        pub const fn kind(&self) -> &FaultKind { &self.kind }
+        pub const fn kind(&self) -> &FaultKind {
+            &self.kind
+        }
     }
 
     mod kind {
@@ -30,20 +34,20 @@ mod system {
 
         #[derive(Copy, Clone, defmt::Format)]
         pub enum FaultKind {
-            Automatic{
+            Automatic {
                 /// How long it should take for the fault to
                 /// automatically clear after being triggered.
-                timeout: Duration 
+                timeout: Duration,
             },
 
             /// This is for faults that are triggered based on a periodic test or check.
             /// Basically, every time the fault caller runs the check, it will update the
-            PassFail{
+            PassFail {
                 /// The number of consecutive `bads` required to trigger
                 /// a fault. Think of this like a debounce for triggering
                 /// the fault (i.e., "we need to make sure this test fails two times in a row
                 /// before we actually latch the fault, just to make sure the first time wasn't a fluke").
-                /// 
+                ///
                 /// If you set this to zero, the fault will trigger immediately upon the first `bad`.
                 /// If you set this to 1, the fault will trigger after two `bads` in a row.
                 consecutive_bads: usize,
@@ -51,22 +55,31 @@ mod system {
                 /// clear an active fault. Basically just `consecutive_bads`, but for clearing
                 /// a fault. If you want the fault to clear immediately upon a `okay`, set this to zero.
                 consecutive_okays: usize,
-            }
+            },
         }
 
-        pub trait Kind { type Action; }
+        pub trait Kind {
+            type Action;
+        }
         pub struct Automatic;
         pub struct PassFail;
-        impl Kind for Automatic { type Action = super::AutomaticAction; }
-        impl Kind for PassFail  { type Action = super::PassFailAction; }
+        impl Kind for Automatic {
+            type Action = super::AutomaticAction;
+        }
+        impl Kind for PassFail {
+            type Action = super::PassFailAction;
+        }
     }
     pub use kind::*;
 
     mod actions {
         /// Actions that the user can tell the fault manager to take.
         #[derive(Copy, Clone, defmt::Format)]
-        pub enum FaultAction { AutomaticAction(AutomaticAction), PassFailAction(PassFailAction) }
-        
+        pub enum FaultAction {
+            AutomaticAction(AutomaticAction),
+            PassFailAction(PassFailAction),
+        }
+
         /// Actions for a `PassFail` fault.
         #[derive(Copy, Clone, defmt::Format)]
         pub enum PassFailAction {
@@ -75,7 +88,11 @@ mod system {
             /// Tell the faults manager that the check is "bad"/the fault condition is past the "not good" threshold.
             NotifyBad,
         }
-        impl From<PassFailAction> for FaultAction { fn from(action: PassFailAction) -> Self { Self::PassFailAction(action) } }
+        impl From<PassFailAction> for FaultAction {
+            fn from(action: PassFailAction) -> Self {
+                Self::PassFailAction(action)
+            }
+        }
 
         /// Actions for a `Automatic` fault.
         #[derive(Copy, Clone, defmt::Format)]
@@ -84,20 +101,24 @@ mod system {
             /// start that fault's timer.
             Trigger,
         }
-        impl From<AutomaticAction> for FaultAction { fn from(action: AutomaticAction) -> Self { Self::AutomaticAction(action) } }
+        impl From<AutomaticAction> for FaultAction {
+            fn from(action: AutomaticAction) -> Self {
+                Self::AutomaticAction(action)
+            }
+        }
     }
     pub use actions::*;
 
     /// Macro to define faults.
     macro_rules! define_faults {
         ($( $name:ident => $severity:ident, $kind:ident { $($field:ident: $value:expr),* $(,)? } ),* $(,)?) => {
-            
+
             #[derive(EnumCount, VariantArray, EnumIter, defmt::Format, Copy, Clone)]
             #[repr(u32)]
             pub enum FaultId { $($name,)* }
 
             /// Command used to specify your request to the faults manager.
-            /// 
+            ///
             /// This enum maintains the same variants as `FaultId`, but with inners that let you
             /// describe a command or action on behalf of the `FaultId`.
             #[derive(Copy, Clone, defmt::Format)]
@@ -427,13 +448,13 @@ pub mod task {
     #[derive(Copy, Clone, defmt::Format)]
     enum PassFailState {
         /// Fault is currently cleared, we are counting consecutive `bads` to see if we need to activate it.
-        CountingBads{ count: usize },
+        CountingBads { count: usize },
         /// Fault is currently active, we are counting consecutive `okays` to see if we can clear it.
-        CountingOkays{ count: usize },
+        CountingOkays { count: usize },
     }
-    impl PassFailState { 
+    impl PassFailState {
         const fn new() -> Self {
-            // default state on boot: fault is cleared, so we are counting any `bads` starting from 0 
+            // default state on boot: fault is cleared, so we are counting any `bads` starting from 0
             Self::CountingBads { count: 0 }
         }
 
@@ -444,7 +465,9 @@ pub mod task {
                 Self::CountingOkays { count } => *count = count.saturating_add(1),
             }
         }
-        const fn set(&mut self, new_state: PassFailState) { *self = new_state }
+        const fn set(&mut self, new_state: PassFailState) {
+            *self = new_state
+        }
 
         /// Resets the current variant's `count` to zero.
         const fn reset(&mut self) {
@@ -457,14 +480,14 @@ pub mod task {
 
     #[derive(Copy, Clone, defmt::Format)]
     enum RuntimeData {
-        Automatic{ timer: FaultTimer},
-        PassFail{ state: PassFailState },
+        Automatic { timer: FaultTimer },
+        PassFail { state: PassFailState },
     }
     impl RuntimeData {
         pub fn new(fault: FaultId) -> Self {
             match fault.config().kind() {
-                FaultKind::Automatic{..} => Self::Automatic{ timer: FaultTimer::new() },
-                FaultKind::PassFail {..} => Self::PassFail { state: PassFailState::new() },
+                FaultKind::Automatic { .. } => Self::Automatic { timer: FaultTimer::new() },
+                FaultKind::PassFail { .. } => Self::PassFail { state: PassFailState::new() },
             }
         }
     }
@@ -480,7 +503,7 @@ pub mod task {
     impl FaultManager {
         /// Initializes the faults manager.
         pub fn new() -> Self {
-            Self { 
+            Self {
                 runtime_data: IndexByFaultId::from_fn(|fault| RuntimeData::new(fault)),
                 unreachable_count: 0,
             }
@@ -489,26 +512,23 @@ pub mod task {
         /// Handles commands/updates/requests queued from the app.
         fn handle(&mut self, message: FaultCommand) {
             let id = message.id();
-            match(message.action(), *id.config().kind(), &mut self.runtime_data[id]) {
+            match (message.action(), *id.config().kind(), &mut self.runtime_data[id]) {
                 // Kind == Automatic
-                (FaultAction::AutomaticAction(action), FaultKind::Automatic{timeout}, RuntimeData::Automatic{timer}) => {
-                    match action {
-                        AutomaticAction::Trigger => {
-                            FLAGS.set_fault(id);
-                            timer.restart(timeout);
-                        }
-                    }
+                (FaultAction::AutomaticAction(action), FaultKind::Automatic { timeout }, RuntimeData::Automatic { timer }) => match action {
+                    AutomaticAction::Trigger => {
+                        FLAGS.set_fault(id);
+                        timer.restart(timeout);
+                    },
                 },
 
                 // Kind == PassFail
-                (FaultAction::PassFailAction(action), FaultKind::PassFail{consecutive_bads, consecutive_okays}, RuntimeData::PassFail{state}) => {
-                    
+                (FaultAction::PassFailAction(action), FaultKind::PassFail { consecutive_bads, consecutive_okays }, RuntimeData::PassFail { state }) => {
                     // While a fault is active, it uses CountingOkays to count consecutive `okays`. If it gets enough `okays` in a row, it has redeemed itself and can clear itself.
                     // While a fault is inactive, it uses CountingBads to count consecutive `bads`. If it gets enough `bads` in a row, it neeeds to activate itself.
                     match (get_fault(id), action) {
                         // NOTE: When `FaultState::Active`, the PassFailState is `PassFailState::CountingOkays`.
                         //       And when `FaultState::Inactive`, the PassFailState is `PassFailState::CountingBads`.
-                        //       
+                        //
                         // ^^ The above is enforced by the `match state` block below. The ONLY time `state.set()` is called is when a fault flips.
                         // That is literally the only time there is a state transition for `state`.
                         //
@@ -519,7 +539,7 @@ pub mod task {
 
                         // Fault is already inactive, and we just recieved another `okay`, so reset CountingOkays to zero.
                         (FaultState::Inactive, PassFailAction::NotifyOkay) => state.reset(),
-                        
+
                         // Fault is already inactive, but we just recieved a `bad`. Maybe the condition is starting to fail? We need to increment the `bads` counter.
                         (FaultState::Inactive, PassFailAction::NotifyBad) => state.increment(),
 
@@ -529,24 +549,24 @@ pub mod task {
 
                     // Check if `count` has exceeded the amount needed for a state change
                     match state {
-                        PassFailState::CountingBads{count} => {
+                        PassFailState::CountingBads { count } => {
                             // `bads` count has exceeded the configured `consecutive_bads` needed to activate a fault, so we need to acivate it.
                             if *count > consecutive_bads {
                                 set_fault(id, FaultState::Active);
 
                                 // Now that the fault is active, it needs to start counting `okays` to see if it can clear itself.
-                                state.set(PassFailState::CountingOkays{ count: 0 })
+                                state.set(PassFailState::CountingOkays { count: 0 })
                             }
                         },
-                        PassFailState::CountingOkays{count} => {
+                        PassFailState::CountingOkays { count } => {
                             // `okays` count has exceeded the configured `consecutive_okays` needed to clear an active fault, so we need to clear it.
                             if *count > consecutive_okays {
                                 set_fault(id, FaultState::Inactive);
 
                                 // Now that the fault is inactive, it needs to start counting `bads` to see if it has to activate again.
-                                state.set(PassFailState::CountingBads{ count: 0 })
+                                state.set(PassFailState::CountingBads { count: 0 })
                             }
-                        }
+                        },
                     }
                 },
 
@@ -580,7 +600,7 @@ pub mod task {
 
             // Check the state of each fault timer.
             for fault in FaultId::iter() {
-                if let RuntimeData::Automatic{ timer } = &mut manager.runtime_data[fault] {
+                if let RuntimeData::Automatic { timer } = &mut manager.runtime_data[fault] {
                     match timer.evaluate(now) {
                         // This timer is inactive so we don't need to do anything.
                         EvaluationResult::Inactive => {},

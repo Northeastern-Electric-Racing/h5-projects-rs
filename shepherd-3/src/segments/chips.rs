@@ -63,7 +63,7 @@ pub mod cells {
         }
 
         /// If this `CellId` is even.
-        /// 
+        ///
         /// For example, `CellId::Cell2`, `CellId::Cell4`, etc are even.
         pub const fn is_even(&self) -> bool {
             // We need to add 1 because the enum variants start at 0 in their raw underlying representation
@@ -86,7 +86,7 @@ pub mod cells {
     pub type IterMut<'borrow, T> = core::iter::Zip<CellIds, core::slice::IterMut<'borrow, T>>;
     pub type IntoIter<T> = core::iter::Zip<CellIds, core::array::IntoIter<T, { NUM_CELLS_PER_CHIP }>>;
 
-    impl <T: Copy> IndexByCell<T> {
+    impl<T: Copy> IndexByCell<T> {
         /// Creates a new `IndexByCell` by initializing every element to `value`.
         pub const fn from_value(value: T) -> Self {
             Self { data: [value; NUM_CELLS_PER_CHIP] }
@@ -136,7 +136,6 @@ pub mod cells {
         pub fn map_ref<U>(&self, f: impl FnMut(&T) -> U) -> IndexByCell<U> {
             IndexByCell { data: self.data.each_ref().map(f) }
         }
-
     }
 
     impl<T> core::ops::Index<CellId> for IndexByCell<T> {
@@ -513,7 +512,7 @@ impl<T> IndexByChip<T> {
     }
 }
 
-impl <T: Copy> IndexByChip<T> {
+impl<T: Copy> IndexByChip<T> {
     /// Creates a new `IndexByChip` by initializing every element to `value`.
     pub const fn from_value(value: T) -> Self {
         Self { data: [value; ADBMS6830B_NUM_CHIPS] }
@@ -711,28 +710,26 @@ pub mod gpios {
     impl From<IndexByGpio<Voltage>> for ThermistorTemperatures {
         fn from(gpios: IndexByGpio<Voltage>) -> Self {
             Self {
-                cell_temperatures: IndexByCell::from_fn(|cell| {
-                    match cell {
-                        CellId::Cell1 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
-                        CellId::Cell2 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
+                cell_temperatures: IndexByCell::from_fn(|cell| match cell {
+                    CellId::Cell1 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
+                    CellId::Cell2 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
 
-                        CellId::Cell3 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
-                        CellId::Cell4 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
+                    CellId::Cell3 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
+                    CellId::Cell4 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
 
-                        CellId::Cell5 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
-                        CellId::Cell6 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
+                    CellId::Cell5 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
+                    CellId::Cell6 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
 
-                        CellId::Cell7 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
-                        CellId::Cell8 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
+                    CellId::Cell7 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
+                    CellId::Cell8 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
 
-                        CellId::Cell9 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
-                        CellId::Cell10 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
+                    CellId::Cell9 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
+                    CellId::Cell10 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
 
-                        CellId::Cell11 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
-                        CellId::Cell12 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
+                    CellId::Cell11 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
+                    CellId::Cell12 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
 
-                        CellId::Cell13 => calc_cell_temp(gpios.get(GpioId::Gpio10)),
-                    }
+                    CellId::Cell13 => calc_cell_temp(gpios.get(GpioId::Gpio10)),
                 }),
                 on_board_temp_1: calc_cell_temp(gpios.get(GpioId::Gpio3)),
                 on_board_temp_2: calc_cell_temp(gpios.get(GpioId::Gpio4)),

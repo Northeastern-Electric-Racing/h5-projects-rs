@@ -761,7 +761,6 @@ pub mod cell_voltages {
         }
     }
 
-
     impl CacheData {
         /// Updates caches CellVoltages A through E with new data.
         ///
@@ -1221,7 +1220,7 @@ pub mod s_voltages {
         }
 
         /// Updates caches SVoltages A through E with new data, and PUTS IT IN THE `OpenWireEven` storage.
-        /// 
+        ///
         /// Before calling this, the caller should mmke sure to trigger a conversion with `OpenWire::EvenOnOddOff`. Then,
         /// after calling this, the caller should put the SVoltages back in continuous mode.
         ///
@@ -1253,7 +1252,7 @@ pub mod s_voltages {
         }
 
         /// Updates caches SVoltages A through E with new data, and PUTS IT IN THE `OpenWireOdd` storage.
-        /// 
+        ///
         /// Before calling this, the caller should mmke sure to trigger a conversion with `OpenWire::EvenOffOddOn`. Then,
         /// after calling this, the caller should put the SVoltages back in continuous mode.
         ///
@@ -1308,7 +1307,7 @@ pub mod s_voltages {
         pub const NUM_S_VOLTAGE_KINDS: usize = SVoltageKind::COUNT;
 
         /// Wrapper around an array of type `T`, that lets you index using `SVoltageKind` instead of `usize`.
-        /// 
+        ///
         /// We really should have a macro for these types
         #[derive(Copy, Clone, Debug)]
         pub struct IndexBySVoltageKind<T> {
@@ -1362,7 +1361,7 @@ pub mod s_voltages {
             }
         }
 
-        impl <T: Copy> IndexBySVoltageKind<T> {
+        impl<T: Copy> IndexBySVoltageKind<T> {
             /// Creates a new `IndexBySVoltageKind` by initializing every element to `value`.
             pub const fn from_value(value: T) -> Self {
                 Self { data: [value; SVoltageKind::COUNT] }

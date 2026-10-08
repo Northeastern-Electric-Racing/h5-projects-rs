@@ -1,6 +1,7 @@
 use crate::{
     helpers::Deadline,
-    state_machine::{BmsState}, state_machine,
+    state_machine::{BmsState},
+    state_machine,
     segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
     units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm},
 };
@@ -38,7 +39,7 @@ pub mod analyzer {
     static ANALYZER: Static = Static::new();
 
     /// Copies out the analyzer data.
-    /// 
+    ///
     /// If the analyzer data hasn't been updated yet, this returns `None`.
     pub fn analyzer() -> Option<AnalyzerHolder> {
         ANALYZER.get()
@@ -47,13 +48,7 @@ pub mod analyzer {
     /// Updates the Analyzer stored in the static
     /// with a new Analyzer.
     fn update(analyzer: Analyzer) {
-        ANALYZER.inner.lock(|inner| inner.set(
-            Some(AnalyzerHolder {
-                    data: analyzer,
-                    last_updated: Instant::now(),
-                })
-            )
-        )
+        ANALYZER.inner.lock(|inner| inner.set(Some(AnalyzerHolder { data: analyzer, last_updated: Instant::now() })))
     }
 
     #[derive(Copy, Clone)]
@@ -106,7 +101,7 @@ pub mod analyzer {
     }
 
     /// Analyzer's comprehensive view of chip data taken from the cache. This represents data for a single chip.
-    /// 
+    ///
     /// This isn't 100% analgous to the `chipdata_t` struct from TSECU-Shep. This is meant
     /// to be the stuff for Analyzer that can be taken directly from the cache (but doesn't incldue anything it has to calculate itself).
     #[derive(Copy, Clone)]
@@ -120,7 +115,7 @@ pub mod analyzer {
 
         pub on_board_temp_1: Temperature,
         pub on_board_temp_2: Temperature,
-        pub on_board_temp_3: Temperature, 
+        pub on_board_temp_3: Temperature,
 
         pub die_temp: Temperature,
 
@@ -136,29 +131,33 @@ pub mod analyzer {
     }
     impl ChipData {
         /// Creates a new `ChipData` with new cache data.
-        /// 
+        ///
         /// If the cache hasn't been updated yet (probably meaning we very recently booted), this
         /// will return Err(()).
         pub fn new() -> Result<IndexByChip<Self>, ()> {
             let cache = crate::segments::cache();
-            
+
             let redundant_aux = cache.get_redundant_aux().try_nice()?;
             let aux = cache.get_aux().try_nice()?;
             let status_a = cache.get_status_a().try_nice()?;
             let status_b = cache.get_status_b().try_nice()?;
             let status_c = cache.get_status_c().try_nice()?;
-            
+
             // Get cell voltagse, either from `cell_voltages` or `filtered_cell_voltages` depending on if we're charging or not
             let cell_voltages: IndexByChip<IndexByCell<Voltage>> = match state_machine::bms_state() {
-                BmsState::Charging => { 
-                    let Ok(data) = cache.get_cell_voltages().try_nice() else { return Err(()); };
+                BmsState::Charging => {
+                    let Ok(data) = cache.get_cell_voltages().try_nice() else {
+                        return Err(());
+                    };
                     data.into()
                 },
 
                 _ => {
-                    let Ok(data) = cache.get_filtered_cell_voltages().try_nice() else { return Err(()); };
+                    let Ok(data) = cache.get_filtered_cell_voltages().try_nice() else {
+                        return Err(());
+                    };
                     data.into()
-                }
+                },
             };
 
             let s_voltages: IndexByChip<IndexByCell<Voltage>> = cache.get_s_voltages().try_nice()?.into();
@@ -244,7 +243,7 @@ pub mod analyzer {
     impl Analyzer {
         /// Creates a new Analyzer with current cache data, and blank data for all the
         /// derived values.
-        /// 
+        ///
         /// If the cache hasn't been updated yet, this returns Err(()).
         pub fn new() -> Result<Self, ()> {
             Ok(Self {
@@ -338,7 +337,7 @@ pub mod analyzer {
                 }
 
                 let die_temp: Temperature = self.chip_data[chip].die_temp;
-                
+
                 if self.max_chiptemp.value() < die_temp {
                     self.max_chiptemp = CriticalChipValue { value: die_temp, chip }
                 }
@@ -372,12 +371,12 @@ pub mod analyzer {
                     ChipKind::Alpha => {
                         let res = (UNIT_RES * TRACE_LEN_ALPHA) + FUSE_RES + TRACE_RES_ONBOARD_ALPHA;
                         (res, CellId::Cell1)
-                    }
+                    },
                 };
 
                 let curr_bal = match state {
                     // measured on 4/5/2026, the current through the cells when in charging mode single shot C ADCs
-			        // redone to be higher 4/8 sans measurement
+                    // redone to be higher 4/8 sans measurement
                     BmsState::Charging => Current::from_amps(0.029_f32),
 
                     // measured on 4/5/2026, the current through the cells when in active mode continous C/S read compare
@@ -390,7 +389,7 @@ pub mod analyzer {
         }
 
         /// Calculates pack voltage stats.
-        /// 
+        ///
         /// ### WARNING
         /// This should be called after `open_cell_voltage` has been initialized with actual stuff.
         pub fn calc_pack_voltage_stats(&mut self) {
@@ -431,7 +430,6 @@ pub mod analyzer {
                     total_seg_volt = Voltage::new::<volt>(0_f32);
                 }
                 defmt_monitor::monitor!("AnalyzerDebug/Misc/BETA_COUNT", desc = "Times is_beta() has been true!", "{=u32}", BETA_COUNT.load(core::sync::atomic::Ordering::Relaxed));
-
             }
 
             // calculate some voltage stats
@@ -461,27 +459,15 @@ pub mod analyzer {
                     let depends: Comparison = if cell.is_even() {
                         // This cell is even, so its `excited` voltage comes from when only even cells were excited,
                         // while its `baseline` voltage comes from when only odd cells were excited.
-                        Comparison {
-                            excited: even_excited,
-                            baseline: odd_excited,
-                        }
+                        Comparison { excited: even_excited, baseline: odd_excited }
                     } else {
                         // This cell is odd, so its `excited` voltage comes from when only odd cells were excited,
                         // while its `baseline` voltage comes from when only even cells were excited.
-                        Comparison {
-                            excited: odd_excited,
-                            baseline: even_excited,
-                        }
+                        Comparison { excited: odd_excited, baseline: even_excited }
                     };
 
                     let drop: Voltage = depends.baseline - depends.excited;
-                    let drop_percent: Ratio = {
-                        if depends.baseline > Voltage::zero() {
-                            drop / depends.baseline
-                        } else {
-                            Ratio::new::<ratio>(0_f32)
-                        }
-                    };
+                    let drop_percent: Ratio = { if depends.baseline > Voltage::zero() { drop / depends.baseline } else { Ratio::new::<ratio>(0_f32) } };
 
                     /// Open-wire threshold while the S-ADC switch is active.
                     const CELL_OPEN_WIRE_MAX_DROP_PERCENT: Ratio = Ratio::from_ratio(0.15).expect("Invalid Ratio.");
@@ -511,8 +497,10 @@ pub mod analyzer {
 
             const OCV_CURR_THRESH: Current = Current::from_amps(0.5_f32);
             const OCV_TIMER_DURATION: Duration = Duration::from_millis(1500);
-            
-            let Ok(data) = crate::hv_plate::cache().get_current_voltage().try_nice() else { return; };
+
+            let Ok(data) = crate::hv_plate::cache().get_current_voltage().try_nice() else {
+                return;
+            };
             let mut pack_current = data.pack_current;
             let mut update_ocv = false;
 
@@ -541,7 +529,6 @@ pub mod analyzer {
 
                     // No timer, but update is allowed now, so we should start it
                     None => ocv.timer = Some(Deadline::expire_in(OCV_TIMER_DURATION)),
-
                 }
             } else {
                 ocv.timer = None;
@@ -564,10 +551,10 @@ pub mod analyzer {
     }
 
     /// Persistent OCV State.
-    /// 
+    ///
     /// u_TODO this is a janky workaround. we probably should just be modifying analyzer in place
     #[derive(Copy, Clone)]
-    struct OcvState {   
+    struct OcvState {
         timer: Option<Deadline>,
         is_first_reading: bool,
         open_cell_voltage: IndexByChip<IndexByCell<Voltage>>,
@@ -586,8 +573,9 @@ pub mod analyzer {
     #[embassy_executor::task]
     pub async fn analyzer_task() {
         use crate::{
-            can, can::{
-                types::{CellTemperatures, CellVoltage, PackSocStatus, SegmentAverageVoltages, SegmentTotalVoltages, SegmentTemperatures}
+            can,
+            can::{
+                types::{CellTemperatures, CellVoltage, PackSocStatus, SegmentAverageVoltages, SegmentTotalVoltages, SegmentTemperatures},
             },
             segments::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL, SegmentId},
             units::{degree_celsius, volt},
@@ -596,7 +584,7 @@ pub mod analyzer {
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
         let mut segments_openwire_subscription = SEGMENTS_OPENWIRE_RAN_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
-        
+
         let mut ocv_state = OcvState::new();
 
         #[allow(unused)]
@@ -607,8 +595,8 @@ pub mod analyzer {
             segments_freshdata_subscription.wait().await;
 
             let Ok(mut analyzer) = Analyzer::new() else {
-                defmt::warn!("pack: analyzer: skipped running `analyzer_task()` because the Cache has not been updated yet. Will try again next loop."); 
-                continue; 
+                defmt::warn!("pack: analyzer: skipped running `analyzer_task()` because the Cache has not been updated yet. Will try again next loop.");
+                continue;
             };
 
             // this whole section is supposed to look pretty similar to the C code just so
@@ -628,16 +616,20 @@ pub mod analyzer {
             update(analyzer);
 
             // u_TODO - i'm pretty sure we can just move the stuff in `cell_temp_sanitizer.c` directly into the analyzer task. there doesn't seem to be a reason to have it in its own task like the C code. so we should add that here (after the analyzer is done)
-            
-            can::send(CellVoltage {
-                high_val:  analyzer.max_ocv.value().get::<volt>(),
-                high_cell: analyzer.max_ocv.cell().as_u8(),
-                high_chip: analyzer.max_ocv.chip().as_u8(),
-                low_val:   analyzer.min_ocv.value().get::<volt>(),
-                low_chip:  analyzer.min_ocv.chip().as_u8(),
-                low_cell:  analyzer.min_ocv.cell().as_u8(),
-                avg_val:   analyzer.avg_ocv.get::<volt>(),
-            }.as_frame()).await;
+
+            can::send(
+                CellVoltage {
+                    high_val: analyzer.max_ocv.value().get::<volt>(),
+                    high_cell: analyzer.max_ocv.cell().as_u8(),
+                    high_chip: analyzer.max_ocv.chip().as_u8(),
+                    low_val: analyzer.min_ocv.value().get::<volt>(),
+                    low_chip: analyzer.min_ocv.chip().as_u8(),
+                    low_cell: analyzer.min_ocv.cell().as_u8(),
+                    avg_val: analyzer.avg_ocv.get::<volt>(),
+                }
+                .as_frame(),
+            )
+            .await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
@@ -650,13 +642,17 @@ pub mod analyzer {
                 defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/avg_val", desc = "The average cell voltage, in volts.", "{=f32}", analyzer.avg_ocv.get::<volt>());
             }
 
-            can::send(SegmentAverageVoltages {
-                seg1: analyzer.segment_average_volts[SegmentId::Segment0].get::<volt>(),
-                seg2: analyzer.segment_average_volts[SegmentId::Segment1].get::<volt>(),
-                seg3: analyzer.segment_average_volts[SegmentId::Segment2].get::<volt>(),
-                seg4: analyzer.segment_average_volts[SegmentId::Segment3].get::<volt>(),
-                seg5: analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>(),
-            }.as_frame()).await;
+            can::send(
+                SegmentAverageVoltages {
+                    seg1: analyzer.segment_average_volts[SegmentId::Segment0].get::<volt>(),
+                    seg2: analyzer.segment_average_volts[SegmentId::Segment1].get::<volt>(),
+                    seg3: analyzer.segment_average_volts[SegmentId::Segment2].get::<volt>(),
+                    seg4: analyzer.segment_average_volts[SegmentId::Segment3].get::<volt>(),
+                    seg5: analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>(),
+                }
+                .as_frame(),
+            )
+            .await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
@@ -665,13 +661,17 @@ pub mod analyzer {
                 }
             }
 
-            can::send(SegmentTotalVoltages {
-                seg1: analyzer.segment_total_volts[SegmentId::Segment0].get::<volt>(),
-                seg2: analyzer.segment_total_volts[SegmentId::Segment1].get::<volt>(),
-                seg3: analyzer.segment_total_volts[SegmentId::Segment2].get::<volt>(),
-                seg4: analyzer.segment_total_volts[SegmentId::Segment3].get::<volt>(),
-                seg5: analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>(),
-            }.as_frame()).await;
+            can::send(
+                SegmentTotalVoltages {
+                    seg1: analyzer.segment_total_volts[SegmentId::Segment0].get::<volt>(),
+                    seg2: analyzer.segment_total_volts[SegmentId::Segment1].get::<volt>(),
+                    seg3: analyzer.segment_total_volts[SegmentId::Segment2].get::<volt>(),
+                    seg4: analyzer.segment_total_volts[SegmentId::Segment3].get::<volt>(),
+                    seg5: analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>(),
+                }
+                .as_frame(),
+            )
+            .await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
@@ -680,15 +680,19 @@ pub mod analyzer {
                 }
             }
 
-            can::send(CellTemperatures {
-                high_val:  analyzer.max_temp.value().get::<degree_celsius>(),
-                high_cell: analyzer.max_temp.cell().as_u8(),
-                high_chip: analyzer.max_temp.chip().as_u8(),
-                low_val:   analyzer.min_temp.value().get::<degree_celsius>(),
-                low_chip:  analyzer.min_temp.chip().as_u8(),
-                low_cell:  analyzer.min_temp.cell().as_u8(),
-                avg_val:   analyzer.avg_temp.get::<degree_celsius>(),
-            }.as_frame()).await;
+            can::send(
+                CellTemperatures {
+                    high_val: analyzer.max_temp.value().get::<degree_celsius>(),
+                    high_cell: analyzer.max_temp.cell().as_u8(),
+                    high_chip: analyzer.max_temp.chip().as_u8(),
+                    low_val: analyzer.min_temp.value().get::<degree_celsius>(),
+                    low_chip: analyzer.min_temp.chip().as_u8(),
+                    low_cell: analyzer.min_temp.cell().as_u8(),
+                    avg_val: analyzer.avg_temp.get::<degree_celsius>(),
+                }
+                .as_frame(),
+            )
+            .await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
@@ -701,13 +705,17 @@ pub mod analyzer {
                 defmt_monitor::monitor!("AnalyzerDebug/CellTemperatures/avg_val", desc = "The average cell temperature in degrees celsius.", "{}", analyzer.avg_temp.get::<degree_celsius>());
             }
 
-            can::send(SegmentTemperatures {
-                seg1: analyzer.segment_average_temps[SegmentId::Segment0].get::<degree_celsius>(),
-                seg2: analyzer.segment_average_temps[SegmentId::Segment1].get::<degree_celsius>(),
-                seg3: analyzer.segment_average_temps[SegmentId::Segment2].get::<degree_celsius>(),
-                seg4: analyzer.segment_average_temps[SegmentId::Segment3].get::<degree_celsius>(),
-                seg5: analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>(),
-            }.as_frame()).await;
+            can::send(
+                SegmentTemperatures {
+                    seg1: analyzer.segment_average_temps[SegmentId::Segment0].get::<degree_celsius>(),
+                    seg2: analyzer.segment_average_temps[SegmentId::Segment1].get::<degree_celsius>(),
+                    seg3: analyzer.segment_average_temps[SegmentId::Segment2].get::<degree_celsius>(),
+                    seg4: analyzer.segment_average_temps[SegmentId::Segment3].get::<degree_celsius>(),
+                    seg5: analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>(),
+                }
+                .as_frame(),
+            )
+            .await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
@@ -716,10 +724,14 @@ pub mod analyzer {
                 }
             }
 
-            can::send(PackSocStatus {
-                pack_soc: analyzer.soc.get::<ratio>(),
-                pack_soc_drift: f32::MIN, // u_TODO make this real eventually
-            }.as_frame()).await;
+            can::send(
+                PackSocStatus {
+                    pack_soc: analyzer.soc.get::<ratio>(),
+                    pack_soc_drift: f32::MIN, // u_TODO make this real eventually
+                }
+                .as_frame(),
+            )
+            .await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {

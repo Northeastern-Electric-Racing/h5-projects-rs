@@ -469,15 +469,18 @@ pub mod jobs {
         }
 
         /// Update the OpenWire parts of the S voltages.
-        /// 
+        ///
         /// This probably shouldn't be called at the same frequency as the normal s voltages because then the OpenWire mode would
         /// be constantly flipping back and forth between this and the normal mode.
-        /// 
+        ///
         /// Also, this basically takes the place of `segment_run_cell_open_wire_test()`, except for the fact that it
         /// doesn't read the normal S ADC voltages beforehand (since those are already read by the snap job).
         pub async fn job_update_open_wire(&mut self) -> Result<(), UpdateError> {
-            use adbms6830b::chip::commands::{self, adc::{AutoAcquisition, OpenWire, Acquisition}};
-            
+            use adbms6830b::chip::commands::{
+                self,
+                adc::{AutoAcquisition, OpenWire, Acquisition},
+            };
+
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
             let run = DIAGNOSTICS.start();
 
@@ -489,20 +492,19 @@ pub mod jobs {
             self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOnOddOff, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
             cache::CACHE.update_s_voltages_ow_even_on(self.service.api()).await?;
             self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOffOddOn, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
-            
+
             cache::CACHE.update_s_voltages_ow_odd_on(self.service.api()).await?;
 
-            // Unless we are not charging, restart continuous redundant conversions (since that is what we 
+            // Unless we are not charging, restart continuous redundant conversions (since that is what we
             // normally use outside of this function when we aren't charging).
             if !crate::state_machine::bms_state().is_charging() {
                 self.service.api().command(commands::adc::adsv(Acquisition::Continuous, OpenWire::OffForAll)).await.map_err(UpdateError::PollError)?;
             }
-            
+
             job_diagnostics::log_job_diagnostics!("Segments", "job_update_open_wire", run.finish());
 
             Ok(())
         }
-
     }
 }
 
