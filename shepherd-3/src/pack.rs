@@ -10,8 +10,7 @@ use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
 pub mod analyzer {
     use super::*;
     use embassy_time::Instant;
-    use embassy_sync::{blocking_mutex};
-    use core::cell::Cell;
+    use crate::helpers::SnapshotCell;
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
     #[derive(Copy, Clone)]
@@ -22,33 +21,19 @@ pub mod analyzer {
         pub last_updated: Instant,
     }
 
-    pub(super) struct Static {
-        inner: blocking_mutex::ThreadModeMutex<Cell<Option<AnalyzerHolder>>>,
-    }
-    impl Static {
-        const fn new() -> Self {
-            Self { inner: blocking_mutex::ThreadModeMutex::new(Cell::new(None)) }
-        }
-
-        /// Copies out the analyzer data.
-        fn get(&self) -> Option<AnalyzerHolder> {
-            self.inner.lock(|inner| inner.get())
-        }
-    }
-
-    static ANALYZER: Static = Static::new();
+    /// The most recently published analyzer data.
+    static ANALYZER: SnapshotCell<Option<AnalyzerHolder>> = SnapshotCell::new(None);
 
     /// Copies out the analyzer data.
     ///
     /// If the analyzer data hasn't been updated yet, this returns `None`.
     pub fn analyzer() -> Option<AnalyzerHolder> {
-        ANALYZER.get()
+        ANALYZER.take_snapshot()
     }
 
-    /// Updates the Analyzer stored in the static
-    /// with a new Analyzer.
+    /// Publishes a copy of `analyzer` for other tasks to read.
     fn update(analyzer: Analyzer) {
-        ANALYZER.inner.lock(|inner| inner.set(Some(AnalyzerHolder { data: analyzer, last_updated: Instant::now() })))
+        ANALYZER.set(Some(AnalyzerHolder { data: analyzer, last_updated: Instant::now() }))
     }
 
     #[derive(Copy, Clone)]
@@ -222,7 +207,12 @@ pub mod analyzer {
         pub delta_ocv: Voltage,
         pub pack_ocv: Voltage,
 
-        /// The highest current chip temperature, for faulting.
+        /// Deadline after which `open_cell_voltage` can be updated.
+        ocv_timer: Option<Deadline>,
+        /// Whether we are still waiting for the first valid cell voltage reading to initialize `open_cell_voltage` with.
+        ocv_is_first_reading: bool,
+
+        /// The highest current chip temperature.
         pub max_chiptemp: CriticalChipValue<Temperature>,
 
         /// Segment temperature averages.
@@ -241,13 +231,11 @@ pub mod analyzer {
         pub soc: Ratio,
     }
     impl Analyzer {
-        /// Creates a new Analyzer with current cache data, and blank data for all the
+        /// Creates a new Analyzer with `chip_data`, and blank data for all the
         /// derived values.
-        ///
-        /// If the cache hasn't been updated yet, this returns Err(()).
-        pub fn new() -> Result<Self, ()> {
-            Ok(Self {
-                chip_data: ChipData::new()?,
+        pub fn new(chip_data: IndexByChip<ChipData>) -> Self {
+            Self {
+                chip_data,
 
                 cell_resistance: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| Resistance::new::<ohm>(f32::MIN))),
                 open_cell_voltage: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| Voltage::new::<volt>(f32::MIN))),
@@ -292,6 +280,9 @@ pub mod analyzer {
                 delta_ocv: Voltage::new::<volt>(f32::MIN),
                 pack_ocv: Voltage::new::<volt>(f32::MIN),
 
+                ocv_timer: None,
+                ocv_is_first_reading: true,
+
                 max_chiptemp: CriticalChipValue {
                     value: Temperature::new::<degree_celsius>(f32::MIN),
                     chip: ChipId::Chip0,
@@ -305,12 +296,28 @@ pub mod analyzer {
                 pack_voltage: Voltage::new::<volt>(f32::MIN),
 
                 soc: Ratio::new::<ratio>(0.0_f32),
-            })
+            }
         }
     }
 
     impl Analyzer {
         fn calc_pack_temps(&mut self) {
+            // Reset the last cycle's critical values.
+            self.max_temp = CriticalCellValue {
+                value: Temperature::new::<degree_celsius>(f32::MIN),
+                chip: ChipId::Chip0,
+                cell: CellId::Cell1,
+            };
+            self.min_temp = CriticalCellValue {
+                value: Temperature::new::<degree_celsius>(f32::MAX),
+                chip: ChipId::Chip0,
+                cell: CellId::Cell1,
+            };
+            self.max_chiptemp = CriticalChipValue {
+                value: Temperature::new::<degree_celsius>(f32::MIN),
+                chip: ChipId::Chip0,
+            };
+
             let mut total_temp = 0_f32;
             let mut total_seg_temp = 0_f32;
 
@@ -393,6 +400,28 @@ pub mod analyzer {
         /// ### WARNING
         /// This should be called after `open_cell_voltage` has been initialized with actual stuff.
         pub fn calc_pack_voltage_stats(&mut self) {
+            // Reset the last cycle's critical values.
+            self.max_voltage = CriticalCellValue {
+                value: Voltage::new::<volt>(f32::MIN),
+                chip: ChipId::Chip0,
+                cell: CellId::Cell1,
+            };
+            self.max_ocv = CriticalCellValue {
+                value: Voltage::new::<volt>(f32::MIN),
+                chip: ChipId::Chip0,
+                cell: CellId::Cell1,
+            };
+            self.min_voltage = CriticalCellValue {
+                value: Voltage::new::<volt>(f32::MAX),
+                chip: ChipId::Chip0,
+                cell: CellId::Cell1,
+            };
+            self.min_ocv = CriticalCellValue {
+                value: Voltage::new::<volt>(f32::MAX),
+                chip: ChipId::Chip0,
+                cell: CellId::Cell1,
+            };
+
             let mut total_volt: Voltage = Voltage::new::<volt>(0_f32);
             let mut total_ocv: Voltage = Voltage::new::<volt>(0_f32);
             let mut total_seg_volt: Voltage = Voltage::new::<volt>(0_f32);
@@ -491,7 +520,7 @@ pub mod analyzer {
             }
         }
 
-        fn calc_open_cell_voltage(&mut self, ocv: &mut OcvState) {
+        fn calc_open_cell_voltage(&mut self) {
             use crate::helpers::Deadline;
             use embassy_time::{Duration};
 
@@ -510,17 +539,17 @@ pub mod analyzer {
                 // u_TODO: && crate::state_machine::balancing_active()
             };
 
-            if ocv.is_first_reading {
+            if self.ocv_is_first_reading {
                 let last_cell: Voltage = self.chip_data[ChipId::last()].cell_voltages[CellId::last()];
 
                 if last_cell > Voltage::from_volts(1.0_f32) && last_cell < Voltage::from_volts(5.0_f32) {
-                    ocv.is_first_reading = false;
+                    self.ocv_is_first_reading = false;
                     update_ocv = true;
                 }
             }
 
             if ocv_update_allowed {
-                match ocv.timer {
+                match self.ocv_timer {
                     // Timer is expired so we should update OCV.
                     Some(deadline) if deadline.past() => update_ocv = true,
 
@@ -528,43 +557,18 @@ pub mod analyzer {
                     Some(_) => {},
 
                     // No timer, but update is allowed now, so we should start it
-                    None => ocv.timer = Some(Deadline::expire_in(OCV_TIMER_DURATION)),
+                    None => self.ocv_timer = Some(Deadline::expire_in(OCV_TIMER_DURATION)),
                 }
             } else {
-                ocv.timer = None;
+                self.ocv_timer = None;
             }
 
             if update_ocv {
                 for chip in ChipId::iter() {
                     for cell in CellId::iter() {
-                        ocv.open_cell_voltage[chip][cell] = self.chip_data[chip].cell_voltages[cell];
+                        self.open_cell_voltage[chip][cell] = self.chip_data[chip].cell_voltages[cell];
                     }
                 }
-            }
-
-            // Always copy the current open_cell_voltage from state into the analyzer
-            // u_TODO - when eventually Analyzer persists across task cycles we should get rid of this
-            // or maybe just have the analyzer task read the current global Analyzer and pass a ref in here
-            // so we have that context.
-            self.open_cell_voltage = ocv.open_cell_voltage;
-        }
-    }
-
-    /// Persistent OCV State.
-    ///
-    /// u_TODO this is a janky workaround. we probably should just be modifying analyzer in place
-    #[derive(Copy, Clone)]
-    struct OcvState {
-        timer: Option<Deadline>,
-        is_first_reading: bool,
-        open_cell_voltage: IndexByChip<IndexByCell<Voltage>>,
-    }
-    impl OcvState {
-        pub fn new() -> Self {
-            Self {
-                timer: None,
-                is_first_reading: true,
-                open_cell_voltage: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| Voltage::new::<volt>(f32::MIN))),
             }
         }
     }
@@ -585,7 +589,10 @@ pub mod analyzer {
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
         let mut segments_openwire_subscription = SEGMENTS_OPENWIRE_RAN_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
 
-        let mut ocv_state = OcvState::new();
+        // This is the "working"/persistent analyzer that this task mutates
+        // continuously. At the end of every cycle, this gets published to the global
+        // ANALYZER that other tasks read/take snapshots of.
+        let mut working_analyzer: Option<Analyzer> = None;
 
         #[allow(unused)]
         let mut analyzer_task_run_count: usize = 0;
@@ -594,17 +601,19 @@ pub mod analyzer {
             // Run one loop of this task every time new Segments data arrives.
             segments_freshdata_subscription.wait().await;
 
-            let Ok(mut analyzer) = Analyzer::new() else {
+            let Ok(chip_data) = ChipData::new() else {
                 defmt::warn!("pack: analyzer: skipped running `analyzer_task()` because the Cache has not been updated yet. Will try again next loop.");
                 continue;
             };
+            let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new(chip_data));
+            analyzer.chip_data = chip_data;
 
             // this whole section is supposed to look pretty similar to the C code just so
             // we make sure we bring everything over correctly.
             // calc_cell_temps() is in the C code, but is not needed here because the chipdata already calculates cell temps.
             analyzer.calc_pack_temps();
             analyzer.calc_cell_voltages();
-            analyzer.calc_open_cell_voltage(&mut ocv_state);
+            analyzer.calc_open_cell_voltage();
             analyzer.calc_pack_voltage_stats();
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
@@ -613,7 +622,7 @@ pub mod analyzer {
                 analyzer.detect_cell_open_wire().await;
             }
 
-            update(analyzer);
+            update(*analyzer);
 
             // u_TODO - i'm pretty sure we can just move the stuff in `cell_temp_sanitizer.c` directly into the analyzer task. there doesn't seem to be a reason to have it in its own task like the C code. so we should add that here (after the analyzer is done)
 
