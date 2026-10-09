@@ -12,6 +12,7 @@ pub mod analyzer {
     use embassy_time::Instant;
     use embassy_sync::{blocking_mutex};
     use core::cell::Cell;
+    use core::cell::{RefMut, RefCell};
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
     #[derive(Copy, Clone)]
@@ -23,16 +24,16 @@ pub mod analyzer {
     }
 
     pub(super) struct Static {
-        inner: blocking_mutex::ThreadModeMutex<Cell<Option<AnalyzerHolder>>>,
+        inner: blocking_mutex::ThreadModeMutex<RefCell<Option<AnalyzerHolder>>>,
     }
     impl Static {
         const fn new() -> Self {
-            Self { inner: blocking_mutex::ThreadModeMutex::new(Cell::new(None)) }
+            Self { inner: blocking_mutex::ThreadModeMutex::new(RefCell::new(None)) }
         }
 
         /// Copies out the analyzer data.
         fn get(&self) -> Option<AnalyzerHolder> {
-            self.inner.lock(|inner| inner.get())
+            self.inner.lock(|inner| *inner.borrow())
         }
     }
 
@@ -306,6 +307,14 @@ pub mod analyzer {
 
                 soc: Ratio::new::<ratio>(0.0_f32),
             })
+        }
+
+        pub fn new_persistent(analyzer: Analyzer) -> Result<Self, ()> {
+            let Some(current_analyzer) = ANALYZER.get() else { return Err(()); };
+            let current_analyzer = current_analyzer.data;
+            let Ok(mut new_analyzer) = Analyzer::new() else { return Err(()) };
+            new_analyzer.open_cell_voltage = current_analyzer.open_cell_voltage;
+            Ok(new_analyzer)
         }
     }
 
