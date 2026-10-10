@@ -1,5 +1,5 @@
 use crate::{
-    helpers::Deadline,
+    helpers::deadline::Deadline,
     state_machine::{BmsState},
     state_machine,
     segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
@@ -10,7 +10,7 @@ use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
 pub mod analyzer {
     use super::*;
     use embassy_time::Instant;
-    use crate::helpers::SnapshotCell;
+    use crate::helpers::snapshot_cell::SnapshotCell;
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
     #[derive(Copy, Clone)]
@@ -521,7 +521,7 @@ pub mod analyzer {
         }
 
         fn calc_open_cell_voltage(&mut self) {
-            use crate::helpers::Deadline;
+            use crate::helpers::deadline::Deadline;
             use embassy_time::{Duration};
 
             const OCV_CURR_THRESH: Current = Current::from_amps(0.5_f32);
