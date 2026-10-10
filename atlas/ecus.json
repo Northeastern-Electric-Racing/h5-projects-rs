@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "supported_bit_rates": [
+    125000,
+    250000,
+    500000,
+    1000000
+  ],
+  "ecus": {
+    "bms": {
+      "label": "Battery Management System",
+      "hardware": {
+        "can_peripheral": "FDCAN2",
+        "can_rx": "PD9",
+        "can_tx": "PB13"
+      },
+      "can": {
+        "default_bit_rate": 500000,
+        "request_id": "0x010",
+        "response_id": "0x011",
+        "write_data_id": "0x012",
+        "application_boot_request_id": "0x013",
+        "application_boot_request_data": [
+          "0xB0",
+          "0x07",
+          "0x10",
+          "0xAD"
+        ]
+      }
+    },
+    "vcu": {
+      "label": "Vehicle Control Unit",
+      "hardware": {
+        "can_peripheral": "FDCAN2",
+        "can_rx": "PD9",
+        "can_tx": "PB13"
+      },
+      "can": {
+        "default_bit_rate": 500000,
+        "request_id": "0x014",
+        "response_id": "0x015",
+        "write_data_id": "0x016",
+        "application_boot_request_id": "0x017",
+        "application_boot_request_data": [
+          "0xB0",
+          "0x07",
+          "0x10",
+          "0xAD"
+        ]
+      }
+    }
+  }
+}

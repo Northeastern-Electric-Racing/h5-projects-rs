@@ -4,6 +4,8 @@ name = "template-h5"
 version = "0.1.0"
 
 [dependencies]
+atlas-app.workspace = true
+embedded-can.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true
