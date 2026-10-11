@@ -51,6 +51,18 @@ pub struct AccelVec {
     z: Acceleration,
 }
 
+impl defmt::Format for AccelVec {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "x: {} mG, y: {} mG, z: {} mG",
+            self.x.get::<milligravity>(),
+            self.y.get::<milligravity>(),
+            self.z.get::<milligravity>()
+        )
+    }
+}
+
 #[derive(Debug)]
 pub enum ImuInitError {
     WrongId,
@@ -60,6 +72,18 @@ pub struct AngularVelVec {
     roll_rate: AngularVelocity,
     pitch_rate: AngularVelocity,
     yaw_rate: AngularVelocity,
+}
+
+impl defmt::Format for AngularVelVec {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "roll: {} mdps, pitch: {} mdps, yaw: {} mdps",
+            self.roll_rate.get::<millidegree_per_second>(),
+            self.pitch_rate.get::<millidegree_per_second>(),
+            self.yaw_rate.get::<millidegree_per_second>()
+        )
+    }
 }
 
 impl AngularVelVec {
@@ -111,7 +135,9 @@ impl IMU {
             Ok(f) => {
                 let raw_accel = self.imu.acceleration_raw_get().await;
                 if f.drdy_xl == 1 && raw_accel.is_ok() {
-                    Some(AccelVec::from_raws(raw_accel.unwrap()))
+                    let accel = AccelVec::from_raws(raw_accel.unwrap());
+                    info!("Current acceleration: {}", accel);
+                    Some(accel)
                 } else {
                     None
                 }
@@ -143,7 +169,9 @@ impl IMU {
             Ok(f) => {
                 let raw_rate = self.imu.angular_rate_raw_get().await;
                 if f.drdy_gy == 1 && raw_rate.is_ok() {
-                    Some(AngularVelVec::from_raws(raw_rate.unwrap()))
+                    let vel = AngularVelVec::from_raws(raw_rate.unwrap());
+                    info!("Current angular velocity: {}", vel);
+                    Some(vel)
                 } else {
                     None
                 }
