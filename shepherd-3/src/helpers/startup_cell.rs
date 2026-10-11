@@ -14,7 +14,7 @@ struct State<T, const N: usize> {
 /// Cell that starts out empty, but then gets filled in early in the program's lifespan. While the
 /// cell is still empty, the `.get()` method will .await until the data is filled. Then, once the cell
 /// has data, the `.get()` method will return the data immediately.
-/// 
+///
 /// This is meant to be used as a replacement for `Option` or sentinel/default values for data that needs
 /// to be initialized by reading from an outside source (i.e., a sensor or something). If data can be initialized
 /// on the MCU directly (or can be const initialized), don't use this. This also probably shouldn't be used for tasks
@@ -24,7 +24,7 @@ struct State<T, const N: usize> {
 ///
 /// `N` is the number of waker slots. You should set this to the number of tasks you
 /// normally expect to be waiting at the same time. However, if more tasks than `N` try
-/// waiting, everything will still work correctly. Registering another task just wakes 
+/// waiting, everything will still work correctly. Registering another task just wakes
 /// all existing registered tasks, who then re-check/re-register. So, `N` is mainly just an efficiency
 /// thing you can optimize if you want to. It should never really matter much at all because
 /// waiters only exist at init time.
@@ -60,7 +60,7 @@ impl<M: RawMutex, T: Copy, const N: usize> StartupCellRaw<M, T, N> {
 
     /// Gets the current value. If there is no data inside yet, this
     /// will .await until the data has been set for the first time.
-    /// 
+    ///
     /// Once the data has been set for the first time, this future
     /// will always resolve immediately and basically works like a normal sync function.
     pub async fn get(&self) -> T {
@@ -70,7 +70,7 @@ impl<M: RawMutex, T: Copy, const N: usize> StartupCellRaw<M, T, N> {
                 None => {
                     s.wakers.borrow_mut().register(cx.waker());
                     Poll::Pending
-                }
+                },
             })
         })
         .await
@@ -124,23 +124,29 @@ impl<M: RawMutex, T: Copy, const N: usize> Ready<'_, M, T, N> {
 /// on data), but don't want them to be able to mutate the contents inside the cell.
 #[repr(transparent)]
 pub struct UnwriteableStartupCellRaw<M: RawMutex, T: Copy, const N: usize> {
-    inner: StartupCellRaw<M, T, N>
+    inner: StartupCellRaw<M, T, N>,
 }
 impl<M: RawMutex, T: Copy, const N: usize> UnwriteableStartupCellRaw<M, T, N> {
     /// Gets the current value, or `None` if not set yet.
-    pub fn try_get(&self) -> Option<T> { self.inner.try_get() }
+    pub fn try_get(&self) -> Option<T> {
+        self.inner.try_get()
+    }
 
     /// Gets the current value. If there is no data inside yet, this
     /// will .await until the data has been set for the first time.
-    /// 
+    ///
     /// Once the data has been set for the first time, this future
     /// will always resolve immediately and basically works like a normal sync function.
-    pub async fn get(&self) -> T { self.inner.get().await }
+    pub async fn get(&self) -> T {
+        self.inner.get().await
+    }
 
     /// Waits for the first write to this cell, and then returns a handle
     /// that provides a nicer API for getting data that is known to
     /// already be set (i.e., no need to .await).
-    pub async fn ready(&self) -> Ready<'_, M, T, N> { self.inner.ready().await }
+    pub async fn ready(&self) -> Ready<'_, M, T, N> {
+        self.inner.ready().await
+    }
 }
 
 /// Simplified StartupCell type for use in this project.

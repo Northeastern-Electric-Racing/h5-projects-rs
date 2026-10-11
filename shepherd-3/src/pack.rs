@@ -129,17 +129,13 @@ pub mod analyzer {
             let s_voltages = cache.get_s_voltages().nice().ready().await.get();
             let s_voltages_ow_even_on = cache.get_s_voltages_ow_even_on().nice().ready().await.get();
             let s_voltages_ow_odd_on = cache.get_s_voltages_ow_odd_on().nice().ready().await.get();
-            let pwm= cache.get_pwm().nice().ready().await.get();
+            let pwm = cache.get_pwm().nice().ready().await.get();
 
             // Get cell voltagse, either from `cell_voltages` or `filtered_cell_voltages` depending on if we're charging or not
             let cell_voltages = match state_machine::bms_state() {
-                BmsState::Charging => {
-                    cache.get_cell_voltages().nice().ready().await.get()
-                },
+                BmsState::Charging => cache.get_cell_voltages().nice().ready().await.get(),
 
-                _ => {
-                    cache.get_filtered_cell_voltages().nice().ready().await.get()
-                },
+                _ => cache.get_filtered_cell_voltages().nice().ready().await.get(),
             };
 
             IndexByChip::from_fn(|chip| {
@@ -599,7 +595,7 @@ pub mod analyzer {
                 Err(_) => {
                     defmt::warn!("analyzer_task: The cache hasn't been updated yet, even after 1 second of waiting. Something is probably wrong. Exiting this task early (it will run again after the next segments update).");
                     continue;
-                }
+                },
             };
 
             let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new(chip_data));

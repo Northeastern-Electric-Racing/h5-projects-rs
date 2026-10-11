@@ -99,7 +99,9 @@ type RegisterCache<R> = StartupCell<RegisterCacheData<R>>;
 pub type RegisterCacheReadHandle<R> = UnwriteableStartupCell<RegisterCacheData<R>>;
 impl<R: ReadableGroup> RegisterCache<R> {
     /// Returns a unwriteable read-only handle to this register cache.
-    pub(in crate::segments::cache) const fn read_handle(&self) -> &RegisterCacheReadHandle<R> { self.to_unwriteable() }
+    pub(in crate::segments::cache) const fn read_handle(&self) -> &RegisterCacheReadHandle<R> {
+        self.to_unwriteable()
+    }
 
     /// Reads the register and updates the cache.
     pub(in crate::segments::cache) async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
@@ -142,7 +144,10 @@ impl<R: ReadableGroup> RegisterCache<R> {
             readings
         };
 
-        self.set(RegisterCacheData { data: IndexByChip::new(data), last_sucessful_read: embassy_time::Instant::now() });
+        self.set(RegisterCacheData {
+            data: IndexByChip::new(data),
+            last_sucessful_read: embassy_time::Instant::now(),
+        });
 
         Ok(())
     }
@@ -470,15 +475,16 @@ pub mod redundant_aux {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw Redundant Aux register readings.
@@ -489,10 +495,18 @@ pub mod redundant_aux {
         raxd: RegisterCache<RedundantAuxillaryD>,
     }
     impl Raw {
-        pub fn raxa(&self) -> &RegisterCacheReadHandle<RedundantAuxillaryA> { self.raxa.read_handle() }
-        pub fn raxb(&self) -> &RegisterCacheReadHandle<RedundantAuxillaryB> { self.raxb.read_handle() }
-        pub fn raxc(&self) -> &RegisterCacheReadHandle<RedundantAuxillaryC> { self.raxc.read_handle() }
-        pub fn raxd(&self) -> &RegisterCacheReadHandle<RedundantAuxillaryD> { self.raxd.read_handle() }
+        pub fn raxa(&self) -> &RegisterCacheReadHandle<RedundantAuxillaryA> {
+            self.raxa.read_handle()
+        }
+        pub fn raxb(&self) -> &RegisterCacheReadHandle<RedundantAuxillaryB> {
+            self.raxb.read_handle()
+        }
+        pub fn raxc(&self) -> &RegisterCacheReadHandle<RedundantAuxillaryC> {
+            self.raxc.read_handle()
+        }
+        pub fn raxd(&self) -> &RegisterCacheReadHandle<RedundantAuxillaryD> {
+            self.raxd.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
@@ -527,22 +541,20 @@ pub mod redundant_aux {
             let d = *self.raxd.try_get()?.data();
 
             Some(IndexByChip::from_fn(|chip| {
-                IndexByGpio::from_fn(|gpio| {
-                    match gpio {
-                        GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
-                        GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
-                        GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().r_g3v().as_microvolts() as f32),
+                IndexByGpio::from_fn(|gpio| match gpio {
+                    GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
+                    GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
+                    GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().r_g3v().as_microvolts() as f32),
 
-                        GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().r_g4v().as_microvolts() as f32),
-                        GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().r_g5v().as_microvolts() as f32),
-                        GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().r_g6v().as_microvolts() as f32),
+                    GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().r_g4v().as_microvolts() as f32),
+                    GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().r_g5v().as_microvolts() as f32),
+                    GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().r_g6v().as_microvolts() as f32),
 
-                        GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().r_g7v().as_microvolts() as f32),
-                        GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().r_g8v().as_microvolts() as f32),
-                        GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().r_g9v().as_microvolts() as f32),
+                    GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().r_g7v().as_microvolts() as f32),
+                    GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().r_g8v().as_microvolts() as f32),
+                    GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().r_g9v().as_microvolts() as f32),
 
-                        GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
-                    }
+                    GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
                 })
             }))
         }
@@ -564,10 +576,14 @@ pub mod redundant_aux {
 
     impl super::CacheData {
         /// Updates Redundant Aux.
-        pub(in crate::segments) async fn update_redundant_aux(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.redundant_aux.update(api).await }
+        pub(in crate::segments) async fn update_redundant_aux(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.redundant_aux.update(api).await
+        }
 
         /// Gets the current cached Redundant Aux data.
-        pub fn get_redundant_aux(&self) -> &CacheData { &self.redundant_aux }
+        pub fn get_redundant_aux(&self) -> &CacheData {
+            &self.redundant_aux
+        }
     }
 }
 
@@ -593,15 +609,16 @@ pub mod cell_voltages {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw CellVoltages register readings.
@@ -613,11 +630,21 @@ pub mod cell_voltages {
         cve: RegisterCache<CellVoltagesE>,
     }
     impl Raw {
-        pub fn cva(&self) -> &RegisterCacheReadHandle<CellVoltagesA> { self.cva.read_handle() }
-        pub fn cvb(&self) -> &RegisterCacheReadHandle<CellVoltagesB> { self.cvb.read_handle() }
-        pub fn cvc(&self) -> &RegisterCacheReadHandle<CellVoltagesC> { self.cvc.read_handle() }
-        pub fn cvd(&self) -> &RegisterCacheReadHandle<CellVoltagesD> { self.cvd.read_handle() }
-        pub fn cve(&self) -> &RegisterCacheReadHandle<CellVoltagesE> { self.cve.read_handle() }
+        pub fn cva(&self) -> &RegisterCacheReadHandle<CellVoltagesA> {
+            self.cva.read_handle()
+        }
+        pub fn cvb(&self) -> &RegisterCacheReadHandle<CellVoltagesB> {
+            self.cvb.read_handle()
+        }
+        pub fn cvc(&self) -> &RegisterCacheReadHandle<CellVoltagesC> {
+            self.cvc.read_handle()
+        }
+        pub fn cvd(&self) -> &RegisterCacheReadHandle<CellVoltagesD> {
+            self.cvd.read_handle()
+        }
+        pub fn cve(&self) -> &RegisterCacheReadHandle<CellVoltagesE> {
+            self.cve.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
@@ -655,26 +682,24 @@ pub mod cell_voltages {
             let e = *self.cve.try_get()?.data();
 
             Some(IndexByChip::from_fn(|chip| {
-                IndexByCell::from_fn(|cell| {
-                    match cell {
-                        CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().c1v().as_microvolts() as f32),
-                        CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().c2v().as_microvolts() as f32),
-                        CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().c3v().as_microvolts() as f32),
+                IndexByCell::from_fn(|cell| match cell {
+                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().c1v().as_microvolts() as f32),
+                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().c2v().as_microvolts() as f32),
+                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().c3v().as_microvolts() as f32),
 
-                        CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().c4v().as_microvolts() as f32),
-                        CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().c5v().as_microvolts() as f32),
-                        CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().c6v().as_microvolts() as f32),
+                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().c4v().as_microvolts() as f32),
+                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().c5v().as_microvolts() as f32),
+                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().c6v().as_microvolts() as f32),
 
-                        CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().c7v().as_microvolts() as f32),
-                        CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().c8v().as_microvolts() as f32),
-                        CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().c9v().as_microvolts() as f32),
+                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().c7v().as_microvolts() as f32),
+                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().c8v().as_microvolts() as f32),
+                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().c9v().as_microvolts() as f32),
 
-                        CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().c10v().as_microvolts() as f32),
-                        CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().c11v().as_microvolts() as f32),
-                        CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().c12v().as_microvolts() as f32),
+                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().c10v().as_microvolts() as f32),
+                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().c11v().as_microvolts() as f32),
+                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().c12v().as_microvolts() as f32),
 
-                        CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().c13v().as_microvolts() as f32),
-                    }
+                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().c13v().as_microvolts() as f32),
                 })
             }))
         }
@@ -694,10 +719,14 @@ pub mod cell_voltages {
 
     impl super::CacheData {
         /// Updates Cell Voltages.
-        pub(in crate::segments) async fn update_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.cell_voltages.update(api).await }
+        pub(in crate::segments) async fn update_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.cell_voltages.update(api).await
+        }
 
         /// Gets the current cached Cell Voltages data.
-        pub fn get_cell_voltages(&self) -> &CacheData { &self.cell_voltages }
+        pub fn get_cell_voltages(&self) -> &CacheData {
+            &self.cell_voltages
+        }
     }
 }
 
@@ -723,15 +752,16 @@ pub mod average_cell_voltages {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw AverageCellVoltages register readings.
@@ -743,11 +773,21 @@ pub mod average_cell_voltages {
         ace: RegisterCache<AverageCellVoltagesE>,
     }
     impl Raw {
-        pub fn aca(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesA> { self.aca.read_handle() }
-        pub fn acb(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesB> { self.acb.read_handle() }
-        pub fn acc(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesC> { self.acc.read_handle() }
-        pub fn acd(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesD> { self.acd.read_handle() }
-        pub fn ace(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesE> { self.ace.read_handle() }
+        pub fn aca(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesA> {
+            self.aca.read_handle()
+        }
+        pub fn acb(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesB> {
+            self.acb.read_handle()
+        }
+        pub fn acc(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesC> {
+            self.acc.read_handle()
+        }
+        pub fn acd(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesD> {
+            self.acd.read_handle()
+        }
+        pub fn ace(&self) -> &RegisterCacheReadHandle<AverageCellVoltagesE> {
+            self.ace.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
@@ -785,26 +825,24 @@ pub mod average_cell_voltages {
             let e = *self.ace.try_get()?.data();
 
             Some(IndexByChip::from_fn(|chip| {
-                IndexByCell::from_fn(|cell| {
-                    match cell {
-                        CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().ac1v().as_microvolts() as f32),
-                        CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().ac2v().as_microvolts() as f32),
-                        CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().ac3v().as_microvolts() as f32),
+                IndexByCell::from_fn(|cell| match cell {
+                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().ac1v().as_microvolts() as f32),
+                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().ac2v().as_microvolts() as f32),
+                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().ac3v().as_microvolts() as f32),
 
-                        CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().ac4v().as_microvolts() as f32),
-                        CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().ac5v().as_microvolts() as f32),
-                        CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().ac6v().as_microvolts() as f32),
+                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().ac4v().as_microvolts() as f32),
+                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().ac5v().as_microvolts() as f32),
+                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().ac6v().as_microvolts() as f32),
 
-                        CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().ac7v().as_microvolts() as f32),
-                        CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().ac8v().as_microvolts() as f32),
-                        CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().ac9v().as_microvolts() as f32),
+                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().ac7v().as_microvolts() as f32),
+                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().ac8v().as_microvolts() as f32),
+                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().ac9v().as_microvolts() as f32),
 
-                        CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().ac10v().as_microvolts() as f32),
-                        CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().ac11v().as_microvolts() as f32),
-                        CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().ac12v().as_microvolts() as f32),
+                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().ac10v().as_microvolts() as f32),
+                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().ac11v().as_microvolts() as f32),
+                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().ac12v().as_microvolts() as f32),
 
-                        CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().ac13v().as_microvolts() as f32),
-                    }
+                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().ac13v().as_microvolts() as f32),
                 })
             }))
         }
@@ -824,10 +862,14 @@ pub mod average_cell_voltages {
 
     impl super::CacheData {
         /// Updates Average Cell Voltages.
-        pub(in crate::segments) async fn update_average_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.average_cell_voltages.update(api).await }
+        pub(in crate::segments) async fn update_average_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.average_cell_voltages.update(api).await
+        }
 
         /// Gets the current cached Average Cell Voltages data.
-        pub fn get_average_cell_voltages(&self) -> &CacheData { &self.average_cell_voltages }
+        pub fn get_average_cell_voltages(&self) -> &CacheData {
+            &self.average_cell_voltages
+        }
     }
 }
 
@@ -853,15 +895,16 @@ pub mod filtered_cell_voltages {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw FilteredCellVoltages register readings.
@@ -873,11 +916,21 @@ pub mod filtered_cell_voltages {
         fce: RegisterCache<FilteredCellVoltagesE>,
     }
     impl Raw {
-        pub fn fca(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesA> { self.fca.read_handle() }
-        pub fn fcb(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesB> { self.fcb.read_handle() }
-        pub fn fcc(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesC> { self.fcc.read_handle() }
-        pub fn fcd(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesD> { self.fcd.read_handle() }
-        pub fn fce(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesE> { self.fce.read_handle() }
+        pub fn fca(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesA> {
+            self.fca.read_handle()
+        }
+        pub fn fcb(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesB> {
+            self.fcb.read_handle()
+        }
+        pub fn fcc(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesC> {
+            self.fcc.read_handle()
+        }
+        pub fn fcd(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesD> {
+            self.fcd.read_handle()
+        }
+        pub fn fce(&self) -> &RegisterCacheReadHandle<FilteredCellVoltagesE> {
+            self.fce.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
@@ -915,26 +968,24 @@ pub mod filtered_cell_voltages {
             let e = *self.fce.try_get()?.data();
 
             Some(IndexByChip::from_fn(|chip| {
-                IndexByCell::from_fn(|cell| {
-                    match cell {
-                        CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().fc1v().as_microvolts() as f32),
-                        CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().fc2v().as_microvolts() as f32),
-                        CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().fc3v().as_microvolts() as f32),
+                IndexByCell::from_fn(|cell| match cell {
+                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().fc1v().as_microvolts() as f32),
+                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().fc2v().as_microvolts() as f32),
+                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().fc3v().as_microvolts() as f32),
 
-                        CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().fc4v().as_microvolts() as f32),
-                        CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().fc5v().as_microvolts() as f32),
-                        CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().fc6v().as_microvolts() as f32),
+                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().fc4v().as_microvolts() as f32),
+                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().fc5v().as_microvolts() as f32),
+                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().fc6v().as_microvolts() as f32),
 
-                        CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().fc7v().as_microvolts() as f32),
-                        CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().fc8v().as_microvolts() as f32),
-                        CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().fc9v().as_microvolts() as f32),
+                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().fc7v().as_microvolts() as f32),
+                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().fc8v().as_microvolts() as f32),
+                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().fc9v().as_microvolts() as f32),
 
-                        CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().fc10v().as_microvolts() as f32),
-                        CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().fc11v().as_microvolts() as f32),
-                        CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().fc12v().as_microvolts() as f32),
+                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().fc10v().as_microvolts() as f32),
+                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().fc11v().as_microvolts() as f32),
+                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().fc12v().as_microvolts() as f32),
 
-                        CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().fc13v().as_microvolts() as f32),
-                    }
+                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().fc13v().as_microvolts() as f32),
                 })
             }))
         }
@@ -954,10 +1005,14 @@ pub mod filtered_cell_voltages {
 
     impl super::CacheData {
         /// Updates Filtered Cell Voltages.
-        pub(in crate::segments) async fn update_filtered_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.filtered_cell_voltages.update(api).await }
+        pub(in crate::segments) async fn update_filtered_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.filtered_cell_voltages.update(api).await
+        }
 
         /// Gets the current cached Filtered Cell Voltages data.
-        pub fn get_filtered_cell_voltages(&self) -> &CacheData { &self.filtered_cell_voltages }
+        pub fn get_filtered_cell_voltages(&self) -> &CacheData {
+            &self.filtered_cell_voltages
+        }
     }
 }
 
@@ -983,15 +1038,16 @@ pub mod s_voltages {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw SVoltages register readings.
@@ -1003,11 +1059,21 @@ pub mod s_voltages {
         sce: RegisterCache<SVoltagesE>,
     }
     impl Raw {
-        pub fn sca(&self) -> &RegisterCacheReadHandle<SVoltagesA> { self.sca.read_handle() }
-        pub fn scb(&self) -> &RegisterCacheReadHandle<SVoltagesB> { self.scb.read_handle() }
-        pub fn scc(&self) -> &RegisterCacheReadHandle<SVoltagesC> { self.scc.read_handle() }
-        pub fn scd(&self) -> &RegisterCacheReadHandle<SVoltagesD> { self.scd.read_handle() }
-        pub fn sce(&self) -> &RegisterCacheReadHandle<SVoltagesE> { self.sce.read_handle() }
+        pub fn sca(&self) -> &RegisterCacheReadHandle<SVoltagesA> {
+            self.sca.read_handle()
+        }
+        pub fn scb(&self) -> &RegisterCacheReadHandle<SVoltagesB> {
+            self.scb.read_handle()
+        }
+        pub fn scc(&self) -> &RegisterCacheReadHandle<SVoltagesC> {
+            self.scc.read_handle()
+        }
+        pub fn scd(&self) -> &RegisterCacheReadHandle<SVoltagesD> {
+            self.scd.read_handle()
+        }
+        pub fn sce(&self) -> &RegisterCacheReadHandle<SVoltagesE> {
+            self.sce.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
@@ -1045,26 +1111,24 @@ pub mod s_voltages {
             let e = *self.sce.try_get()?.data();
 
             Some(IndexByChip::from_fn(|chip| {
-                IndexByCell::from_fn(|cell| {
-                    match cell {
-                        CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().s1v().as_microvolts() as f32),
-                        CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().s2v().as_microvolts() as f32),
-                        CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().s3v().as_microvolts() as f32),
+                IndexByCell::from_fn(|cell| match cell {
+                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().s1v().as_microvolts() as f32),
+                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().s2v().as_microvolts() as f32),
+                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().s3v().as_microvolts() as f32),
 
-                        CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().s4v().as_microvolts() as f32),
-                        CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().s5v().as_microvolts() as f32),
-                        CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().s6v().as_microvolts() as f32),
+                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().s4v().as_microvolts() as f32),
+                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().s5v().as_microvolts() as f32),
+                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().s6v().as_microvolts() as f32),
 
-                        CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().s7v().as_microvolts() as f32),
-                        CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().s8v().as_microvolts() as f32),
-                        CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().s9v().as_microvolts() as f32),
+                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().s7v().as_microvolts() as f32),
+                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().s8v().as_microvolts() as f32),
+                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().s9v().as_microvolts() as f32),
 
-                        CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().s10v().as_microvolts() as f32),
-                        CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().s11v().as_microvolts() as f32),
-                        CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().s12v().as_microvolts() as f32),
+                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().s10v().as_microvolts() as f32),
+                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().s11v().as_microvolts() as f32),
+                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().s12v().as_microvolts() as f32),
 
-                        CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().s13v().as_microvolts() as f32),
-                    }
+                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().s13v().as_microvolts() as f32),
                 })
             }))
         }
@@ -1084,10 +1148,14 @@ pub mod s_voltages {
 
     impl super::CacheData {
         /// Updates S Voltages.
-        pub(in crate::segments) async fn update_s_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.s_voltages[kinds::SVoltageKind::Normal].update(api).await }
+        pub(in crate::segments) async fn update_s_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.s_voltages[kinds::SVoltageKind::Normal].update(api).await
+        }
 
         /// Gets the current cached S Voltages data.
-        pub fn get_s_voltages(&self) -> &CacheData { &self.s_voltages[kinds::SVoltageKind::Normal] }
+        pub fn get_s_voltages(&self) -> &CacheData {
+            &self.s_voltages[kinds::SVoltageKind::Normal]
+        }
 
         /// Updates caches SVoltages A through E with new data, and PUTS IT IN THE `OpenWireEven` storage.
         ///
@@ -1096,10 +1164,14 @@ pub mod s_voltages {
         ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
-        pub(in crate::segments) async fn update_s_voltages_ow_even_on(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.s_voltages[kinds::SVoltageKind::OpenWireEvenOn].update(api).await }
+        pub(in crate::segments) async fn update_s_voltages_ow_even_on(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.s_voltages[kinds::SVoltageKind::OpenWireEvenOn].update(api).await
+        }
 
         /// Gets the current cached S Voltages data for `OpenWire::EvenOnOddOff`.
-        pub fn get_s_voltages_ow_even_on(&self) -> &CacheData { &self.s_voltages[kinds::SVoltageKind::OpenWireEvenOn] }
+        pub fn get_s_voltages_ow_even_on(&self) -> &CacheData {
+            &self.s_voltages[kinds::SVoltageKind::OpenWireEvenOn]
+        }
 
         /// Updates caches SVoltages A through E with new data, and PUTS IT IN THE `OpenWireOdd` storage.
         ///
@@ -1108,10 +1180,14 @@ pub mod s_voltages {
         ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
-        pub(in crate::segments) async fn update_s_voltages_ow_odd_on(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.s_voltages[kinds::SVoltageKind::OpenWireOddOn].update(api).await }
+        pub(in crate::segments) async fn update_s_voltages_ow_odd_on(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.s_voltages[kinds::SVoltageKind::OpenWireOddOn].update(api).await
+        }
 
         /// Gets the current cached S Voltages data for `OpenWire::EvenOffOddOn`.
-        pub fn get_s_voltages_ow_odd_on(&self) -> &CacheData { &self.s_voltages[kinds::SVoltageKind::OpenWireOddOn] }
+        pub fn get_s_voltages_ow_odd_on(&self) -> &CacheData {
+            &self.s_voltages[kinds::SVoltageKind::OpenWireOddOn]
+        }
     }
 
     pub mod kinds {
@@ -1289,15 +1365,16 @@ pub mod status_c {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw StatusC register reading.
@@ -1305,13 +1382,13 @@ pub mod status_c {
         statc: RegisterCache<StatusC>,
     }
     impl Raw {
-        pub fn statc(&self) -> &RegisterCacheReadHandle<StatusC> { self.statc.read_handle() }
+        pub fn statc(&self) -> &RegisterCacheReadHandle<StatusC> {
+            self.statc.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
-            Self {
-                statc: RegisterCache::new(),
-            }
+            Self { statc: RegisterCache::new() }
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
@@ -1477,7 +1554,9 @@ pub mod status_c {
         }
 
         /// Gets the current cached StatusC data.
-        pub fn get_status_c(&self) -> &CacheData { &self.status_c }
+        pub fn get_status_c(&self) -> &CacheData {
+            &self.status_c
+        }
     }
 }
 
@@ -1516,15 +1595,16 @@ pub mod status_d {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw StatusD register reading.
@@ -1532,13 +1612,13 @@ pub mod status_d {
         statd: RegisterCache<StatusD>,
     }
     impl Raw {
-        pub fn statd(&self) -> &RegisterCacheReadHandle<StatusD> { self.statd.read_handle() }
+        pub fn statd(&self) -> &RegisterCacheReadHandle<StatusD> {
+            self.statd.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
-            Self {
-                statd: RegisterCache::new(),
-            }
+            Self { statd: RegisterCache::new() }
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
@@ -1677,7 +1757,9 @@ pub mod status_d {
         }
 
         /// Gets the current cached StatusD data.
-        pub fn get_status_d(&self) -> &CacheData { &self.status_d }
+        pub fn get_status_d(&self) -> &CacheData {
+            &self.status_d
+        }
     }
 }
 
@@ -1714,15 +1796,16 @@ pub mod aux {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw Aux register readings.
@@ -1733,10 +1816,18 @@ pub mod aux {
         auxd: RegisterCache<AuxillaryD>,
     }
     impl Raw {
-        pub fn auxa(&self) -> &RegisterCacheReadHandle<AuxillaryA> { self.auxa.read_handle() }
-        pub fn auxb(&self) -> &RegisterCacheReadHandle<AuxillaryB> { self.auxb.read_handle() }
-        pub fn auxc(&self) -> &RegisterCacheReadHandle<AuxillaryC> { self.auxc.read_handle() }
-        pub fn auxd(&self) -> &RegisterCacheReadHandle<AuxillaryD> { self.auxd.read_handle() }
+        pub fn auxa(&self) -> &RegisterCacheReadHandle<AuxillaryA> {
+            self.auxa.read_handle()
+        }
+        pub fn auxb(&self) -> &RegisterCacheReadHandle<AuxillaryB> {
+            self.auxb.read_handle()
+        }
+        pub fn auxc(&self) -> &RegisterCacheReadHandle<AuxillaryC> {
+            self.auxc.read_handle()
+        }
+        pub fn auxd(&self) -> &RegisterCacheReadHandle<AuxillaryD> {
+            self.auxd.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
@@ -1808,10 +1899,14 @@ pub mod aux {
 
     impl super::CacheData {
         /// Updates Aux.
-        pub(in crate::segments) async fn update_aux(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.aux.update(api).await }
+        pub(in crate::segments) async fn update_aux(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.aux.update(api).await
+        }
 
         /// Gets the current cached Aux data.
-        pub fn get_aux(&self) -> &CacheData { &self.aux }
+        pub fn get_aux(&self) -> &CacheData {
+            &self.aux
+        }
     }
 }
 
@@ -1845,15 +1940,16 @@ pub mod status_a {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw StatusA register reading.
@@ -1861,13 +1957,13 @@ pub mod status_a {
         stata: RegisterCache<StatusA>,
     }
     impl Raw {
-        pub fn stata(&self) -> &RegisterCacheReadHandle<StatusA> { self.stata.read_handle() }
+        pub fn stata(&self) -> &RegisterCacheReadHandle<StatusA> {
+            self.stata.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
-            Self {
-                stata: RegisterCache::new(),
-            }
+            Self { stata: RegisterCache::new() }
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
@@ -1909,10 +2005,14 @@ pub mod status_a {
 
     impl super::CacheData {
         /// Updates StatusA.
-        pub(in crate::segments) async fn update_status_a(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.status_a.update(api).await }
+        pub(in crate::segments) async fn update_status_a(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.status_a.update(api).await
+        }
 
         /// Gets the current cached StatusA data.
-        pub fn get_status_a(&self) -> &CacheData { &self.status_a }
+        pub fn get_status_a(&self) -> &CacheData {
+            &self.status_a
+        }
     }
 }
 
@@ -1948,15 +2048,16 @@ pub mod status_b {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw StatusB register reading.
@@ -1964,13 +2065,13 @@ pub mod status_b {
         statb: RegisterCache<StatusB>,
     }
     impl Raw {
-        pub fn statb(&self) -> &RegisterCacheReadHandle<StatusB> { self.statb.read_handle() }
+        pub fn statb(&self) -> &RegisterCacheReadHandle<StatusB> {
+            self.statb.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
-            Self {
-                statb: RegisterCache::new(),
-            }
+            Self { statb: RegisterCache::new() }
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
@@ -2013,10 +2114,14 @@ pub mod status_b {
 
     impl super::CacheData {
         /// Updates StatusB.
-        pub(in crate::segments) async fn update_status_b(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.status_b.update(api).await }
+        pub(in crate::segments) async fn update_status_b(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.status_b.update(api).await
+        }
 
         /// Gets the current cached StatusB data.
-        pub fn get_status_b(&self) -> &CacheData { &self.status_b }
+        pub fn get_status_b(&self) -> &CacheData {
+            &self.status_b
+        }
     }
 }
 
@@ -2041,15 +2146,16 @@ pub mod pwm {
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
         pub(super) const fn new() -> Self {
-            Self {
-                raw: Raw::new(),
-                nice: StartupCell::new()
-            }
+            Self { raw: Raw::new(), nice: StartupCell::new() }
         }
         /// Gets the "raw" version of this data.
-        pub const fn raw(&self) -> &Raw { &self.raw }
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+            self.nice.to_unwriteable()
+        }
     }
 
     /// Raw PwmA/B register readings.
@@ -2058,15 +2164,16 @@ pub mod pwm {
         pwmb: RegisterCache<PwmB>,
     }
     impl Raw {
-        pub fn pwma(&self) -> &RegisterCacheReadHandle<PwmA> { self.pwma.read_handle() }
-        pub fn pwmb(&self) -> &RegisterCacheReadHandle<PwmB> { self.pwmb.read_handle() }
+        pub fn pwma(&self) -> &RegisterCacheReadHandle<PwmA> {
+            self.pwma.read_handle()
+        }
+        pub fn pwmb(&self) -> &RegisterCacheReadHandle<PwmB> {
+            self.pwmb.read_handle()
+        }
 
         /// Creates new uninitialized `Raw`.
         const fn new() -> Self {
-            Self {
-                pwma: RegisterCache::new(),
-                pwmb: RegisterCache::new(),
-            }
+            Self { pwma: RegisterCache::new(), pwmb: RegisterCache::new() }
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
@@ -2079,31 +2186,29 @@ pub mod pwm {
                 None => Err(UpdateError::NiceError),
             }
         }
-        
+
         /// Converts the Raw into NiceData.
-        /// 
+        ///
         /// If not all the Raw registers have been filled in yet, this will return `None`.
         fn try_nice(&self) -> Option<NiceData> {
             let pwma = *self.pwma.try_get()?.data();
             let pwmb = *self.pwmb.try_get()?.data();
 
             Some(IndexByChip::from_fn(|chip| {
-                IndexByCell::from_fn(|cell| {
-                    match cell {
-                        CellId::Cell1 => pwma.get(chip).data().pwm1(),
-                        CellId::Cell2 => pwma.get(chip).data().pwm2(),
-                        CellId::Cell3 => pwma.get(chip).data().pwm3(),
-                        CellId::Cell4 => pwma.get(chip).data().pwm4(),
-                        CellId::Cell5 => pwma.get(chip).data().pwm5(),
-                        CellId::Cell6 => pwma.get(chip).data().pwm6(),
-                        CellId::Cell7 => pwma.get(chip).data().pwm7(),
-                        CellId::Cell8 => pwma.get(chip).data().pwm8(),
-                        CellId::Cell9 => pwma.get(chip).data().pwm9(),
-                        CellId::Cell10 => pwma.get(chip).data().pwm10(),
-                        CellId::Cell11 => pwma.get(chip).data().pwm11(),
-                        CellId::Cell12 => pwma.get(chip).data().pwm12(),
-                        CellId::Cell13 => pwmb.get(chip).data().pwm13(),
-                    }
+                IndexByCell::from_fn(|cell| match cell {
+                    CellId::Cell1 => pwma.get(chip).data().pwm1(),
+                    CellId::Cell2 => pwma.get(chip).data().pwm2(),
+                    CellId::Cell3 => pwma.get(chip).data().pwm3(),
+                    CellId::Cell4 => pwma.get(chip).data().pwm4(),
+                    CellId::Cell5 => pwma.get(chip).data().pwm5(),
+                    CellId::Cell6 => pwma.get(chip).data().pwm6(),
+                    CellId::Cell7 => pwma.get(chip).data().pwm7(),
+                    CellId::Cell8 => pwma.get(chip).data().pwm8(),
+                    CellId::Cell9 => pwma.get(chip).data().pwm9(),
+                    CellId::Cell10 => pwma.get(chip).data().pwm10(),
+                    CellId::Cell11 => pwma.get(chip).data().pwm11(),
+                    CellId::Cell12 => pwma.get(chip).data().pwm12(),
+                    CellId::Cell13 => pwmb.get(chip).data().pwm13(),
                 })
             }))
         }
@@ -2123,9 +2228,13 @@ pub mod pwm {
 
     impl super::CacheData {
         /// Updates PWM.
-        pub(in crate::segments) async fn update_pwm(&self, api: &mut alias::Api) -> Result<(), UpdateError> { self.pwm.update(api).await }
+        pub(in crate::segments) async fn update_pwm(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.pwm.update(api).await
+        }
 
         /// Gets the current cached PwmA/B data.
-        pub fn get_pwm(&self) -> &CacheData { &self.pwm }
+        pub fn get_pwm(&self) -> &CacheData {
+            &self.pwm
+        }
     }
 }
