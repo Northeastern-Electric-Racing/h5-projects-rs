@@ -83,6 +83,13 @@ impl<M: RawMutex, T: Copy, const N: usize> StartupCellRaw<M, T, N> {
         self.get().await;
         Ready { cell: self }
     }
+
+    /// Converts this to an unwriteable.
+    pub const fn to_unwriteable(&self) -> &UnwriteableStartupCellRaw<M, T, N> {
+        // SAFETY: `UnwriteableStartupCellRaw` uses `#[repr(transparent)]` with `StartupCellRaw`.
+        // This guarantees that they have an identical layout.
+        unsafe { &*(self as *const Self as *const UnwriteableStartupCellRaw<M, T, N>) }
+    }
 }
 
 /// Handle for data that is known to be set already.
@@ -112,5 +119,31 @@ impl<M: RawMutex, T: Copy, const N: usize> Ready<'_, M, T, N> {
     }
 }
 
+/// StartupCell that lets you get data and wait on reads, but not set data.
+/// Useful for APIs where you want to expose a StartupCell to readers (so they can wait
+/// on data), but don't want them to be able to mutate the contents inside the cell.
+#[repr(transparent)]
+pub struct UnwriteableStartupCellRaw<M: RawMutex, T: Copy, const N: usize> {
+    inner: StartupCellRaw<M, T, N>
+}
+impl<M: RawMutex, T: Copy, const N: usize> UnwriteableStartupCellRaw<M, T, N> {
+    /// Gets the current value, or `None` if not set yet.
+    pub fn try_get(&self) -> Option<T> { self.inner.try_get() }
+
+    /// Gets the current value. If there is no data inside yet, this
+    /// will .await until the data has been set for the first time.
+    /// 
+    /// Once the data has been set for the first time, this future
+    /// will always resolve immediately and basically works like a normal sync function.
+    pub async fn get(&self) -> T { self.inner.get().await }
+
+    /// Waits for the first write to this cell, and then returns a handle
+    /// that provides a nicer API for getting data that is known to
+    /// already be set (i.e., no need to .await).
+    pub async fn ready(&self) -> Ready<'_, M, T, N> { self.inner.ready().await }
+}
+
 /// Simplified StartupCell type for use in this project.
 pub type StartupCell<T> = StartupCellRaw<ThreadModeRawMutex, T, 10>;
+/// Simplified UnwriteableStartupCell type for use in this project.
+pub type UnwriteableStartupCell<T> = UnwriteableStartupCellRaw<ThreadModeRawMutex, T, 10>;

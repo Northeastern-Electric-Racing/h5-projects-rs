@@ -18,12 +18,13 @@ use adbms6830b::{
     turnkey::api::LineId,
 };
 use adbms6830b::line::Error;
-use crate::segments::core::alias::{SpiError};
+use crate::{helpers::startup_cell::UnwriteableStartupCell, segments::core::alias::SpiError};
 use adbms6830b::line::PecStatus;
 use core::cell::{Cell};
 use super::chips::IndexByChip;
 use super::core::alias;
 use super::chips::ADBMS6830B_NUM_CHIPS;
+use crate::helpers::startup_cell::StartupCell;
 
 /// Cache to hold read data.
 pub(super) static CACHE: CacheData = CacheData::new();
@@ -46,6 +47,8 @@ pub enum UpdateError {
     LineBFailed(Error<SpiError>),
     /// Both lines failed during update. Inner contains both SPI errors.
     BothLinesFailed { linea_err: Error<SpiError>, lineb_err: Error<SpiError> },
+    /// Unable to convert raw data to nice data after updating.
+    NiceError,
     /// Impossible error that should not be possible to happen. Using this instead of unreachable!()
     /// or an unwrap/expect so an impossible error that somehow happens doesn't panic the whole bms
     ImpossibleError,
@@ -68,14 +71,13 @@ impl<R: ReadableGroup> Reading<R> {
     }
 }
 
-/// Actual register cache data (held inside blocking mutex)
+/// Actual register cache data.
 #[derive(Copy, Clone)]
 pub struct RegisterCacheData<R: ReadableGroup> {
-    /// Contains the read data for each chip. Starts out as `None` if this register hasn't been cached yet.
-    data: Option<IndexByChip<Reading<R>>>,
+    /// Contains the read data for each chip.
+    data: IndexByChip<Reading<R>>,
     /// Last instant this register cache was successfully read over SPI and updated.
-    /// If no read has been made yet, this is None.
-    last_sucessful_read: Option<embassy_time::Instant>,
+    last_sucessful_read: embassy_time::Instant,
 }
 // ^^ u_TODO ideas for maybe cool extra stuff we could add to RegisterCacheData:
 // - a `read_duration: Option<embassy_time::Duration>` that stores how long the most recent read took. maybe also a `max_read_duration`, `min_read_duration`, and `avg_read_duration` field? would actually be helpful for optimizing our timing a bit. or just cool to look at
@@ -83,37 +85,24 @@ pub struct RegisterCacheData<R: ReadableGroup> {
 
 impl<R: ReadableGroup> RegisterCacheData<R> {
     /// Last instant this register cache was successfully read over SPI and updated.
-    /// If no read has been made yet, this is None.
-    pub const fn last_sucessful_read(&self) -> Option<embassy_time::Instant> {
+    pub const fn last_sucessful_read(&self) -> embassy_time::Instant {
         self.last_sucessful_read
     }
 
     /// Register read data for each chip.
-    /// If no read has been made yet, this is None.
-    pub const fn data(&self) -> &Option<IndexByChip<Reading<R>>> {
+    pub const fn data(&self) -> &IndexByChip<Reading<R>> {
         &self.data
     }
 }
 
-pub struct RegisterCache<R: ReadableGroup> {
-    inner: embassy_sync::blocking_mutex::ThreadModeMutex<Cell<RegisterCacheData<R>>>,
-}
-
+type RegisterCache<R> = StartupCell<RegisterCacheData<R>>;
+pub type RegisterCacheReadHandle<R> = UnwriteableStartupCell<RegisterCacheData<R>>;
 impl<R: ReadableGroup> RegisterCache<R> {
-    /// New uninitialized register cache.
-    pub const fn new() -> Self {
-        Self {
-            inner: embassy_sync::blocking_mutex::ThreadModeMutex::new(Cell::new(RegisterCacheData { data: None, last_sucessful_read: None })),
-        }
-    }
-
-    /// Copies out Register Cache data. Copy is needed here due to the mutex, since multiple threads read the cache. Hopefully compiler uses RVO?
-    pub fn data(&self) -> RegisterCacheData<R> {
-        self.inner.lock(|inner| inner.get())
-    }
+    /// Returns a unwriteable read-only handle to this register cache.
+    pub(in crate::segments::cache) const fn read_handle(&self) -> &RegisterCacheReadHandle<R> { self.to_unwriteable() }
 
     /// Reads the register and updates the cache.
-    pub async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+    pub(in crate::segments::cache) async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
         let data: [Reading<R>; ADBMS6830B_NUM_CHIPS] = {
             let responses = api.read::<R>().await;
 
@@ -153,12 +142,7 @@ impl<R: ReadableGroup> RegisterCache<R> {
             readings
         };
 
-        self.inner.lock(|inner| {
-            inner.set(RegisterCacheData {
-                data: Some(IndexByChip::new(data)),
-                last_sucessful_read: Some(embassy_time::Instant::now()),
-            });
-        });
+        self.set(RegisterCacheData { data: IndexByChip::new(data), last_sucessful_read: embassy_time::Instant::now() });
 
         Ok(())
     }
@@ -474,8 +458,7 @@ pub struct CacheData {
 
     statb: RegisterCache<StatusB>,
 
-    pwma: RegisterCache<PwmA>,
-    pwmb: RegisterCache<PwmB>,
+    pwm: pwm::CacheData,
 }
 impl CacheData {
     pub(super) const fn new() -> Self {
@@ -524,8 +507,7 @@ impl CacheData {
 
             statb: RegisterCache::new(),
 
-            pwma: RegisterCache::new(),
-            pwmb: RegisterCache::new(),
+            pwm: pwm::CacheData::new(),
         }
     }
 }
@@ -2118,95 +2100,90 @@ pub mod status_b {
 
 /// Cache for PwmA and PwmB register groups.
 pub mod pwm {
-    use super::*;
+    use super::{RegisterCache, IndexByChip, StartupCell, PwmA, PwmB, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
+    use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::segments::chips::cells::{IndexByCell, CellId};
+
+    /// "Nice" data for these groups. Doesn't contain any of the PEC metadata and such,
+    /// so you should probably look at the Raw readings if interested in that.
+    pub type NiceData = IndexByChip<IndexByCell<PwmDutyCycleConfig>>;
+
+    /// Stored Cache Data for Pwm register groups.
+    /// Contains both the raw register readings, and the "nice" data.
+    pub struct CacheData {
+        raw: Raw,
+        nice: StartupCell<NiceData>,
+    }
+    impl CacheData {
+        /// Creates a new `CacheData` with uninitialized values.
+        pub(super) const fn new() -> Self {
+            Self {
+                raw: Raw::new(),
+                nice: StartupCell::new()
+            }
+        }
+        /// Gets the "raw" version of this data.
+        pub const fn raw(&self) -> &Raw { &self.raw }
+        /// Gets the "nice" version of this data.
+        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> { self.nice.to_unwriteable() }
+    }
 
     /// Raw PwmA/B register readings.
     pub struct Raw {
-        pub pwma: RegisterCacheData<PwmA>,
-        pub pwmb: RegisterCacheData<PwmB>,
+        pwma: RegisterCache<PwmA>,
+        pwmb: RegisterCache<PwmB>,
     }
     impl Raw {
-        /// Tries to make it nice.
-        ///
-        /// If no data has been read to that cache yet, this will return `Err(())`.
-        pub fn try_nice(&self) -> Result<NiceData, ()> {
-            NiceData::try_from(self)
+        pub fn pwma(&self) -> &RegisterCacheReadHandle<PwmA> { self.pwma.read_handle() }
+        pub fn pwmb(&self) -> &RegisterCacheReadHandle<PwmB> { self.pwmb.read_handle() }
+
+        /// Creates new uninitialized `Raw`.
+        const fn new() -> Self {
+            Self {
+                pwma: RegisterCache::new(),
+                pwmb: RegisterCache::new(),
+            }
         }
-    }
-    // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
 
-    /// "Nice data" for a single chip.
-    ///
-    /// This leaves out cells 14 through 16 since we only have 13 cells.
-    pub struct NiceDataChip {
-        inner: IndexByCell<PwmDutyCycleConfig>,
-    }
-    impl core::ops::Deref for NiceDataChip {
-        type Target = IndexByCell<PwmDutyCycleConfig>;
+        /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
+        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+            self.pwma.update(api).await?;
+            self.pwmb.update(api).await?;
 
-        fn deref(&self) -> &Self::Target {
-            &self.inner
+            match self.try_nice() {
+                Some(data) => Ok(data),
+                None => Err(UpdateError::NiceError),
+            }
         }
-    }
+        
+        /// Converts the Raw into NiceData.
+        /// 
+        /// If not all the Raw registers have been filled in yet, this will return `None`.
+        fn try_nice(&self) -> Option<NiceData> {
+            let pwma = *self.pwma.try_get()?.data();
+            let pwmb = *self.pwmb.try_get()?.data();
 
-    /// Represents the raw register readings, but formatted in a more readable way.
-    ///
-    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
-    /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData {
-        inner: IndexByChip<NiceDataChip>,
-    }
-    impl core::ops::Deref for NiceData {
-        type Target = IndexByChip<NiceDataChip>;
-
-        fn deref(&self) -> &Self::Target {
-            &self.inner
-        }
-    }
-    impl TryFrom<&Raw> for NiceData {
-        type Error = ();
-
-        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
-        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
-        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
-            let Some(pwma) = raw.pwma.data() else {
-                return Err(());
-            };
-            let Some(pwmb) = raw.pwmb.data() else {
-                return Err(());
-            };
-
-            Ok(Self {
-                inner: {
-                    IndexByChip::from_fn(|chip| NiceDataChip {
-                        inner: IndexByCell::from_fn(|cell| match cell {
-                            CellId::Cell1 => pwma.get(chip).data().pwm1(),
-                            CellId::Cell2 => pwma.get(chip).data().pwm2(),
-                            CellId::Cell3 => pwma.get(chip).data().pwm3(),
-                            CellId::Cell4 => pwma.get(chip).data().pwm4(),
-                            CellId::Cell5 => pwma.get(chip).data().pwm5(),
-                            CellId::Cell6 => pwma.get(chip).data().pwm6(),
-                            CellId::Cell7 => pwma.get(chip).data().pwm7(),
-                            CellId::Cell8 => pwma.get(chip).data().pwm8(),
-                            CellId::Cell9 => pwma.get(chip).data().pwm9(),
-                            CellId::Cell10 => pwma.get(chip).data().pwm10(),
-                            CellId::Cell11 => pwma.get(chip).data().pwm11(),
-                            CellId::Cell12 => pwma.get(chip).data().pwm12(),
-                            CellId::Cell13 => pwmb.get(chip).data().pwm13(),
-                        }),
-                    })
-                },
-            })
-        }
-    }
-
-    impl From<NiceData> for IndexByChip<IndexByCell<PwmDutyCycleConfig>> {
-        fn from(nice: NiceData) -> Self {
-            // at least on release mode this should be zero cost
-            IndexByChip::new(nice.inner.into_array().map(|chip| chip.inner))
+            Some(IndexByChip::from_fn(|chip| {
+                IndexByCell::from_fn(|cell| {
+                    match cell {
+                        CellId::Cell1 => pwma.get(chip).data().pwm1(),
+                        CellId::Cell2 => pwma.get(chip).data().pwm2(),
+                        CellId::Cell3 => pwma.get(chip).data().pwm3(),
+                        CellId::Cell4 => pwma.get(chip).data().pwm4(),
+                        CellId::Cell5 => pwma.get(chip).data().pwm5(),
+                        CellId::Cell6 => pwma.get(chip).data().pwm6(),
+                        CellId::Cell7 => pwma.get(chip).data().pwm7(),
+                        CellId::Cell8 => pwma.get(chip).data().pwm8(),
+                        CellId::Cell9 => pwma.get(chip).data().pwm9(),
+                        CellId::Cell10 => pwma.get(chip).data().pwm10(),
+                        CellId::Cell11 => pwma.get(chip).data().pwm11(),
+                        CellId::Cell12 => pwma.get(chip).data().pwm12(),
+                        CellId::Cell13 => pwmb.get(chip).data().pwm13(),
+                    }
+                })
+            }))
         }
     }
 
@@ -2216,15 +2193,14 @@ pub mod pwm {
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_pwm(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            self.pwma.update(api).await?;
-            self.pwmb.update(api).await?;
-
+            let nice = self.raw.update(api).await?;
+            self.nice.set(nice);
             Ok(())
         }
+    }
 
+    impl super::CacheData {
         /// Gets the current cached PwmA/B data.
-        pub fn get_pwm(&self) -> pwm::Raw {
-            pwm::Raw { pwma: self.pwma.data(), pwmb: self.pwmb.data() }
-        }
+        pub fn get_pwm(&self) -> &CacheData { &self.pwm }
     }
 }
