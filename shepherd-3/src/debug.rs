@@ -16,47 +16,34 @@ pub async fn segments_debug() {
     // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
     let mut subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
 
+    let redundant_aux_ready = segments::cache().get_redundant_aux().nice().ready().await;
+    let filtered_cell_voltages_ready = segments::cache().get_filtered_cell_voltages().nice().ready().await;
+    let cell_voltages_ready = segments::cache().get_cell_voltages().nice().ready().await;
+    let pwm_ready = segments::cache().get_pwm().nice().ready().await;
+    let status_c_ready = segments::cache().get_status_c().nice().ready().await;
+    let s_voltages_ready = segments::cache().get_s_voltages().nice().ready().await;
+    let _fault_counts = segments::cache().get_fault_counts();
+
     loop {
         // Run one loop of this task every time new Segments data arrives.
         subscription.wait().await;
 
-        // Get "raw" cache readings.
-        let redundant_aux_raw = segments::cache().get_redundant_aux();
-        let filtered_cell_voltages_raw = segments::cache().get_filtered_cell_voltages();
-        let cell_voltages_raw = segments::cache().get_cell_voltages();
-        let pwm_raw = segments::cache().get_pwm();
-        let status_c_raw = segments::cache().get_status_c();
-        let s_voltages_raw = segments::cache().get_s_voltages();
-        let _fault_counts = segments::cache().get_fault_counts();
-
         // u_TODO - should probably inspect the PEC status and other metadata before transforming into NiceData, but i don't think TSECU-Shepherd does that so for now this is probably fine
 
         // Convert "raw" readings to NiceData. When `try_nice()` fails, it means that the cache hasn't been updated yet (since starting up), so we skip for now and go back to top of the loop.
-        let Ok(redundant_aux) = redundant_aux_raw.try_nice() else {
-            continue;
-        };
-        let Ok(filtered_cell_voltages) = filtered_cell_voltages_raw.try_nice() else {
-            continue;
-        };
-        let Ok(_cell_voltages) = cell_voltages_raw.try_nice() else {
-            continue;
-        };
-        let Ok(pwm) = pwm_raw.try_nice() else {
-            continue;
-        };
-        let Ok(status_c) = status_c_raw.try_nice() else {
-            continue;
-        };
-        let Ok(_s_voltages) = s_voltages_raw.try_nice() else {
-            continue;
-        };
+        let redundant_aux = redundant_aux_ready.get();
+        let filtered_cell_voltages = filtered_cell_voltages_ready.get();
+        let cell_voltages = cell_voltages_ready.get();
+        let pwm = pwm_ready.get();
+        let status_c = status_c_ready.get();
+        let _s_voltages = s_voltages_ready.get();
 
         // Iterate through every chip and send data over CAN.
         #[cfg(true)]
         '_can: {
             for chip in ChipId::iter() {
                 let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
-                let volts = filtered_cell_voltages.chip(chip); // u_TODO - if charging, we use cell_voltages, if not charging, we use filtered_cell_voltages. This is what TSECU-Shepherd did. but there's no charging state rn so for now who cares
+                let volts = if crate::state_machine::bms_state().is_charging() { cell_voltages.chip(chip) } else { filtered_cell_voltages.chip(chip) }; // u_TODO - if charging, we use cell_voltages, if not charging, we use filtered_cell_voltages. This is what TSECU-Shepherd did. but there's no charging state rn so for now who cares
                 let pwm = pwm.chip(chip);
                 let cvs = status_c.chip(chip).cell_channel_comparison_faults;
 
