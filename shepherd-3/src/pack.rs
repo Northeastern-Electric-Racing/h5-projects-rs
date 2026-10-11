@@ -515,7 +515,7 @@ pub mod analyzer {
             const OCV_CURR_THRESH: Current = Current::from_amps(0.5_f32);
             const OCV_TIMER_DURATION: Duration = Duration::from_millis(1500);
 
-            let Ok(data) = crate::hv_plate::cache().get_current_voltage().try_nice() else {
+            let Some(data) = crate::hv_plate::cache().get_current_voltage().nice().try_get() else {
                 return;
             };
             let mut pack_current = data.pack_current;

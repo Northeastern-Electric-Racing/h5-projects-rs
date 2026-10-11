@@ -188,45 +188,28 @@ pub async fn hv_plate_debug() {
     // Subscribe to the HV plate fresh data signal so we are notified when new data comes in.
     let mut subscription = HV_PLATE_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
 
+    let current_voltage_ready = hv_plate::cache().get_current_voltage().nice().ready().await;
+    let voltages_ready = hv_plate::cache().get_voltages().nice().ready().await;
+    let accumulated_ready = hv_plate::cache().get_accumulated().nice().ready().await;
+    let flag_ready = hv_plate::cache().get_flag().nice().ready().await;
+    let aux_ready = hv_plate::cache().get_aux().nice().ready().await;
+    let status_ready = hv_plate::cache().get_status().nice().ready().await;
+
     loop {
         // Run one loop of this task every time new HV plate data arrives.
         subscription.wait().await;
 
-        // Get "raw" cache readings.
-        let current_voltage_raw = hv_plate::cache().get_current_voltage();
-        let voltages_raw = hv_plate::cache().get_voltages();
-        let accumulated_raw = hv_plate::cache().get_accumulated();
-        let flag_raw = hv_plate::cache().get_flag();
-        let aux_raw = hv_plate::cache().get_aux();
-        let status_raw = hv_plate::cache().get_status();
-
-        // Convert "raw" readings to NiceData. When `try_nice()` fails, it means that the cache hasn't been updated yet (since starting up), so we skip for now and go back to top of the loop.
-        //
         // The accumulator, FLAG and STATUS readings are only consumed by the monitor block, so
-        // they are annotated for the `DEFMT_MONITOR=off` build. They are not dead even then:
-        // each `else { continue }` is what holds the cycle back until that register group has
-        // actually been read.
-        let Ok(current_voltage) = current_voltage_raw.try_nice() else {
-            continue;
-        };
-        let Ok(voltages) = voltages_raw.try_nice() else {
-            continue;
-        };
+        // they are annotated for the `DEFMT_MONITOR=off` build.
+        let current_voltage = current_voltage_ready.get();
+        let voltages = voltages_ready.get();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let Ok(accumulated) = accumulated_raw.try_nice() else {
-            continue;
-        };
+        let accumulated = accumulated_ready.get();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let Ok(flag) = flag_raw.try_nice() else {
-            continue;
-        };
-        let Ok(aux) = aux_raw.try_nice() else {
-            continue;
-        };
+        let flag = flag_ready.get();
+        let aux = aux_ready.get();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let Ok(status) = status_raw.try_nice() else {
-            continue;
-        };
+        let status = status_ready.get();
 
         '_println: {
             defmt::println!("HV Plate Data:");
