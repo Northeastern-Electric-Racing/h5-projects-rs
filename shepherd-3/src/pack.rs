@@ -5,7 +5,6 @@ use crate::{
     segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
     units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm},
 };
-use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
 
 pub mod analyzer {
     use super::*;
@@ -119,38 +118,31 @@ pub mod analyzer {
         ///
         /// If the cache hasn't been updated yet (probably meaning we very recently booted), this
         /// will return Err(()).
-        pub fn new() -> Result<IndexByChip<Self>, ()> {
+        pub async fn new() -> IndexByChip<Self> {
             let cache = crate::segments::cache();
 
-            let redundant_aux = cache.get_redundant_aux().try_nice()?;
-            let aux = cache.get_aux().try_nice()?;
-            let status_a = cache.get_status_a().try_nice()?;
-            let status_b = cache.get_status_b().try_nice()?;
-            let status_c = cache.get_status_c().try_nice()?;
+            let redundant_aux = cache.get_redundant_aux().nice().ready().await.get();
+            let aux = cache.get_aux().nice().ready().await.get();
+            let status_a = cache.get_status_a().nice().ready().await.get();
+            let status_b = cache.get_status_b().nice().ready().await.get();
+            let status_c = cache.get_status_c().nice().ready().await.get();
+            let s_voltages = cache.get_s_voltages().nice().ready().await.get();
+            let s_voltages_ow_even_on = cache.get_s_voltages_ow_even_on().nice().ready().await.get();
+            let s_voltages_ow_odd_on = cache.get_s_voltages_ow_odd_on().nice().ready().await.get();
+            let pwm= cache.get_pwm().nice().ready().await.get();
 
             // Get cell voltagse, either from `cell_voltages` or `filtered_cell_voltages` depending on if we're charging or not
-            let cell_voltages: IndexByChip<IndexByCell<Voltage>> = match state_machine::bms_state() {
+            let cell_voltages = match state_machine::bms_state() {
                 BmsState::Charging => {
-                    let Ok(data) = cache.get_cell_voltages().try_nice() else {
-                        return Err(());
-                    };
-                    data.into()
+                    cache.get_cell_voltages().nice().ready().await.get()
                 },
 
                 _ => {
-                    let Ok(data) = cache.get_filtered_cell_voltages().try_nice() else {
-                        return Err(());
-                    };
-                    data.into()
+                    cache.get_filtered_cell_voltages().nice().ready().await.get()
                 },
             };
 
-            let s_voltages: IndexByChip<IndexByCell<Voltage>> = cache.get_s_voltages().try_nice()?.into();
-            let s_voltages_ow_even_on: IndexByChip<IndexByCell<Voltage>> = cache.get_s_voltages_ow_even_on().try_nice()?.into();
-            let s_voltages_ow_odd_on: IndexByChip<IndexByCell<Voltage>> = cache.get_s_voltages_ow_odd_on().try_nice()?.into();
-            let pwm: IndexByChip<IndexByCell<PwmDutyCycleConfig>> = cache.get_pwm().try_nice()?.into();
-
-            Ok(IndexByChip::from_fn(|chip| {
+            IndexByChip::from_fn(|chip| {
                 let temps = redundant_aux[chip].to_temps();
 
                 Self {
@@ -172,7 +164,7 @@ pub mod analyzer {
                     v_analog: status_b[chip].va,
                     v_digital: status_b[chip].vd,
                 }
-            }))
+            })
         }
     }
 
@@ -584,6 +576,7 @@ pub mod analyzer {
             segments::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL, SegmentId},
             units::{degree_celsius, volt},
         };
+        use embassy_time::Duration;
 
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
@@ -601,10 +594,14 @@ pub mod analyzer {
             // Run one loop of this task every time new Segments data arrives.
             segments_freshdata_subscription.wait().await;
 
-            let Ok(chip_data) = ChipData::new() else {
-                defmt::warn!("pack: analyzer: skipped running `analyzer_task()` because the Cache has not been updated yet. Will try again next loop.");
-                continue;
+            let chip_data = match embassy_time::with_timeout(Duration::from_secs(1), ChipData::new()).await {
+                Ok(data) => data,
+                Err(_) => {
+                    defmt::warn!("analyzer_task: The cache hasn't been updated yet, even after 1 second of waiting. Something is probably wrong. Exiting this task early (it will run again after the next segments update).");
+                    continue;
+                }
             };
+
             let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new(chip_data));
             analyzer.chip_data = chip_data;
 

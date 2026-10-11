@@ -1,6 +1,4 @@
 use embassy_time::{Instant, Duration};
-use core::cell::Cell;
-use embassy_sync::blocking_mutex::ThreadModeMutex;
 
 #[derive(Copy, Clone)]
 pub struct Deadline {
