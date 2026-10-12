@@ -19,6 +19,7 @@ mod adc;
 mod can;
 mod efuses;
 mod rtds;
+mod statemachine;
 
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
