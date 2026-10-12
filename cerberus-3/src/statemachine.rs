@@ -1,17 +1,16 @@
-use core::fmt::{Debug};
+use crate::can::OUTGOING;
+use crate::rtds::sound_rtds;
+use crate::statemachine::FuncState::Ready;
 use cangen::ToCanFrame;
-use defmt::{bitflags, debug, error, info, warn};
-use embassy_futures::select::{select, Either};
+use core::fmt::Debug;
+use defmt::{bitflags, debug, info, warn};
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::once_lock::OnceLock;
 use embassy_time::Timer;
-use ner_can::NerCan;
 use variant_count::VariantCount;
-use crate::can::OUTGOING;
-use crate::rtds::sound_rtds;
-use crate::statemachine::FuncState::Ready;
 
 #[derive(Copy, Clone, VariantCount, Eq, PartialEq, Debug, defmt::Format)]
 pub enum FuncState {
@@ -20,7 +19,7 @@ pub enum FuncState {
     Reverse,
     Performance,
     Efficiency,
-    Faulted
+    Faulted,
 } // Must stay below 8 for CAN size limits
 
 #[derive(Copy, Clone, VariantCount, Ord, PartialOrd, Eq, PartialEq, Debug, defmt::Format)]
@@ -32,7 +31,7 @@ pub enum NeroMenu {
     Efficiency,
     Games,
     Themes,
-    Exit
+    Exit,
 } // Must stay below 15 for CAN size limits
 
 impl NeroMenu {
@@ -58,7 +57,7 @@ impl NeroMenu {
             NeroMenu::Efficiency => NeroMenu::Performance,
             NeroMenu::Games => NeroMenu::Efficiency,
             NeroMenu::Themes => NeroMenu::Games,
-            NeroMenu::Exit => NeroMenu::Themes
+            NeroMenu::Exit => NeroMenu::Themes,
         }
     }
 }
@@ -74,7 +73,7 @@ enum TransitionCommands {
     SELECT,
     HOME,
     READY,
-    FAULT
+    FAULT,
 }
 
 bitflags!(
@@ -95,15 +94,19 @@ struct CerberusState {
     home_mode: bool,
     state: FuncState,
     nero_menu: NeroMenu,
-    transition_error: TransitionError
+    transition_error: TransitionError,
 }
 
 static STATE_MUTEX: OnceLock<Mutex<ThreadModeRawMutex, CerberusState>> = OnceLock::new();
 
 const STATE_TRANSITION_QUEUE_SIZE: usize = 4;
-const STATE_TRANSITION_ERROR_CLEAR_TIMEOUT: i32 = 3000; // ms
+const STATE_TRANSITION_ERROR_CLEAR_TIMEOUT: u64 = 3000; // ms
 
-static TRANSITION_QUEUE: Channel<ThreadModeRawMutex, TransitionCommands, STATE_TRANSITION_QUEUE_SIZE> = Channel::new();
+static TRANSITION_QUEUE: Channel<
+    ThreadModeRawMutex,
+    TransitionCommands,
+    STATE_TRANSITION_QUEUE_SIZE,
+> = Channel::new();
 
 pub async fn get_func_state() -> FuncState {
     STATE_MUTEX.get().await.lock().await.state
@@ -115,11 +118,11 @@ pub async fn get_nero_menu() -> NeroMenu {
 
 pub async fn get_active() -> bool {
     match STATE_MUTEX.get().await.lock().await.state {
-        FuncState::Pit => {true}
-        FuncState::Reverse => {true}
-        FuncState::Performance => {true}
-        FuncState::Efficiency => {true}
-        _ => false
+        FuncState::Pit => true,
+        FuncState::Reverse => true,
+        FuncState::Performance => true,
+        FuncState::Efficiency => true,
+        _ => false,
     }
 }
 
@@ -128,7 +131,8 @@ async fn transition_functional_state(new_state: FuncState) -> Result<(), ()> {
 
     state.transition_error = TransitionError::NONE;
 
-    if false { // TODO: if accelerator pressed
+    if false {
+        // TODO: if accelerator pressed
         warn!("Accelerator should not be pressed when transitioning state");
         state.transition_error |= TransitionError::ACCEL_PRESSED;
         STATE_MUTEX.get().await.lock().await.clone_from(&state);
@@ -166,13 +170,15 @@ async fn transition_functional_state(new_state: FuncState) -> Result<(), ()> {
                 return Err(());
             }
 
-            if false { // TODO: brakes not open
+            if false {
+                // TODO: brakes not open
                 state.transition_error |= TransitionError::BRAKES_NOT_ENGAGED;
                 STATE_MUTEX.get().await.lock().await.clone_from(&state);
                 return Err(());
             }
 
-            if false { // TODO: shutdown loop open
+            if false {
+                // TODO: shutdown loop open
                 state.transition_error |= TransitionError::SHUTDOWN_OPEN;
                 STATE_MUTEX.get().await.lock().await.clone_from(&state);
                 return Err(());
@@ -201,33 +207,39 @@ async fn transition_nero_state(new_state: &mut NeroState) -> Result<(), ()> {
     let mut state: CerberusState = STATE_MUTEX.get().await.lock().await.clone();
 
     if get_active().await && !state.home_mode && new_state.home_mode {
-        transition_functional_state(Ready).await.expect("Failed to transition state");
+        transition_functional_state(Ready)
+            .await
+            .expect("Failed to transition state");
         return Ok(());
     }
 
     if !state.home_mode {
         debug!("Cannot transition current state as not in home mode");
-        return Err(())
+        return Err(());
     }
 
     if new_state.menu < NeroMenu::Games && new_state.menu > NeroMenu::Off {
         let funcState: FuncState = match new_state.menu {
-            NeroMenu::Pit => {FuncState::Pit}
-            NeroMenu::Reverse => {FuncState::Reverse}
-            NeroMenu::Performance => {FuncState::Performance}
-            NeroMenu::Efficiency => {FuncState::Efficiency}
-            _ => return Err(())
+            NeroMenu::Pit => FuncState::Pit,
+            NeroMenu::Reverse => FuncState::Reverse,
+            NeroMenu::Performance => FuncState::Performance,
+            NeroMenu::Efficiency => FuncState::Efficiency,
+            _ => return Err(()),
         };
 
-        transition_functional_state(funcState).await.expect("Failed to transition state");
+        transition_functional_state(funcState)
+            .await
+            .expect("Failed to transition state");
     } else if new_state.menu == NeroMenu::Games {
-        if false { // TODO: if shutdown not closed
+        if false {
+            // TODO: if shutdown not closed
             state.transition_error |= TransitionError::ENTER_GAMES_SHUTDOWN_CLOSED;
             STATE_MUTEX.get().await.lock().await.clone_from(&state);
             return Err(());
         }
 
-        if false { // TODO: if mph > 1
+        if false {
+            // TODO: if mph > 1
             state.transition_error |= TransitionError::ENTER_GAMES_WHILE_MOVING;
             STATE_MUTEX.get().await.lock().await.clone_from(&state);
             return Err(());
@@ -244,9 +256,7 @@ async fn transition_nero_state(new_state: &mut NeroState) -> Result<(), ()> {
     Ok(())
 }
 
-fn handle_command(command: TransitionCommands) {
-
-}
+fn handle_command(command: TransitionCommands) {}
 
 pub(crate) async fn increment_nero_index() {
     debug!("Increment nero index");
@@ -282,12 +292,23 @@ pub(crate) async fn fault() {
 
 #[embassy_executor::task]
 pub async fn statemachine_task() {
+    let mut state = STATE_MUTEX.get().await.lock().await;
+    state.home_mode = true;
+    state.transition_error = TransitionError::NONE;
+    STATE_MUTEX.get().await.lock().await.clone_from(&state);
+
     loop {
-        let event: Either<TransitionCommands, ()> = select(TRANSITION_QUEUE.receive(), Timer::after_millis(500)).await;
+        let event: Either<TransitionCommands, ()> = select(
+            TRANSITION_QUEUE.receive(),
+            Timer::after_millis(STATE_TRANSITION_ERROR_CLEAR_TIMEOUT),
+        )
+        .await;
 
         match event {
-            Either::First(command) => {handle_command(command)}
-            Either::Second(_) => {}
+            Either::First(command) => handle_command(command),
+            Either::Second(_) => {
+                STATE_MUTEX.get().await.lock().await.transition_error = TransitionError::NONE;
+            }
         }
 
         let state = STATE_MUTEX.get().await.lock().await;
