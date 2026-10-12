@@ -7,8 +7,8 @@ use embassy_time::{Duration, Instant};
 use crate::hv_plate::core::alias;
 
 const PEC_ERROR_THRESHOLD: u32 = 16;
-/// Just above the per-cycle noise floor, so stray errors never arm a window.
-const PEC_ACCUM_START_THRESH: u32 = 3;
+/// Errors in a single cycle needed to open an accumulation window.
+const PEC_ACCUM_START_THRESH: u32 = 0;
 const ACCUM_PERIOD: Duration = Duration::from_millis(1500);
 const VALIDATION_THRESHOLD: u32 = 3;
 const VERIFICATION_READS: u32 = 5;
@@ -16,7 +16,7 @@ const VERIFICATION_READS: u32 = 5;
 const STARTUP_MASK_TIME: Duration = Duration::from_millis(1500);
 
 #[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
-enum State {
+pub(super) enum State {
     Normal,
     BreakDetected,
     Verifying,
@@ -110,6 +110,17 @@ impl Service {
         self.started = true;
     }
 
+    /// Where the recovery machine currently is. For diagnostics.
+    pub(super) const fn state(&self) -> State {
+        self.state
+    }
+
+    /// PEC failures accumulated since the last re-baseline -- the quantity the break detector
+    /// thresholds on. For diagnostics.
+    pub(super) const fn errors_in_window(&self, api: &alias::Api) -> u32 {
+        self.errors_since_reset(api)
+    }
+
     fn evaluate(&mut self, api: &mut alias::Api, now: Instant) -> Action {
         let action = self.step(api, now);
 
@@ -125,21 +136,24 @@ impl Service {
     fn step(&mut self, api: &mut alias::Api, now: Instant) -> Action {
         match self.state {
             State::Normal => {
-                if self.recovery_successful {
-                    // The spare is spent; a further break cannot be corrected.
-                    self.reset_accumulator(api);
-                } else {
-                    self.detect_break(api, now);
-                }
+                self.detect_break(api, now);
                 Action::None
             },
 
             State::BreakDetected => {
-                defmt::warn!("HvPlate: isoSPI: recovery started, switching comms to line B.");
-                api.set_active_line(LineId::B);
-                self.reset_accumulator(api);
-                self.state = State::Verifying;
-                Action::Restart
+                if self.recovery_successful {
+                    // The spare is spent, so there is nothing to switch to. Terminal, and the
+                    // comms fault stays latched for as long as we keep reporting it.
+                    defmt::error!("HvPlate: isoSPI: break on the spare line; no recovery left.");
+                    self.state = State::ServiceFailed;
+                    Action::None
+                } else {
+                    defmt::warn!("HvPlate: isoSPI: recovery started, switching comms to line B.");
+                    api.set_active_line(LineId::B);
+                    self.reset_accumulator(api);
+                    self.state = State::Verifying;
+                    Action::Restart
+                }
             },
 
             State::Verifying => {
@@ -162,8 +176,6 @@ impl Service {
             },
 
             State::ServiceSuccess => {
-                // u_TODO - C also asks SoC to re-initialise from the minimum OCV here. `soc`
-                // has `seed` for exactly that, but nothing publishes an OCV yet.
                 defmt::info!("HvPlate: isoSPI: recovery complete.");
                 self.state = State::Normal;
                 Action::None
@@ -201,7 +213,7 @@ impl Service {
             },
             Some(deadline) if now >= deadline => {
                 if errors > PEC_ERROR_THRESHOLD {
-                    defmt::error!("HvPlate: isoSPI: line A break detected ({} PEC errors in the window).", errors);
+                    defmt::error!("HvPlate: isoSPI: break detected on line {} ({} PEC errors in the window).", api.active_line(), errors);
                     self.state = State::BreakDetected;
                 }
                 self.accum_deadline = None;

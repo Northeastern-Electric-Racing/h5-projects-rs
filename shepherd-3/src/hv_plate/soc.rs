@@ -26,21 +26,6 @@ const NOISE_FLOOR_MICROVOLTS: i32 = (CURRENT_HYSTERESIS_MICROAMPS * SUM_MICROVOL
 /// How long to watch `I1CNTPHA` before trusting a new `t_CONV`.
 const MEASUREMENT_WINDOW: Duration = Duration::from_millis(500);
 
-#[derive(Copy, Clone)]
-pub struct Sample {
-    pub average_current: Current,
-    pub charge_microcoulombs: i64,
-    /// How many windows were overwritten unread, anything > 1 is bad.
-    pub windows_elapsed: u16,
-}
-
-pub struct OcvSeed {
-    /// seeds from the minimum cell OCV
-    pub min_cell_ocv: Voltage,
-    /// When the pack was at rest
-    pub settled_at: Instant,
-}
-
 fn soc_from_ocv(ocv: Voltage) -> Option<f32> {
     use uom::si::electric_potential::volt;
 
@@ -53,80 +38,64 @@ fn soc_from_ocv(ocv: Voltage) -> Option<f32> {
     Some(soc.clamp(0.0, 1.0))
 }
 
+#[derive(Copy, Clone)]
+pub struct Sample {
+    /// Mean current across the window. Positive is discharge.
+    pub average_current: Current,
+    pub charge_microcoulombs: i64,
+    /// How many windows were overwritten unread, anything > 1 is bad.
+    pub windows_elapsed: u16,
+    /// The conversion time this window's charge was integrated at (`t_CONV` / `ACCN`)
+    pub conversion_nanos: u32,
+}
+
 /// Tuple of `soc` measurement which was measured at `microcoulombs` counted.
 #[derive(Copy, Clone)]
-struct Reference {
+struct SocReference {
     soc: f32,
     microcoulombs: i64,
 }
 
-impl Reference {
-    fn soc_at(&self, current_net_microcoulombs: i64) -> f32 {
+impl SocReference {
+    fn calculate_soc(&self, current_net_microcoulombs: i64) -> f32 {
         let moved = current_net_microcoulombs - self.microcoulombs;
         (self.soc - moved as f32 / CAPACITY_MICROCOULOMBS as f32).clamp(0.0, 1.0)
     }
 }
 
-/// Says nothing about whether the counters are synced; the two are independent.
 #[derive(Copy, Clone)]
-enum Estimate {
-    /// Charge moved is tracked, but there is nothing to measure it from.
-    Unreferenced,
-    Referenced(Reference),
-}
-
-impl Estimate {
-    fn soc_at(&self, cc_microcoulombs: i64) -> Option<f32> {
-        match self {
-            Self::Unreferenced => None,
-            Self::Referenced(reference) => Some(reference.soc_at(cc_microcoulombs)),
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct SocTracker {
+pub struct Estimator {
     /// Readings before this are rejected.
     conversion_startup_deadline: Option<Instant>,
 
-    /// `N` in the datasheet - windows consumed so far.
+    /// Windows consumed so far.
     n: u32,
-    /// `I1CNT_OLD` in the datasheet - for spotting the roll-over.
     i1cnt_old: u16,
 
-    /// `(I1CNTPHA, when)` at the start of the open measurement window.
+    /// Measured i1cnt + time at the start of the open measurement window.
     measurement_base: Option<(u16, Instant)>,
-    /// datasheet's `t_CONV` divided by [`ACCN`].
-    /// Stored this way because `ACCN` then cancels out of the charge arithmetic
-    /// [`SocTracker::t_conv`] converts back for the monitor.
-    conversion_nanos: u32,
-
-    /// `CC` in the datasheet
+    last_sample: Option<Sample>,
     cc_microcoulombs: i64,
-    /// What [`Self::cc_microcoulombs`] is measured from, if anything.
-    estimate: Estimate,
-    /// C's `soc_drift`: reported, never acted on.
+    reference: Option<SocReference>,
+    state_of_charge: Option<f32>,
     drift: f32,
-    /// `settled_at` of the snapshot already applied, so the same one is not re-applied every
-    /// cycle while the analyzer keeps republishing it.
     seeded_from: Option<Instant>,
 
     /// Diagnostics
     missed_windows: u32,
     desyncs: u32,
-    last_sample: Option<Sample>,
 }
 
-impl SocTracker {
+impl Estimator {
     pub fn new(now: Instant) -> Self {
         let mut tracker = Self {
             conversion_startup_deadline: None,
             n: 0,
             i1cnt_old: 0,
             measurement_base: None,
-            conversion_nanos: 0,
             cc_microcoulombs: 0,
-            estimate: Estimate::Unreferenced,
+            reference: None,
+            state_of_charge: None,
             drift: 0.0,
             seeded_from: None,
             missed_windows: 0,
@@ -138,19 +107,15 @@ impl SocTracker {
     }
 
     /// Re-baselines after an `ADI1`, which zeroes `I1CNT`. Leaves the estimate and the running
-    /// total alone -- a chip reset loses the chip's state, not the charge that moved.
+    /// total alone
     pub fn restart(&mut self, now: Instant) {
         self.n = 0;
         self.i1cnt_old = 0;
         self.measurement_base = None;
-        self.conversion_nanos = NOMINAL_CONVERSION_NANOS as u32;
         self.conversion_startup_deadline = Some(now + CONVERSION_STARTUP_MASK);
     }
 
     /// Folds this cycle's reading into the count.
-    ///
-    /// Only call on a clean snap: the caches update independently, so a partial failure would
-    /// pair a fresh IVB1ACC with a stale FLAG.
     pub fn accumulate(&mut self) {
         // Read data from cache
         let flag = cache::CACHE.get_flag();
@@ -160,7 +125,8 @@ impl SocTracker {
         };
 
         let (i1cnt, i1cntpha) = (flag.i1cnt, flag.i1cntpha);
-        let sum_microvolts = accumulated.current_sum_microvolts;
+        // Matches sign for `api::pack_current`
+        let sum_microvolts = -accumulated.current_sum_microvolts;
 
         // Check that conversion has actually settled before doing coloumb counting
         if let Some(deadline) = self.conversion_startup_deadline {
@@ -175,9 +141,6 @@ impl SocTracker {
             self.i1cnt_old = i1cnt;
             defmt::info!("HvPlate: soc: counters live at I1CNT {}, accumulating.", i1cnt);
         }
-
-        // Every read, whether or not a window closed: it measures the clock, not the output.
-        self.measure_conversion_time(i1cntpha, read_at);
 
         if i1cnt < self.i1cnt_old {
             self.n = 0;
@@ -202,41 +165,66 @@ impl SocTracker {
         // times the window.
         //
         // u_TODO - the guidance from the datasheet also applies a shunt temp coeff here
-        let charge_microcoulombs = if sum_microvolts.abs() >= NOISE_FLOOR_MICROVOLTS {
-            i64::from(sum_microvolts) * i64::from(windows_elapsed) * i64::from(self.conversion_nanos) / (board::SHUNT_MICROOHMS * 1_000)
-        } else {
-            0
-        };
+        let conversion_nanos = self.get_conversion_time(i1cntpha, read_at).unwrap_or(NOMINAL_CONVERSION_NANOS as u32);
+        let charge_microcoulombs = if sum_microvolts.abs() >= NOISE_FLOOR_MICROVOLTS { i64::from(sum_microvolts) * i64::from(windows_elapsed) * i64::from(conversion_nanos) / (board::SHUNT_MICROOHMS * 1_000) } else { 0 };
         self.cc_microcoulombs += charge_microcoulombs;
 
-        // Save `Sample` for diagnostics
+        // The window's reading, which is both the reported pack current and the diagnostics.
         self.last_sample = Some(Sample {
             average_current: Current::new::<ampere>(sum_microvolts as f32 / SUM_MICROVOLTS_PER_AMP as f32),
             charge_microcoulombs,
             windows_elapsed,
+            conversion_nanos,
         });
+
+        self.calculate_state_of_charge();
     }
 
-    /// Measures `t_CONV` against the host clock: `t / dI1CNTPHA * 4`. The internal oscillator is
-    /// specified at +/-10%, which is a 10% error on every coulomb if nominal is used instead.
-    fn measure_conversion_time(&mut self, i1cntpha: u16, read_at: Instant) {
-        let Some((base_pha, base_at)) = self.measurement_base else {
-            self.measurement_base = Some((i1cntpha, read_at));
-            return;
-        };
-
-        let elapsed = read_at.saturating_duration_since(base_at);
-        if elapsed < MEASUREMENT_WINDOW {
+    /// Latches a [`Reference`] at the current total, returning whether it was accepted.
+    pub fn seed(&mut self, min_cell_ocv: Voltage, settled_at: Instant) {
+        // Only reseed on new rest data
+        if self.seeded_from == Some(settled_at) {
             return;
         }
 
+        let Some(soc) = soc_from_ocv(min_cell_ocv) else {
+            defmt::warn!("HvPlate: soc: rejected an OCV seed outside the curve's valid range.");
+            return;
+        };
+
+        // `soc_drift = coulomb_counting - from_ocv`, so positive means
+        // the count is reading higher than the pack really is.
+        self.drift = self.state_of_charge.map_or(0.0, |reported| reported - soc);
+        self.seeded_from = Some(settled_at);
+        self.reference = Some(SocReference { soc, microcoulombs: self.cc_microcoulombs });
+        self.calculate_state_of_charge();
+        let age_millis = Instant::now().saturating_duration_since(settled_at).as_millis();
+        defmt::info!("HvPlate: soc: referenced at {} from an OCV taken {} ms ago; drift {}.", soc, age_millis, self.drift);
+    }
+
+    /// `t_CONV` measured against the host clock: `t / dI1CNTPHA * 4`, divided by [`ACCN`].
+    fn get_conversion_time(&mut self, i1cntpha: u16, read_at: Instant) -> Option<u32> {
+        let Some((base_pha, base_at)) = self.measurement_base else {
+            self.measurement_base = Some((i1cntpha, read_at));
+            return None;
+        };
+
+        let elapsed = read_at.saturating_duration_since(base_at);
         let ticks = (u32::from(i1cntpha) + I1CNTPHA_MODULUS - u32::from(base_pha)) % I1CNTPHA_MODULUS;
-        self.measurement_base = Some((i1cntpha, read_at));
+
+        // Only the full-window reading is a formal measurement, so only it re-bases and only it
+        // counts a desync -- otherwise a stuck counter would tally one every tick.
+        let measured = elapsed >= MEASUREMENT_WINDOW;
+        if measured {
+            self.measurement_base = Some((i1cntpha, read_at));
+        }
 
         if ticks == 0 {
-            self.desyncs = self.desyncs.saturating_add(1);
-            defmt::warn!("HvPlate: soc: counter did not move across a drift window; conversions may have stopped.");
-            return;
+            if measured {
+                self.desyncs = self.desyncs.saturating_add(1);
+                defmt::warn!("HvPlate: soc: counter did not move across a measurement window; conversions may have stopped.");
+            }
+            return None;
         }
 
         // A quarter either way against an oscillator specified at a tenth: past this the reading
@@ -244,12 +232,19 @@ impl SocTracker {
         let nanos = elapsed.as_micros() * 1_000 * PHASE_PER_CONVERSION / u64::from(ticks);
         const TOLERANCE: u64 = NOMINAL_CONVERSION_NANOS / 4;
         if nanos.abs_diff(NOMINAL_CONVERSION_NANOS) > TOLERANCE {
-            self.desyncs = self.desyncs.saturating_add(1);
-            defmt::warn!("HvPlate: soc: measured a conversion time of {} ns, too far from nominal to believe; keeping the last one.", nanos);
-            return;
+            if measured {
+                self.desyncs = self.desyncs.saturating_add(1);
+                defmt::warn!("HvPlate: soc: measured a conversion time of {} ns, too far from nominal to believe.", nanos);
+            }
+            return None;
         }
 
-        self.conversion_nanos = nanos as u32;
+        Some(nanos as u32)
+    }
+
+    /// Re-derives [`Self::state_of_charge`]. Call wherever the reference or the total moves.
+    fn calculate_state_of_charge(&mut self) {
+        self.state_of_charge = self.reference.map(|r| r.calculate_soc(self.cc_microcoulombs));
     }
 
     /// Net charge since boot. Positive is discharge. Never reset, by a restart or a reseed.
@@ -262,42 +257,20 @@ impl SocTracker {
         self.drift
     }
 
-    /// Latches a [`Reference`] at the current total, returning whether it was accepted.
-    ///
-    /// Call on a freshly published snapshot.
-    pub fn seed(&mut self, seed: &OcvSeed) {
-        // Only reseed on new rest data
-        if self.seeded_from == Some(seed.settled_at) {
-            return;
-        }
-
-        let Some(soc) = soc_from_ocv(seed.min_cell_ocv) else {
-            defmt::warn!("HvPlate: soc: rejected an OCV seed outside the curve's valid range.");
-            return;
-        };
-
-        // `soc_drift = coulomb_counting - from_ocv`, so positive means
-        // the count is reading higher than the pack really is.
-        self.drift = self.estimate.soc_at(self.cc_microcoulombs).map_or(0.0, |reported| reported - soc);
-        self.seeded_from = Some(seed.settled_at);
-        self.estimate = Estimate::Referenced(Reference { soc, microcoulombs: self.cc_microcoulombs });
-        let age_millis = Instant::now().saturating_duration_since(seed.settled_at).as_millis();
-        defmt::info!("HvPlate: soc: referenced at {} from an OCV taken {} ms ago; drift {}.", soc, age_millis, self.drift);
+    /// State of charge, 0..1. `None` until an OCV has seeded the count.
+    pub const fn state_of_charge(&self) -> Option<f32> {
+        self.state_of_charge
     }
 
-    #[allow(unused)]
-    pub const fn needs_seed(&self) -> bool {
-        matches!(self.estimate, Estimate::Unreferenced)
-    }
-
-    pub fn state_of_charge(&self) -> Option<f32> {
-        self.estimate.soc_at(self.cc_microcoulombs)
+    /// Mean pack current over the most recent accumulator window. Positive is discharge.
+    pub fn pack_current(&self) -> Option<Current> {
+        self.last_sample.map(|sample| sample.average_current)
     }
 
     /// `t_CONV`: the measured accumulator window, `ACCN` conversions. Nominally `ACCN` ms, and
-    /// the figure to watch for oscillator drift.
-    pub fn t_conv(&self) -> Duration {
-        Duration::from_micros(u64::from(self.conversion_nanos) * u64::from(ACCN) / 1_000)
+    /// the figure to watch for oscillator drift. `None` until a window has landed.
+    pub fn t_conv(&self) -> Option<Duration> {
+        self.last_sample.map(|sample| Duration::from_micros(u64::from(sample.conversion_nanos) * u64::from(ACCN) / 1_000))
     }
 
     pub const fn last_sample(&self) -> Option<Sample> {

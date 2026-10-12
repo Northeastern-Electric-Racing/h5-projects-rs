@@ -9,8 +9,10 @@ use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
 
 pub mod analyzer {
     use super::*;
-    use embassy_time::Instant;
     use crate::helpers::SnapshotCell;
+    use embassy_time::Instant;
+    use embassy_sync::blocking_mutex::ThreadModeMutex;
+    use core::cell::Cell;
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
     #[derive(Copy, Clone)]
@@ -23,6 +25,31 @@ pub mod analyzer {
 
     /// The most recently published analyzer data.
     static ANALYZER: SnapshotCell<Option<AnalyzerHolder>> = SnapshotCell::new(None);
+
+    /// What other nodes report about the pack over CAN.
+    struct ReportedOverCan {
+        /// Positive is discharge.
+        pack_current: Cell<Option<Current>>,
+        ts_voltage: Cell<Option<Voltage>>,
+    }
+
+    impl ReportedOverCan {
+        const fn new() -> Self {
+            Self { pack_current: Cell::new(None), ts_voltage: Cell::new(None) }
+        }
+    }
+
+    static REPORTED_DATA: ThreadModeMutex<ReportedOverCan> = ThreadModeMutex::new(ReportedOverCan::new());
+
+    /// Records pack current from a CAN frame. Called by the CAN RX processor.
+    pub fn store_can_pack_current(current: Current) {
+        REPORTED_DATA.lock(|reported| reported.pack_current.set(Some(current)));
+    }
+
+    /// Records TS voltage from a CAN frame. Called by the CAN RX processor.
+    pub fn store_can_ts_voltage(voltage: Voltage) {
+        REPORTED_DATA.lock(|reported| reported.ts_voltage.set(Some(voltage)));
+    }
 
     /// Copies out the analyzer data.
     ///
@@ -210,6 +237,11 @@ pub mod analyzer {
         pub last_settled_at: Option<Instant>,
 
         /// State of Charge (SoC) of the pack.
+        /// Pack current for this cycle, from whichever source was authoritative when it ran.
+        /// Positive is discharge. C's `hv_plate->pack_current`.
+        pub pack_current: Option<Current>,
+        /// Tractive-system voltage for this cycle. C's `hv_plate->ts_volts`.
+        pub ts_voltage: Option<Voltage>,
         pub soc: Ratio,
 
         /// Deadline after which `open_cell_voltage` can be updated.
@@ -297,6 +329,8 @@ pub mod analyzer {
 
                 pack_voltage: Voltage::new::<volt>(f32::MIN),
 
+                pack_current: None,
+                ts_voltage: None,
                 soc: Ratio::new::<ratio>(0.0_f32),
                 last_settled_at: None,
             }
@@ -529,13 +563,13 @@ pub mod analyzer {
 
             const OCV_CURR_THRESH: Current = Current::from_amps(0.5_f32);
             const OCV_TIMER_DURATION: Duration = Duration::from_millis(1500);
-            
-            let Some(mut pack_current) = crate::hv_plate::pack_current() else { return; };
+
+            let Some(mut pack_current) = self.pack_current else {
+                return;
+            };
             let mut update_ocv = false;
 
-            let ocv_update_allowed: bool = {
-                pack_current.abs() < OCV_CURR_THRESH
-            };
+            let ocv_update_allowed: bool = { pack_current.abs() < OCV_CURR_THRESH };
 
             if self.ocv_is_first_reading {
                 let last_cell: Voltage = self.chip_data[ChipId::last()].cell_voltages[CellId::last()];
@@ -567,6 +601,10 @@ pub mod analyzer {
                         self.open_cell_voltage[chip][cell] = self.chip_data[chip].cell_voltages[cell];
                     }
                 }
+
+                // The rest timer has just expired, so this is the moment the pack is provably
+                // settled -- which is what an OCV describes, and what `soc` seeds against.
+                self.last_settled_at = Some(Instant::now());
             }
         }
     }
@@ -606,6 +644,11 @@ pub mod analyzer {
             let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new(chip_data));
             analyzer.chip_data = chip_data;
 
+            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or_else(crate::hv_plate::shunt_current);
+            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get());
+            // Zero until an open-circuit voltage seeds the count.
+            analyzer.soc = crate::hv_plate::state_of_charge().unwrap_or(Ratio::new::<ratio>(0.0_f32));
+
             // this whole section is supposed to look pretty similar to the C code just so
             // we make sure we bring everything over correctly.
             // calc_cell_temps() is in the C code, but is not needed here because the chipdata already calculates cell temps.
@@ -614,9 +657,6 @@ pub mod analyzer {
             analyzer.calc_open_cell_voltage();
             analyzer.calc_pack_voltage_stats();
 
-            // State of charge lives in hv_plate, which owns the shunt accumulator. Zero until an
-            // open-circuit voltage seeds the count.
-            analyzer.soc = crate::hv_plate::state_of_charge().unwrap_or(Ratio::new::<ratio>(0.0_f32));
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
 
@@ -735,10 +775,14 @@ pub mod analyzer {
                 }
             }
 
-            can::send(PackSocStatus {
-                pack_soc: analyzer.soc.get::<ratio>(),
-                pack_soc_drift: crate::hv_plate::soc_drift(),
-            }.as_frame()).await;
+            can::send(
+                PackSocStatus {
+                    pack_soc: analyzer.soc.get::<ratio>(),
+                    pack_soc_drift: crate::hv_plate::soc_drift(),
+                }
+                .as_frame(),
+            )
+            .await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {

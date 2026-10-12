@@ -5,8 +5,6 @@ use adbms2950::chip::commands;
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use static_cell::StaticCell;
 
-use crate::helpers::Deadline;
-
 use super::cache::{self, UpdateError};
 use super::isospi_recovery;
 use super::precharge;
@@ -161,66 +159,59 @@ impl HvPlate {
     async fn set_hv_relay(&mut self, energized: bool) -> Result<(), Error<alias::SpiError>> {
         use adbms2950::chip::registers::config_a::types::GpoOutputState;
 
-        let state = if energized {
-            GpoOutputState::PulledLow
-        } else {
-            GpoOutputState::Driven
-        };
+        let state = if energized { GpoOutputState::PulledLow } else { GpoOutputState::Driven };
         self.api.modify_configa(|cfg| cfg.with_gpo4c(state)).await
     }
 }
 
 /// PUBLIC API! for HV Plate
 pub mod api {
-    use crate::units::{Current, Ratio, Voltage};
+    use crate::units::{Current, Ratio};
     use core::cell::Cell;
     use embassy_sync::blocking_mutex::ThreadModeMutex;
 
-    static TS_VOLTAGE: ThreadModeMutex<Cell<Option<Voltage>>> = ThreadModeMutex::new(Cell::new(None));
-    static PACK_CURRENT: ThreadModeMutex<Cell<Option<Current>>> = ThreadModeMutex::new(Cell::new(None));
-    static SOC: ThreadModeMutex<Cell<Option<Ratio>>> = ThreadModeMutex::new(Cell::new(None));
-    static SOC_DRIFT: ThreadModeMutex<Cell<f32>> = ThreadModeMutex::new(Cell::new(0.0));
-
-    /// Pack current
-    pub fn pack_current() -> Option<Current> {
-        shunt_current().or_else(|| PACK_CURRENT.lock(|cell| cell.get()))
+    /// Everything this task publishes to the rest of the firmware.
+    struct HvPlateData {
+        /// Pack current as the 2950's accumulator measured it. Positive is discharge.
+        shunt_current: Cell<Option<Current>>,
+        state_of_charge: Cell<Option<Ratio>>,
+        soc_drift: Cell<f32>,
     }
 
-    /// The 2950 shunt reading, negated into "positive is discharge".
-    fn shunt_current() -> Option<Current> {
-        let raw = super::cache::CACHE.get_current_voltage();
-        raw.try_nice().map(|n| -n.pack_current).ok()
+    impl HvPlateData {
+        const fn new() -> Self {
+            Self {
+                shunt_current: Cell::new(None),
+                state_of_charge: Cell::new(None),
+                soc_drift: Cell::new(0.0),
+            }
+        }
     }
 
-    /// Records a pack current reading from CAN. **Positive is discharge**
-    pub fn store_pack_current(current: Current) {
-        PACK_CURRENT.lock(|cell| cell.set(Some(current)));
+    static HV_PLATE: ThreadModeMutex<HvPlateData> = ThreadModeMutex::new(HvPlateData::new());
+
+    /// Pack current from the 2950's accumulator. Positive is discharge.
+    pub fn shunt_current() -> Option<Current> {
+        HV_PLATE.lock(|data| data.shunt_current.get())
     }
 
     /// State of charge, 0..1. `None` until an open-circuit voltage has seeded the count.
     pub fn state_of_charge() -> Option<Ratio> {
-        SOC.lock(|cell| cell.get())
+        HV_PLATE.lock(|data| data.state_of_charge.get())
     }
 
-    /// Signed drift
+    /// Positive means the coulomb count was reading higher than the OCV.
     pub fn soc_drift() -> f32 {
-        SOC_DRIFT.lock(|cell| cell.get())
+        HV_PLATE.lock(|data| data.soc_drift.get())
     }
 
-    /// Publishes what `SocTracker` currently knows. Called by the HV plate task.
-    pub(super) fn store_soc(state_of_charge: Option<Ratio>, drift: f32) {
-        SOC.lock(|cell| cell.set(state_of_charge));
-        SOC_DRIFT.lock(|cell| cell.set(drift));
-    }
-
-    /// Tractive-system voltage
-    pub fn ts_voltage() -> Option<Voltage> {
-        TS_VOLTAGE.lock(|cell| cell.get())
-    }
-
-    /// Records a TS voltage reading. Called by the CAN RX processor.
-    pub fn store_ts_voltage(voltage: Voltage) {
-        TS_VOLTAGE.lock(|cell| cell.set(Some(voltage)));
+    /// Publishes what the SoC estimator currently knows. Called by the HV plate task.
+    pub(super) fn store_soc(state_of_charge: Option<Ratio>, drift: f32, shunt_current: Option<Current>) {
+        HV_PLATE.lock(|data| {
+            data.state_of_charge.set(state_of_charge);
+            data.soc_drift.set(drift);
+            data.shunt_current.set(shunt_current);
+        });
     }
 }
 
@@ -333,6 +324,8 @@ pub mod task {
         fn log_diagnostics(&self) {
             let api = &self.api;
             let device = api.device();
+            defmt_monitor::monitor!("HvPlate/IsoSpi/ServiceState", desc = "isoSPI recovery state: Normal, BreakDetected, Verifying, ServiceSuccess, ServiceFailed.", "{}", self.recovery_service.state());
+            defmt_monitor::monitor!("HvPlate/IsoSpi/ErrorsInWindow", desc = "PEC failures accumulated since the detector last re-baselined. A spike over 0 arms a 1500 ms window; over 16 when it closes declares a break.", "{=u32}", self.recovery_service.errors_in_window(api));
             defmt_monitor::monitor!("HvPlate/Device/ActiveLine", desc = "Which isoSPI line is currently in use. The service switches this when a line's failure rate goes over threshold.", "{}", api.active_line());
             defmt_monitor::monitor!("HvPlate/Device/LineAErrorCount", desc = "Transactions that have failed on isoSPI line A since boot.", "{=u32}", api.line_error_count(adbms2950::api::LineId::A));
             defmt_monitor::monitor!("HvPlate/Device/LineBErrorCount", desc = "Transactions that have failed on isoSPI line B since boot.", "{=u32}", api.line_error_count(adbms2950::api::LineId::B));
@@ -353,22 +346,18 @@ pub mod task {
         /// 10% fast, so a window can close in 32/1.1 = 29.09 ms. Reads must stay inside that --
         /// the guidance figure is 28.8 ms, and 25 ms leaves headroom for jitter on top. ~22%
         /// margin for jitter.
-        const TICK: Duration = Duration::from_millis(25);
-        /// How often the diagnostic reads run.
+        const PERIOD: Duration = Duration::from_millis(25);
         const DIAGNOSTIC_PERIOD: Duration = Duration::from_secs(1);
+        const DIAGNOSTIC_TICKS: u32 = (DIAGNOSTIC_PERIOD.as_ticks() / PERIOD.as_ticks()) as u32;
 
         let mut hv_plate = HvPlate::new(r);
 
         // Per-run state
         let mut precharge = precharge::Precharge::new();
-        let mut soc = soc::SocTracker::new(Instant::now());
+        let mut soc = soc::Estimator::new(Instant::now());
 
-        let mut ticker = Ticker::every(TICK);
-
-        // Aux fires on the first pass so there are diagnostics before the first second is out;
-        // status is offset half a period so the two tend not to share a tick.
-        let mut aux_due = Deadline::expire_at_beginning_of_time();
-        let mut status_due = Deadline::expire_in(DIAGNOSTIC_PERIOD / 2);
+        let mut ticker = Ticker::every(PERIOD);
+        let mut tick_count: u32 = 0;
 
         loop {
             let tick_start = Instant::now();
@@ -403,11 +392,11 @@ pub mod task {
                 }
 
                 // Re-seeds on every new rest period
-                // `SocTracker::seed` ignores a snapshot it has already applied
+                // `Estimator::seed` ignores a snapshot it has already applied
                 if let Some(analyzer) = crate::pack::analyzer::analyzer()
                     && let Some(settled_at) = analyzer.data.last_settled_at
                 {
-                    soc.seed(&soc::OcvSeed { min_cell_ocv: analyzer.data.min_ocv.value(), settled_at });
+                    soc.seed(analyzer.data.min_ocv.value(), settled_at);
                 }
 
                 // Gated on a clean snap so IVB1ACC and FLAG are from the same window.
@@ -415,7 +404,7 @@ pub mod task {
                     soc.accumulate();
                 }
 
-                api::store_soc(soc.state_of_charge().and_then(crate::units::Ratio::from_ratio), soc.soc_drift());
+                api::store_soc(soc.state_of_charge().and_then(crate::units::Ratio::from_ratio), soc.soc_drift(), soc.pack_current());
             };
 
             // Run precharge and set relay
@@ -426,17 +415,13 @@ pub mod task {
             }
 
             '_diagnostic: {
-                if aux_due.past() {
-                    aux_due = Deadline::expire_in(DIAGNOSTIC_PERIOD);
-
+                if tick_count == 0 {
                     if let Err(err) = hv_plate.job_update_aux_registers().await {
                         defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_aux_registers()` failed. Error: {}", err);
                     }
                 }
 
-                if status_due.past() {
-                    status_due = Deadline::expire_in(DIAGNOSTIC_PERIOD);
-
+                if tick_count == DIAGNOSTIC_TICKS / 2 {
                     if let Err(err) = hv_plate.job_update_status_registers().await {
                         defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_status_registers()` failed. Error: {}", err);
                     }
@@ -452,7 +437,7 @@ pub mod task {
                         defmt_monitor::monitor!("HvPlate/Soc/StateOfCharge", desc = "State of charge 0..1, or -1 while unreferenced.", "{=f32}", soc.state_of_charge().unwrap_or(-1.0));
                         defmt_monitor::monitor!("HvPlate/Soc/SampleCharge", desc = "Charge moved in the most recent accumulator window, in microcoulombs.", "{=i64}", sample.charge_microcoulombs);
                         defmt_monitor::monitor!("HvPlate/Soc/WindowsElapsed", desc = "Accumulator windows covered by the most recent sample. 1 is clean.", "{=u16}", sample.windows_elapsed);
-                        defmt_monitor::monitor!("HvPlate/Soc/TConvUs", desc = "Measured t_CONV, the accumulator window, in us. Nominally 32000; drift from that is the internal oscillator, specified at +/-10%.", "{=u64}", soc.t_conv().as_micros());
+                        defmt_monitor::monitor!("HvPlate/Soc/TConvUs", desc = "Measured t_CONV, the accumulator window, in us. 0 until the first window lands. Nominally 32000; drift from that is the internal oscillator, specified at +/-10%.", "{=u64}", soc.t_conv().map_or(0, |window| window.as_micros()));
                         defmt_monitor::monitor!("HvPlate/Soc/CC", desc = "The datasheet's CC: net charge moved since boot, in microcoulombs. Positive is discharge. Never reset -- not by a chip restart, not by a reseed.", "{=i64}", soc.cc_microcoulombs());
                         defmt_monitor::monitor!("HvPlate/Soc/Drift", desc = "Gap the last accepted OCV found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", soc.soc_drift());
                     }
@@ -463,6 +448,7 @@ pub mod task {
 
             defmt_monitor::monitor!("HvPlate/TaskDiagnostics/last_duration", desc = "Duration of the most recent hv_plate task cycle, in ms.", "{=u64}", Instant::now().saturating_duration_since(tick_start).as_millis());
 
+            tick_count = (tick_count.wrapping_add(1)) % DIAGNOSTIC_TICKS;
             ticker.next().await;
         }
     }

@@ -1,4 +1,4 @@
-use super::{cache, core as hv_core};
+use super::cache;
 use crate::units::{Voltage, volt};
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_time::{Duration, Instant};
@@ -94,13 +94,16 @@ impl Precharge {
         use uom::si::electric_current::ampere;
 
         // Any reading missing resolves to `Open` for safety.
-        let (Some(ts), Some(batt), Some(current)) = (
-            hv_core::api::ts_voltage(),
-            cache::CACHE.get_current_voltage().try_nice().map(|r| r.batt_voltage).ok(),
-            hv_core::api::pack_current(),
-        ) else {
+        // u_TODO - right now the routine pulls from analyzer kind of silently in the hv plate task loop.
+        // For now this function will just do a `analyzer::analyzer()` call,
+        // but we should change later once we get TS sense working properly
+        let (Some(analyzer), Ok(batt)) = (crate::pack::analyzer::analyzer(), cache::CACHE.get_current_voltage().try_nice()) else {
             return State::Open;
         };
+        let (Some(ts), Some(current)) = (analyzer.data.ts_voltage, analyzer.data.pack_current) else {
+            return State::Open;
+        };
+        let batt = batt.batt_voltage;
 
         self.ts.push(ts);
         self.batt.push(batt);

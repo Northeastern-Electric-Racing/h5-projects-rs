@@ -445,7 +445,7 @@ mod handler {
     #[embassy_executor::task]
     pub async fn can_rx_processer() -> ! {
         use embedded_can::Id;
-        use crate::{hv_plate, state_machine};
+        use crate::{pack, state_machine};
 
         const CHARGER_BOX: u32 = 0x18FF_50E5;
         const DTI_DC_CURRENT: u16 = 0x436;
@@ -455,23 +455,25 @@ mod handler {
             let frame = super::channels::INCOMING.receive().await;
 
             match frame.id() {
+                // Precedence as C's `can_handler`: the charger wins while connected. Values go
+                // to `pack`, not into this task's own memory.
                 Id::Extended(id) if id.as_raw() == CHARGER_BOX => {
                     state_machine::charger_frame_received();
                     if let Some(current) = decode_current(frame.data()) {
-                        hv_plate::store_pack_current(current);
+                        pack::analyzer::store_can_pack_current(current);
                     }
                     if let Some(voltage) = decode_charger_voltage(frame.data()) {
-                        hv_plate::store_ts_voltage(voltage);
+                        pack::analyzer::store_can_ts_voltage(voltage);
                     }
                 },
-                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !crate::state_machine::charger_connected() => {
+                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !state_machine::charger_connected() => {
                     if let Some(current) = decode_current(frame.data()) {
-                        hv_plate::store_pack_current(current);
+                        pack::analyzer::store_can_pack_current(current);
                     }
                 },
-                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !crate::state_machine::charger_connected() => {
+                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !state_machine::charger_connected() => {
                     if let Some(voltage) = decode_dti_voltage(frame.data()) {
-                        hv_plate::store_ts_voltage(voltage);
+                        pack::analyzer::store_can_ts_voltage(voltage);
                     }
                 },
                 _ => {},

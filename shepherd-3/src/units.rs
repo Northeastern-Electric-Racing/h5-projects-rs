@@ -525,9 +525,14 @@ pub mod ops {
     /// Forwards negation operations
     macro_rules! forward_neg_op {
         ($wrapper:ident, $inner:ty) => {
-            impl Neg for $wrapper where $inner: Neg<Output = $inner> {
+            impl Neg for $wrapper
+            where
+                $inner: Neg<Output = $inner>,
+            {
                 type Output = Self;
-                fn neg(self) -> Self { Self::from_inner(self.as_inner().neg()) }
+                fn neg(self) -> Self {
+                    Self::from_inner(self.as_inner().neg())
+                }
             }
         };
     }
