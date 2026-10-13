@@ -318,6 +318,7 @@ dependencies = [
 name = "cerberus"
 version = "0.1.0"
 dependencies = [
+ "atlas-app",
  "can-handler",
  "cangen",
  "cortex-m",
@@ -1239,6 +1240,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 name = "lightning"
 version = "0.1.0"
 dependencies = [
+ "atlas-app",
  "can-handler",
  "cortex-m",
  "cortex-m-rt",
@@ -1299,6 +1301,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 name = "msb-fw-2"
 version = "0.1.0"
 dependencies = [
+ "atlas-app",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",
@@ -1309,6 +1312,7 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
+ "embedded-can",
  "heapless",
  "panic-probe",
  "static_cell",
@@ -1697,6 +1701,7 @@ dependencies = [
  "adbms2950",
  "adbms6830b",
  "assign-resources",
+ "atlas-app",
  "cangen",
  "cortex-m",
  "cortex-m-rt",

@@ -111,6 +111,10 @@ assign_resources! {
     }
 }
 
+// Match this ECU's application boot-entry settings in atlas/ecus.json.
+const BOOT_REQUEST_ID: u16 = 0x013;
+const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Initializing project...");
@@ -119,9 +123,12 @@ async fn main(spawner: Spawner) {
 
     hardfault::report_last_reset();
 
+    let mut bootloader = atlas_app::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    // Accept basic startup; device initialization continues in the spawned tasks.
+    bootloader.confirm_boot().expect("Failed to confirm application startup");
     let r = split_resources!(p);
 
-    spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
+    spawner.spawn(can::can_task(spawner, r.can, bootloader).expect("Failed to spawn can::can_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));

@@ -23,7 +23,11 @@ mod rtds;
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
-use ner_can::{can_rx, can_tx};
+use ner_can::can_tx;
+
+// Match this ECU's application boot-entry settings in atlas/ecus.json.
+const BOOT_REQUEST_ID: u16 = 0x017;
+const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -85,6 +89,11 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     });
+    let mut bootloader = atlas_app::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    // Accept basic startup; device initialization continues in the spawned tasks.
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
     spawner.spawn(
         can_tx(
             can_tx_half,
@@ -93,10 +102,7 @@ async fn main(spawner: Spawner) -> ! {
         )
         .expect("Failed to spawn ner_can::can_tx()."),
     );
-    spawner.spawn(
-        can_rx(can_rx_half, can::INCOMING.dyn_sender())
-            .expect("Failed to spawn ner_can::can_rx()."),
-    );
+    spawner.spawn(can::receive(can_rx_half, bootloader).expect("Failed to spawn can::receive()."));
 
     // ADC1 + analog mux
     spawner.spawn(

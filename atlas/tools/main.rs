@@ -53,7 +53,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .to_owned();
     let config = build_config::Config::read(&root.join("atlas/ecus.json"))?;
     config.select(&name)?;
-    println!("Building {name} using {PACKAGE}");
+    println!("Building {PACKAGE} for {name}");
 
     let mut command = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
     command
