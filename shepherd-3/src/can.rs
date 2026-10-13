@@ -2,10 +2,18 @@
 
 use embassy_stm32::can::Frame;
 
+/// IDs we receive.
+/// u_TODO – cangen can make this obsolete
+mod rx_ids {
+    pub const CHARGER_BOX: u32 = 0x18FF_50E5;
+    pub const DTI_DC_CURRENT: u16 = 0x436;
+    pub const DTI_INPUT_VOLTAGE: u16 = 0x416;
+}
+
 /// MAIN PUBLIC API THE REST OF THE PROGRAM USES TO INTERACT WITH CAN.
 mod api {
-    use embassy_stm32::can::Frame;
     use super::{channels, handler, interrupts};
+    use embassy_stm32::can::Frame;
 
     /// Add a frame to the outgoing CAN channel.
     pub async fn send(frame: Frame) {
@@ -29,26 +37,19 @@ mod api {
         }
     }
 
-    /// Get a frame from the incoming CAN channel.
-    /// (this doesn't need to check for an error because of `receive()` is empty there is no problem, it just means there is no pending messages)
-    /// u_TODO - this probably shouldn't be public at all, since all recieving should be done inside the can handler itself. but for now we will keep this here since the state of this file is probably temporary (assuming much of this stuff will be moved into the can-handler in the `firmware-rs` repo)
-    pub async fn recieve() -> Frame {
-        channels::INCOMING.receive().await
-    }
-
     /// Initializes CAN and starts up the CAN handler.
     #[embassy_executor::task]
     pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources) {
-        use embassy_stm32::can::{CanConfigurator};
-        use embassy_stm32::can::filter::{StandardFilterSlot};
-
-        /// CAN ID for DTI status message. We use this to make sure we are always triggering our CAN interrupt (which this will do because
-        /// this message always gets recieved). We need to do this because it protects against our TX waker from going to sleep forever,
-        /// which happens right now for some reason. Ideally this will be a temporary fix.
-        const DTI_ERPM_STATUS_MESSAGE: u16 = 0x416;
+        use super::rx_ids;
+        use embassy_stm32::can::CanConfigurator;
+        use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
 
         let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
-        let can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None);
+        #[rustfmt::skip]
+        let can = handler::NerCan::init(configurator)
+            .add_standard_filter(StandardFilterSlot::_0, rx_ids::DTI_INPUT_VOLTAGE, None)
+            .add_standard_filter(StandardFilterSlot::_1, rx_ids::DTI_DC_CURRENT, None)
+            .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None);
 
         let (tx, rx, _props) = can.start();
 
@@ -273,7 +274,7 @@ mod channels {
 }
 
 mod handler {
-    use defmt::{warn};
+    use defmt::warn;
     use embassy_stm32::can::filter::FilterType::{DedicatedDual, DedicatedSingle};
     use embassy_stm32::can::filter::{Action, ExtendedFilter, ExtendedFilterSlot, StandardFilter, StandardFilterSlot};
     use embassy_stm32::can::{CanConfigurator, CanRx, CanTx, Properties};
@@ -374,8 +375,8 @@ mod handler {
     /// Drains the outgoing channel onto the bus.
     #[embassy_executor::task]
     pub async fn can_tx(mut tx: CanTx<'static>) -> ! {
+        use embassy_futures::select::{Either, select};
         use embassy_time::Timer;
-        use embassy_futures::select::{select, Either};
 
         let mut send_count: u32 = 0;
         let mut dropped_due_to_outgoing_full_count: u32 = 0;
@@ -444,19 +445,14 @@ mod handler {
     /// Reads incoming CAN frames from the software queue and dispatches them.
     #[embassy_executor::task]
     pub async fn can_rx_processer() -> ! {
-        use embedded_can::Id;
+        use super::rx_ids::*;
         use crate::{pack, state_machine};
-
-        const CHARGER_BOX: u32 = 0x18FF_50E5;
-        const DTI_DC_CURRENT: u16 = 0x436;
-        const DTI_INPUT_VOLTAGE: u16 = 0x416;
+        use embedded_can::Id;
 
         loop {
             let frame = super::channels::INCOMING.receive().await;
 
             match frame.id() {
-                // Precedence as C's `can_handler`: the charger wins while connected. Values go
-                // to `pack`, not into this task's own memory.
                 Id::Extended(id) if id.as_raw() == CHARGER_BOX => {
                     state_machine::charger_frame_received();
                     if let Some(current) = decode_current(frame.data()) {
