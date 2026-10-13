@@ -29,6 +29,7 @@ pub enum FuncState {
 } // Must stay below 8 for CAN size limits
 
 impl FuncState {
+    /// If this is a Drive state
     fn is_active(&self) -> bool {
         matches!(
             self,
@@ -137,6 +138,10 @@ fn start_reverse_sound() {}
 
 fn stop_reverse_sound() {}
 
+// ---------------------------------------------------------------------------
+// END TEMP functions
+// ---------------------------------------------------------------------------
+
 #[derive(Copy, Clone, Debug)]
 struct CerberusState {
     home_mode: bool,
@@ -209,7 +214,7 @@ impl CerberusState {
                 if new_state == FuncState::Reverse {
                     start_reverse_sound();
                 } else if crate::rtds::sound_rtds().is_err() {
-                    warn!("Failed to start RTD sound")
+                    warn!("Failed to start Ready to Drive Sound")
                 }
 
                 info!("ACTIVE STATE: {:?}", new_state);
@@ -231,6 +236,7 @@ impl CerberusState {
         Ok(())
     }
 
+    /// Sets the func state, stops reversing sound
     fn set_func_state(&mut self, new: FuncState) {
         if self.state == FuncState::Reverse && new != FuncState::Reverse {
             stop_reverse_sound();
@@ -238,16 +244,19 @@ impl CerberusState {
         self.state = new;
     }
 
+    /// Add the error flag and set the deadline for STATE_TRANSITION_ERROR_CLEAR_TIMEOUT from now
     fn set_error(&mut self, error: TransitionError) {
         self.transition_error |= error;
         self.error_deadline = Instant::now() + STATE_TRANSITION_ERROR_CLEAR_TIMEOUT;
     }
 
+    /// Clear the errors and disable deadline
     fn clear_error(&mut self) {
         self.transition_error = TransitionError::NONE;
         self.error_deadline = Instant::MAX;
     }
 
+    /// Select the current NERO state
     fn select(&mut self) -> Result<(), ()> {
         if !self.home_mode {
             debug!("Cannot select current state as not in home mode");
@@ -282,7 +291,7 @@ impl CerberusState {
         }
     }
 
-    fn handle(&mut self, command: TransitionCommands) -> Result<(), ()> {
+    fn handle_command(&mut self, command: TransitionCommands) -> Result<(), ()> {
         match command {
             TransitionCommands::INCREMENT => self.transition_nero_state(self.nero_menu.next()),
             TransitionCommands::DECREMENT => self.transition_nero_state(self.nero_menu.prev()),
@@ -299,6 +308,7 @@ impl CerberusState {
         }
     }
 
+    /// Construct the CarState CAN struct
     fn to_frame(self) -> cangen::CarState {
         cangen::CarState::new()
             .with_home_mode(u8::from(self.home_mode))
@@ -316,11 +326,11 @@ impl CerberusState {
     }
 }
 
-pub async fn get_func_state() -> FuncState {
+pub(crate) async fn get_func_state() -> FuncState {
     STATE_MUTEX.lock().await.state
 }
 
-pub async fn get_nero_menu() -> NeroMenu {
+pub(crate) async fn get_nero_menu() -> NeroMenu {
     STATE_MUTEX.lock().await.nero_menu
 }
 
@@ -364,14 +374,14 @@ pub async fn statemachine_task() {
 
     loop {
         match select3(
-            TRANSITION_QUEUE.receive(),
-            Timer::at(state.error_deadline),
-            Timer::after(SEND_NERO_TIMEOUT),
+            TRANSITION_QUEUE.receive(),      // On a new command, handle it
+            Timer::at(state.error_deadline), // Clear errors after deadline
+            Timer::after(SEND_NERO_TIMEOUT), // Periodically send CAN
         )
         .await
         {
             Either3::First(command) => {
-                if state.handle(command).is_err() {
+                if state.handle_command(command).is_err() {
                     debug!("Error handling NERO command");
                 }
             }
