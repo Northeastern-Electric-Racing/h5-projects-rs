@@ -3,6 +3,9 @@ edition = "2024"
 name = "cerberus"
 version = "0.1.0"
 
+[package.metadata.can-flash]
+ecu = "vcu"
+
 [dependencies]
 atlas-app.workspace = true
 cortex-m.workspace = true

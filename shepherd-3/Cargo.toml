@@ -3,6 +3,9 @@ edition = "2024"
 name = "shepherd-3"
 version = "0.1.0"
 
+[package.metadata.can-flash]
+ecu = "bms"
+
 [features]
 hil = []
 
