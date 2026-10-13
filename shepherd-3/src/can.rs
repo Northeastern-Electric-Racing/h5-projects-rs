@@ -48,9 +48,7 @@ mod api {
         const DTI_ERPM_STATUS_MESSAGE: u16 = 0x416;
 
         let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
-        let can = handler::NerCan::init(configurator)
-            .add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None)
-            .add_standard_filter(StandardFilterSlot::_1, crate::BOOT_REQUEST_ID, None);
+        let can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None).add_standard_filter(StandardFilterSlot::_1, crate::BOOT_REQUEST_ID, None);
 
         let (tx, rx, _props) = can.start();
 
