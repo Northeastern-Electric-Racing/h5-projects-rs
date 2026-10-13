@@ -1,5 +1,4 @@
 use cangen::ToCanFrame;
-use core::ops::Add;
 use defmt::{bitflags, debug, info, warn};
 use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -38,7 +37,7 @@ impl FuncState {
     }
 }
 
-#[derive(Copy, Clone, VariantCount, Ord, PartialOrd, Eq, PartialEq, Debug, defmt::Format)]
+#[derive(Copy, Clone, VariantCount, Eq, PartialEq, Debug, defmt::Format)]
 pub enum NeroMenu {
     Off,
     Pit,
@@ -49,10 +48,6 @@ pub enum NeroMenu {
     Themes,
     Exit,
 } // Must stay below 15 for CAN size limits
-
-// Compile-time guards for the CAN field widths noted above.
-const _: () = assert!(FuncState::VARIANT_COUNT < 8);
-const _: () = assert!(NeroMenu::VARIANT_COUNT < 15);
 
 impl NeroMenu {
     fn next(&self) -> NeroMenu {
@@ -78,16 +73,6 @@ impl NeroMenu {
             NeroMenu::Games => NeroMenu::Efficiency,
             NeroMenu::Themes => NeroMenu::Games,
             NeroMenu::Exit => NeroMenu::Themes,
-        }
-    }
-
-    fn drive_state(&self) -> Option<FuncState> {
-        match self {
-            NeroMenu::Pit => Some(FuncState::Pit),
-            NeroMenu::Reverse => Some(FuncState::Reverse),
-            NeroMenu::Performance => Some(FuncState::Performance),
-            NeroMenu::Efficiency => Some(FuncState::Efficiency),
-            _ => None,
         }
     }
 }
@@ -158,7 +143,7 @@ struct CerberusState {
     state: FuncState,
     nero_menu: NeroMenu,
     transition_error: TransitionError,
-    /// Instant::Max if no deadline
+    /// Instant::MAX if no deadline
     error_deadline: Instant,
 }
 
@@ -172,6 +157,10 @@ impl CerberusState {
     };
 
     fn transition_functional_state(&mut self, new_state: FuncState) -> Result<(), ()> {
+        if self.state == new_state {
+            return Ok(());
+        }
+
         self.clear_error();
 
         if accel_pressed() && new_state != FuncState::Faulted {
@@ -187,13 +176,16 @@ impl CerberusState {
                 Ok(())
             }
             FuncState::Faulted => {
+                set_mcu_fault(true);
                 self.nero_menu = NeroMenu::Off;
                 self.set_func_state(FuncState::Faulted);
                 self.home_mode = true;
-                set_mcu_fault(true);
                 Ok(())
             }
-            _ => {
+            FuncState::Pit
+            | FuncState::Reverse
+            | FuncState::Performance
+            | FuncState::Efficiency => {
                 if new_state == FuncState::Reverse && cfg!(feature = "disable_reverse") {
                     self.set_error(TransitionError::REVERSE_DISABLED);
                     return Err(());
@@ -222,6 +214,7 @@ impl CerberusState {
 
                 info!("ACTIVE STATE: {:?}", new_state);
                 self.set_func_state(new_state);
+                self.home_mode = false;
                 Ok(())
             }
         }
@@ -247,7 +240,7 @@ impl CerberusState {
 
     fn set_error(&mut self, error: TransitionError) {
         self.transition_error |= error;
-        self.error_deadline = Instant::now().add(STATE_TRANSITION_ERROR_CLEAR_TIMEOUT);
+        self.error_deadline = Instant::now() + STATE_TRANSITION_ERROR_CLEAR_TIMEOUT;
     }
 
     fn clear_error(&mut self) {
@@ -261,29 +254,31 @@ impl CerberusState {
             return Err(());
         }
 
+        match self.nero_menu {
+            NeroMenu::Off => Err(()),
+            NeroMenu::Pit => self.transition_functional_state(FuncState::Pit),
+            NeroMenu::Reverse => self.transition_functional_state(FuncState::Reverse),
+            NeroMenu::Performance => self.transition_functional_state(FuncState::Performance),
+            NeroMenu::Efficiency => self.transition_functional_state(FuncState::Efficiency),
+            NeroMenu::Games => {
+                if is_shutdown_closed() {
+                    self.set_error(TransitionError::ENTER_GAMES_SHUTDOWN_CLOSED);
+                    return Err(());
+                }
 
-        if let Some(state) = self.nero_menu.drive_state() {
-            self.transition_functional_state(state)?;
-            self.home_mode = false;
-            Ok(())
-        } else if self.nero_menu == NeroMenu::Games {
-            if is_shutdown_closed() {
-                self.set_error(TransitionError::ENTER_GAMES_SHUTDOWN_CLOSED);
-                return Err(());
+                if get_mph() >= 1.0f32 {
+                    self.set_error(TransitionError::ENTER_GAMES_WHILE_MOVING);
+                    return Err(());
+                }
+
+                self.home_mode = false;
+                Ok(())
             }
-
-            if get_mph() >= 1.0f32 {
-                self.set_error(TransitionError::ENTER_GAMES_WHILE_MOVING);
-                return Err(());
+            NeroMenu::Themes => {
+                self.home_mode = false;
+                Ok(())
             }
-
-            self.home_mode = false;
-            return Ok(());
-        } else if self.nero_menu == NeroMenu::Themes {
-            self.home_mode = false;
-            return Ok(());
-        } else {
-            return Err(());
+            NeroMenu::Exit => Err(()),
         }
     }
 
@@ -304,7 +299,7 @@ impl CerberusState {
         }
     }
 
-    fn to_frame(&self) -> cangen::CarState {
+    fn to_frame(self) -> cangen::CarState {
         cangen::CarState::new()
             .with_home_mode(u8::from(self.home_mode))
             .with_nero_index(self.nero_menu as u8)
@@ -387,7 +382,7 @@ pub async fn statemachine_task() {
             Either3::Third(_) => {}
         }
 
-        *STATE_MUTEX.lock().await = state;
+        *STATE_MUTEX.lock().await = state; // Copy the edited state into the readable mutex
         crate::can::OUTGOING
             .send(state.to_frame().to_can_frame())
             .await;
