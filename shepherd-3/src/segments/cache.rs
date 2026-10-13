@@ -102,7 +102,7 @@ impl<R: ReadableGroup> RegisterCache<R> {
     }
 
     /// Reads the register and updates the cache.
-    pub(in crate::segments::cache) async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<R>>, UpdateError> {
+    pub(in crate::segments::cache) async fn update(&self, api: &mut alias::Api) -> Result<RegisterCacheData<R>, UpdateError> {
         let data: [Reading<R>; ADBMS6830B_NUM_CHIPS] = {
             let responses = api.read::<R>().await;
 
@@ -142,9 +142,11 @@ impl<R: ReadableGroup> RegisterCache<R> {
             readings
         };
 
-        let data = IndexByChip::new(data);
-
-        self.set(RegisterCacheData { data, last_sucessful_read: embassy_time::Instant::now() });
+        let data = RegisterCacheData {
+            data: IndexByChip::new(data),
+            last_sucessful_read: embassy_time::Instant::now(),
+        };
+        self.set(data);
 
         Ok(data)
     }
@@ -452,7 +454,7 @@ impl CacheData {
 
 /// Register groups RedundantAuxillaryA through D.
 pub mod redundant_aux {
-    use super::{RegisterCache, IndexByChip, StartupCell, RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD, UpdateError, RegisterCacheReadHandle, Reading};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -463,11 +465,36 @@ pub mod redundant_aux {
     /// so you should probably look at the Raw readings if interested in that.
     pub type NiceData = IndexByChip<IndexByGpio<Voltage>>;
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for Redundant Aux register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -479,7 +506,7 @@ pub mod redundant_aux {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -516,7 +543,7 @@ pub mod redundant_aux {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let a = self.raxa.update(api).await?;
             let b = self.raxb.update(api).await?;
             let c = self.raxc.update(api).await?;
@@ -526,24 +553,29 @@ pub mod redundant_aux {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(a: IndexByChip<Reading<RedundantAuxillaryA>>, b: IndexByChip<Reading<RedundantAuxillaryB>>, c: IndexByChip<Reading<RedundantAuxillaryC>>, d: IndexByChip<Reading<RedundantAuxillaryD>>) -> NiceData {
-            IndexByChip::from_fn(|chip| {
+        fn nice(a: RegisterCacheData<RedundantAuxillaryA>, b: RegisterCacheData<RedundantAuxillaryB>, c: RegisterCacheData<RedundantAuxillaryC>, d: RegisterCacheData<RedundantAuxillaryD>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| {
                 IndexByGpio::from_fn(|gpio| match gpio {
-                    GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
-                    GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
-                    GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().r_g3v().as_microvolts() as f32),
+                    GpioId::Gpio1 => Voltage::new::<microvolt>(a.data().get(chip).data().r_g1v().as_microvolts() as f32),
+                    GpioId::Gpio2 => Voltage::new::<microvolt>(a.data().get(chip).data().r_g2v().as_microvolts() as f32),
+                    GpioId::Gpio3 => Voltage::new::<microvolt>(a.data().get(chip).data().r_g3v().as_microvolts() as f32),
 
-                    GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().r_g4v().as_microvolts() as f32),
-                    GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().r_g5v().as_microvolts() as f32),
-                    GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().r_g6v().as_microvolts() as f32),
+                    GpioId::Gpio4 => Voltage::new::<microvolt>(b.data().get(chip).data().r_g4v().as_microvolts() as f32),
+                    GpioId::Gpio5 => Voltage::new::<microvolt>(b.data().get(chip).data().r_g5v().as_microvolts() as f32),
+                    GpioId::Gpio6 => Voltage::new::<microvolt>(b.data().get(chip).data().r_g6v().as_microvolts() as f32),
 
-                    GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().r_g7v().as_microvolts() as f32),
-                    GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().r_g8v().as_microvolts() as f32),
-                    GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().r_g9v().as_microvolts() as f32),
+                    GpioId::Gpio7 => Voltage::new::<microvolt>(c.data().get(chip).data().r_g7v().as_microvolts() as f32),
+                    GpioId::Gpio8 => Voltage::new::<microvolt>(c.data().get(chip).data().r_g8v().as_microvolts() as f32),
+                    GpioId::Gpio9 => Voltage::new::<microvolt>(c.data().get(chip).data().r_g9v().as_microvolts() as f32),
 
-                    GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
+                    GpioId::Gpio10 => Voltage::new::<microvolt>(d.data().get(chip).data().r_g10v().as_microvolts() as f32),
                 })
-            })
+            });
+
+            Nice {
+                data,
+                oldest_read: a.last_sucessful_read().min(b.last_sucessful_read()).min(c.last_sucessful_read()).min(d.last_sucessful_read()),
+            }
         }
     }
 
@@ -576,7 +608,7 @@ pub mod redundant_aux {
 
 /// Register groups CellVoltages A through E (no F because we only use 13 cells).
 pub mod cell_voltages {
-    use super::{RegisterCache, IndexByChip, StartupCell, CellVoltagesA, CellVoltagesB, CellVoltagesC, CellVoltagesD, CellVoltagesE, UpdateError, RegisterCacheReadHandle, Reading};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, CellVoltagesA, CellVoltagesB, CellVoltagesC, CellVoltagesD, CellVoltagesE, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -587,11 +619,36 @@ pub mod cell_voltages {
     /// so you should probably look at the Raw readings if interested in that.
     pub type NiceData = IndexByChip<IndexByCell<Voltage>>;
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for CellVoltages register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -603,7 +660,7 @@ pub mod cell_voltages {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -645,7 +702,7 @@ pub mod cell_voltages {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let a = self.cva.update(api).await?;
             let b = self.cvb.update(api).await?;
             let c = self.cvc.update(api).await?;
@@ -656,28 +713,33 @@ pub mod cell_voltages {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(a: IndexByChip<Reading<CellVoltagesA>>, b: IndexByChip<Reading<CellVoltagesB>>, c: IndexByChip<Reading<CellVoltagesC>>, d: IndexByChip<Reading<CellVoltagesD>>, e: IndexByChip<Reading<CellVoltagesE>>) -> NiceData {
-            IndexByChip::from_fn(|chip| {
+        fn nice(a: RegisterCacheData<CellVoltagesA>, b: RegisterCacheData<CellVoltagesB>, c: RegisterCacheData<CellVoltagesC>, d: RegisterCacheData<CellVoltagesD>, e: RegisterCacheData<CellVoltagesE>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
-                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().c1v().as_microvolts() as f32),
-                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().c2v().as_microvolts() as f32),
-                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().c3v().as_microvolts() as f32),
+                    CellId::Cell1 => Voltage::new::<microvolt>(a.data().get(chip).data().c1v().as_microvolts() as f32),
+                    CellId::Cell2 => Voltage::new::<microvolt>(a.data().get(chip).data().c2v().as_microvolts() as f32),
+                    CellId::Cell3 => Voltage::new::<microvolt>(a.data().get(chip).data().c3v().as_microvolts() as f32),
 
-                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().c4v().as_microvolts() as f32),
-                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().c5v().as_microvolts() as f32),
-                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().c6v().as_microvolts() as f32),
+                    CellId::Cell4 => Voltage::new::<microvolt>(b.data().get(chip).data().c4v().as_microvolts() as f32),
+                    CellId::Cell5 => Voltage::new::<microvolt>(b.data().get(chip).data().c5v().as_microvolts() as f32),
+                    CellId::Cell6 => Voltage::new::<microvolt>(b.data().get(chip).data().c6v().as_microvolts() as f32),
 
-                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().c7v().as_microvolts() as f32),
-                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().c8v().as_microvolts() as f32),
-                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().c9v().as_microvolts() as f32),
+                    CellId::Cell7 => Voltage::new::<microvolt>(c.data().get(chip).data().c7v().as_microvolts() as f32),
+                    CellId::Cell8 => Voltage::new::<microvolt>(c.data().get(chip).data().c8v().as_microvolts() as f32),
+                    CellId::Cell9 => Voltage::new::<microvolt>(c.data().get(chip).data().c9v().as_microvolts() as f32),
 
-                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().c10v().as_microvolts() as f32),
-                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().c11v().as_microvolts() as f32),
-                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().c12v().as_microvolts() as f32),
+                    CellId::Cell10 => Voltage::new::<microvolt>(d.data().get(chip).data().c10v().as_microvolts() as f32),
+                    CellId::Cell11 => Voltage::new::<microvolt>(d.data().get(chip).data().c11v().as_microvolts() as f32),
+                    CellId::Cell12 => Voltage::new::<microvolt>(d.data().get(chip).data().c12v().as_microvolts() as f32),
 
-                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().c13v().as_microvolts() as f32),
+                    CellId::Cell13 => Voltage::new::<microvolt>(e.data().get(chip).data().c13v().as_microvolts() as f32),
                 })
-            })
+            });
+
+            Nice {
+                data,
+                oldest_read: a.last_sucessful_read().min(b.last_sucessful_read()).min(c.last_sucessful_read()).min(d.last_sucessful_read()).min(e.last_sucessful_read()),
+            }
         }
     }
 
@@ -708,7 +770,7 @@ pub mod cell_voltages {
 
 /// Register groups AverageCellVoltages A through E (no F because we only use 13 cells).
 pub mod average_cell_voltages {
-    use super::{RegisterCache, IndexByChip, StartupCell, AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE, UpdateError, RegisterCacheReadHandle, Reading};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -719,11 +781,36 @@ pub mod average_cell_voltages {
     /// so you should probably look at the Raw readings if interested in that.
     pub type NiceData = IndexByChip<IndexByCell<Voltage>>;
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for AverageCellVoltages register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -735,7 +822,7 @@ pub mod average_cell_voltages {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -777,7 +864,7 @@ pub mod average_cell_voltages {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let a = self.aca.update(api).await?;
             let b = self.acb.update(api).await?;
             let c = self.acc.update(api).await?;
@@ -788,28 +875,33 @@ pub mod average_cell_voltages {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(a: IndexByChip<Reading<AverageCellVoltagesA>>, b: IndexByChip<Reading<AverageCellVoltagesB>>, c: IndexByChip<Reading<AverageCellVoltagesC>>, d: IndexByChip<Reading<AverageCellVoltagesD>>, e: IndexByChip<Reading<AverageCellVoltagesE>>) -> NiceData {
-            IndexByChip::from_fn(|chip| {
+        fn nice(a: RegisterCacheData<AverageCellVoltagesA>, b: RegisterCacheData<AverageCellVoltagesB>, c: RegisterCacheData<AverageCellVoltagesC>, d: RegisterCacheData<AverageCellVoltagesD>, e: RegisterCacheData<AverageCellVoltagesE>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
-                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().ac1v().as_microvolts() as f32),
-                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().ac2v().as_microvolts() as f32),
-                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().ac3v().as_microvolts() as f32),
+                    CellId::Cell1 => Voltage::new::<microvolt>(a.data().get(chip).data().ac1v().as_microvolts() as f32),
+                    CellId::Cell2 => Voltage::new::<microvolt>(a.data().get(chip).data().ac2v().as_microvolts() as f32),
+                    CellId::Cell3 => Voltage::new::<microvolt>(a.data().get(chip).data().ac3v().as_microvolts() as f32),
 
-                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().ac4v().as_microvolts() as f32),
-                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().ac5v().as_microvolts() as f32),
-                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().ac6v().as_microvolts() as f32),
+                    CellId::Cell4 => Voltage::new::<microvolt>(b.data().get(chip).data().ac4v().as_microvolts() as f32),
+                    CellId::Cell5 => Voltage::new::<microvolt>(b.data().get(chip).data().ac5v().as_microvolts() as f32),
+                    CellId::Cell6 => Voltage::new::<microvolt>(b.data().get(chip).data().ac6v().as_microvolts() as f32),
 
-                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().ac7v().as_microvolts() as f32),
-                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().ac8v().as_microvolts() as f32),
-                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().ac9v().as_microvolts() as f32),
+                    CellId::Cell7 => Voltage::new::<microvolt>(c.data().get(chip).data().ac7v().as_microvolts() as f32),
+                    CellId::Cell8 => Voltage::new::<microvolt>(c.data().get(chip).data().ac8v().as_microvolts() as f32),
+                    CellId::Cell9 => Voltage::new::<microvolt>(c.data().get(chip).data().ac9v().as_microvolts() as f32),
 
-                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().ac10v().as_microvolts() as f32),
-                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().ac11v().as_microvolts() as f32),
-                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().ac12v().as_microvolts() as f32),
+                    CellId::Cell10 => Voltage::new::<microvolt>(d.data().get(chip).data().ac10v().as_microvolts() as f32),
+                    CellId::Cell11 => Voltage::new::<microvolt>(d.data().get(chip).data().ac11v().as_microvolts() as f32),
+                    CellId::Cell12 => Voltage::new::<microvolt>(d.data().get(chip).data().ac12v().as_microvolts() as f32),
 
-                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().ac13v().as_microvolts() as f32),
+                    CellId::Cell13 => Voltage::new::<microvolt>(e.data().get(chip).data().ac13v().as_microvolts() as f32),
                 })
-            })
+            });
+
+            Nice {
+                data,
+                oldest_read: a.last_sucessful_read().min(b.last_sucessful_read()).min(c.last_sucessful_read()).min(d.last_sucessful_read()).min(e.last_sucessful_read()),
+            }
         }
     }
 
@@ -840,7 +932,7 @@ pub mod average_cell_voltages {
 
 /// Register groups FilteredCellVoltages A through E (no F because we only use 13 cells).
 pub mod filtered_cell_voltages {
-    use super::{RegisterCache, IndexByChip, StartupCell, FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE, UpdateError, RegisterCacheReadHandle, Reading};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -851,11 +943,36 @@ pub mod filtered_cell_voltages {
     /// so you should probably look at the Raw readings if interested in that.
     pub type NiceData = IndexByChip<IndexByCell<Voltage>>;
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for FilteredCellVoltages register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -867,7 +984,7 @@ pub mod filtered_cell_voltages {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -909,7 +1026,7 @@ pub mod filtered_cell_voltages {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let a = self.fca.update(api).await?;
             let b = self.fcb.update(api).await?;
             let c = self.fcc.update(api).await?;
@@ -920,28 +1037,33 @@ pub mod filtered_cell_voltages {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(a: IndexByChip<Reading<FilteredCellVoltagesA>>, b: IndexByChip<Reading<FilteredCellVoltagesB>>, c: IndexByChip<Reading<FilteredCellVoltagesC>>, d: IndexByChip<Reading<FilteredCellVoltagesD>>, e: IndexByChip<Reading<FilteredCellVoltagesE>>) -> NiceData {
-            IndexByChip::from_fn(|chip| {
+        fn nice(a: RegisterCacheData<FilteredCellVoltagesA>, b: RegisterCacheData<FilteredCellVoltagesB>, c: RegisterCacheData<FilteredCellVoltagesC>, d: RegisterCacheData<FilteredCellVoltagesD>, e: RegisterCacheData<FilteredCellVoltagesE>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
-                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().fc1v().as_microvolts() as f32),
-                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().fc2v().as_microvolts() as f32),
-                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().fc3v().as_microvolts() as f32),
+                    CellId::Cell1 => Voltage::new::<microvolt>(a.data().get(chip).data().fc1v().as_microvolts() as f32),
+                    CellId::Cell2 => Voltage::new::<microvolt>(a.data().get(chip).data().fc2v().as_microvolts() as f32),
+                    CellId::Cell3 => Voltage::new::<microvolt>(a.data().get(chip).data().fc3v().as_microvolts() as f32),
 
-                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().fc4v().as_microvolts() as f32),
-                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().fc5v().as_microvolts() as f32),
-                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().fc6v().as_microvolts() as f32),
+                    CellId::Cell4 => Voltage::new::<microvolt>(b.data().get(chip).data().fc4v().as_microvolts() as f32),
+                    CellId::Cell5 => Voltage::new::<microvolt>(b.data().get(chip).data().fc5v().as_microvolts() as f32),
+                    CellId::Cell6 => Voltage::new::<microvolt>(b.data().get(chip).data().fc6v().as_microvolts() as f32),
 
-                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().fc7v().as_microvolts() as f32),
-                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().fc8v().as_microvolts() as f32),
-                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().fc9v().as_microvolts() as f32),
+                    CellId::Cell7 => Voltage::new::<microvolt>(c.data().get(chip).data().fc7v().as_microvolts() as f32),
+                    CellId::Cell8 => Voltage::new::<microvolt>(c.data().get(chip).data().fc8v().as_microvolts() as f32),
+                    CellId::Cell9 => Voltage::new::<microvolt>(c.data().get(chip).data().fc9v().as_microvolts() as f32),
 
-                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().fc10v().as_microvolts() as f32),
-                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().fc11v().as_microvolts() as f32),
-                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().fc12v().as_microvolts() as f32),
+                    CellId::Cell10 => Voltage::new::<microvolt>(d.data().get(chip).data().fc10v().as_microvolts() as f32),
+                    CellId::Cell11 => Voltage::new::<microvolt>(d.data().get(chip).data().fc11v().as_microvolts() as f32),
+                    CellId::Cell12 => Voltage::new::<microvolt>(d.data().get(chip).data().fc12v().as_microvolts() as f32),
 
-                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().fc13v().as_microvolts() as f32),
+                    CellId::Cell13 => Voltage::new::<microvolt>(e.data().get(chip).data().fc13v().as_microvolts() as f32),
                 })
-            })
+            });
+
+            Nice {
+                data,
+                oldest_read: a.last_sucessful_read().min(b.last_sucessful_read()).min(c.last_sucessful_read()).min(d.last_sucessful_read()).min(e.last_sucessful_read()),
+            }
         }
     }
 
@@ -972,7 +1094,7 @@ pub mod filtered_cell_voltages {
 
 /// Register groups SVoltages A through E (no F because we only use 13 cells).
 pub mod s_voltages {
-    use super::{RegisterCache, IndexByChip, StartupCell, SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE, UpdateError, RegisterCacheReadHandle, Reading};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -983,11 +1105,36 @@ pub mod s_voltages {
     /// so you should probably look at the Raw readings if interested in that.
     pub type NiceData = IndexByChip<IndexByCell<Voltage>>;
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for SVoltages register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -999,7 +1146,7 @@ pub mod s_voltages {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -1041,7 +1188,7 @@ pub mod s_voltages {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let a = self.sca.update(api).await?;
             let b = self.scb.update(api).await?;
             let c = self.scc.update(api).await?;
@@ -1052,28 +1199,33 @@ pub mod s_voltages {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(a: IndexByChip<Reading<SVoltagesA>>, b: IndexByChip<Reading<SVoltagesB>>, c: IndexByChip<Reading<SVoltagesC>>, d: IndexByChip<Reading<SVoltagesD>>, e: IndexByChip<Reading<SVoltagesE>>) -> NiceData {
-            IndexByChip::from_fn(|chip| {
+        fn nice(a: RegisterCacheData<SVoltagesA>, b: RegisterCacheData<SVoltagesB>, c: RegisterCacheData<SVoltagesC>, d: RegisterCacheData<SVoltagesD>, e: RegisterCacheData<SVoltagesE>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
-                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().s1v().as_microvolts() as f32),
-                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().s2v().as_microvolts() as f32),
-                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().s3v().as_microvolts() as f32),
+                    CellId::Cell1 => Voltage::new::<microvolt>(a.data().get(chip).data().s1v().as_microvolts() as f32),
+                    CellId::Cell2 => Voltage::new::<microvolt>(a.data().get(chip).data().s2v().as_microvolts() as f32),
+                    CellId::Cell3 => Voltage::new::<microvolt>(a.data().get(chip).data().s3v().as_microvolts() as f32),
 
-                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().s4v().as_microvolts() as f32),
-                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().s5v().as_microvolts() as f32),
-                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().s6v().as_microvolts() as f32),
+                    CellId::Cell4 => Voltage::new::<microvolt>(b.data().get(chip).data().s4v().as_microvolts() as f32),
+                    CellId::Cell5 => Voltage::new::<microvolt>(b.data().get(chip).data().s5v().as_microvolts() as f32),
+                    CellId::Cell6 => Voltage::new::<microvolt>(b.data().get(chip).data().s6v().as_microvolts() as f32),
 
-                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().s7v().as_microvolts() as f32),
-                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().s8v().as_microvolts() as f32),
-                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().s9v().as_microvolts() as f32),
+                    CellId::Cell7 => Voltage::new::<microvolt>(c.data().get(chip).data().s7v().as_microvolts() as f32),
+                    CellId::Cell8 => Voltage::new::<microvolt>(c.data().get(chip).data().s8v().as_microvolts() as f32),
+                    CellId::Cell9 => Voltage::new::<microvolt>(c.data().get(chip).data().s9v().as_microvolts() as f32),
 
-                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().s10v().as_microvolts() as f32),
-                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().s11v().as_microvolts() as f32),
-                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().s12v().as_microvolts() as f32),
+                    CellId::Cell10 => Voltage::new::<microvolt>(d.data().get(chip).data().s10v().as_microvolts() as f32),
+                    CellId::Cell11 => Voltage::new::<microvolt>(d.data().get(chip).data().s11v().as_microvolts() as f32),
+                    CellId::Cell12 => Voltage::new::<microvolt>(d.data().get(chip).data().s12v().as_microvolts() as f32),
 
-                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().s13v().as_microvolts() as f32),
+                    CellId::Cell13 => Voltage::new::<microvolt>(e.data().get(chip).data().s13v().as_microvolts() as f32),
                 })
-            })
+            });
+
+            Nice {
+                data,
+                oldest_read: a.last_sucessful_read().min(b.last_sucessful_read()).min(c.last_sucessful_read()).min(d.last_sucessful_read()).min(e.last_sucessful_read()),
+            }
         }
     }
 
@@ -1263,7 +1415,7 @@ pub mod s_voltages {
 
 /// Status C register group.
 pub mod status_c {
-    use super::{RegisterCache, IndexByChip, StartupCell, StatusC, UpdateError, RegisterCacheReadHandle, Reading, ClearFlags, ClearAction};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, StatusC, UpdateError, RegisterCacheReadHandle, Reading, ClearFlags, ClearAction};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::segments::chips::cells::{IndexByCell, CellId};
@@ -1299,11 +1451,36 @@ pub mod status_c {
         pub supply_rail_delta_latent: SupplyRailDeltaLatent,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for StatusC register group.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -1315,7 +1492,7 @@ pub mod status_c {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -1335,14 +1512,14 @@ pub mod status_c {
         }
 
         /// Updates the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<StatusC>>, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<RegisterCacheData<StatusC>, UpdateError> {
             self.statc.update(api).await
         }
 
         /// Converts register readings into NiceData.
-        fn nice(statc: IndexByChip<Reading<StatusC>>) -> NiceData {
-            IndexByChip::from_fn(|chip| {
-                let chip_statc = statc.get(chip).data();
+        fn nice(statc: RegisterCacheData<StatusC>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| {
+                let chip_statc = statc.data().get(chip).data();
                 NiceDataChip {
                     cell_channel_comparison_faults: IndexByCell::from_fn(|cell| match cell {
                         CellId::Cell1 => chip_statc.cs1flt(),
@@ -1377,7 +1554,9 @@ pub mod status_c {
                     supply_rail_delta: chip_statc.vde(),
                     supply_rail_delta_latent: chip_statc.vdel(),
                 }
-            })
+            });
+
+            Nice { data, oldest_read: statc.last_sucessful_read() }
         }
     }
 
@@ -1386,7 +1565,7 @@ pub mod status_c {
         ///
         /// ### Returns
         /// Will return `Ok(readings)`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(readings)`, the cached data was updated correctly and can be read now.
-        async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<StatusC>>, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<RegisterCacheData<StatusC>, UpdateError> {
             let statc = self.raw.update(api).await?;
             self.nice.set(Raw::nice(statc));
             Ok(statc)
@@ -1474,7 +1653,7 @@ pub mod status_c {
         /// Updates StatusC.
         pub(in crate::segments) async fn update_status_c(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             let statc = self.status_c.update(api).await?;
-            let clears = self.update_status_c_fault_counts(&statc);
+            let clears = self.update_status_c_fault_counts(statc.data());
 
             if let Err(err) = api.write(&clears.into_array()).await {
                 defmt::error!("Segments: Cache: in `update_status_c()`: ClearFlags write failed. Error: {}", err);
@@ -1493,7 +1672,7 @@ pub mod status_c {
 
 /// Status D register group.
 pub mod status_d {
-    use super::{RegisterCache, IndexByChip, StartupCell, StatusD, UpdateError, RegisterCacheReadHandle, Reading, ClearOvervoltageUndervoltage, ClearAction};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, StatusD, UpdateError, RegisterCacheReadHandle, Reading, ClearOvervoltageUndervoltage, ClearAction};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::segments::chips::cells::{IndexByCell, CellId};
@@ -1517,11 +1696,36 @@ pub mod status_d {
         pub oscillator_check_counter: OscillatorCheckCounter,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for StatusD register group.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -1533,7 +1737,7 @@ pub mod status_d {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -1553,14 +1757,14 @@ pub mod status_d {
         }
 
         /// Updates the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<StatusD>>, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<RegisterCacheData<StatusD>, UpdateError> {
             self.statd.update(api).await
         }
 
         /// Converts register readings into NiceData.
-        fn nice(statd: IndexByChip<Reading<StatusD>>) -> NiceData {
-            IndexByChip::from_fn(|chip| {
-                let chip_statd = statd.get(chip).data();
+        fn nice(statd: RegisterCacheData<StatusD>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| {
+                let chip_statd = statd.data().get(chip).data();
                 NiceDataChip {
                     cell_undervoltage_overvoltage_state: IndexByCell::from_fn(|cell| match cell {
                         CellId::Cell1 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c1uv(), overvoltage: chip_statd.c1ov() },
@@ -1579,7 +1783,9 @@ pub mod status_d {
                     }),
                     oscillator_check_counter: chip_statd.oc_cntr(),
                 }
-            })
+            });
+
+            Nice { data, oldest_read: statd.last_sucessful_read() }
         }
     }
 
@@ -1588,7 +1794,7 @@ pub mod status_d {
         ///
         /// ### Returns
         /// Will return `Ok(readings)`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(readings)`, the cached data was updated correctly and can be read now.
-        async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<StatusD>>, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<RegisterCacheData<StatusD>, UpdateError> {
             let statd = self.raw.update(api).await?;
             self.nice.set(Raw::nice(statd));
             Ok(statd)
@@ -1665,7 +1871,7 @@ pub mod status_d {
         /// Updates StatusD.
         pub(in crate::segments) async fn update_status_d(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             let statd = self.status_d.update(api).await?;
-            let clears = self.update_status_d_fault_counts(&statd);
+            let clears = self.update_status_d_fault_counts(statd.data());
 
             if let Err(err) = api.write(&clears.into_array()).await {
                 defmt::error!("Segments: Cache: in `update_status_d()`: ClearOvervoltageUndervoltage write failed. Error: {}", err);
@@ -1684,7 +1890,7 @@ pub mod status_d {
 
 /// Register groups AuxillaryA through D.
 pub mod aux {
-    use super::{RegisterCache, IndexByChip, StartupCell, AuxillaryA, AuxillaryB, AuxillaryC, AuxillaryD, UpdateError, RegisterCacheReadHandle, Reading};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, AuxillaryA, AuxillaryB, AuxillaryC, AuxillaryD, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -1706,11 +1912,36 @@ pub mod aux {
         pub vpv: Voltage,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for Aux register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -1722,7 +1953,7 @@ pub mod aux {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -1759,7 +1990,7 @@ pub mod aux {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let a = self.auxa.update(api).await?;
             let b = self.auxb.update(api).await?;
             let c = self.auxc.update(api).await?;
@@ -1769,26 +2000,31 @@ pub mod aux {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(a: IndexByChip<Reading<AuxillaryA>>, b: IndexByChip<Reading<AuxillaryB>>, c: IndexByChip<Reading<AuxillaryC>>, d: IndexByChip<Reading<AuxillaryD>>) -> NiceData {
-            IndexByChip::from_fn(|chip| NiceDataChip {
+        fn nice(a: RegisterCacheData<AuxillaryA>, b: RegisterCacheData<AuxillaryB>, c: RegisterCacheData<AuxillaryC>, d: RegisterCacheData<AuxillaryD>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| NiceDataChip {
                 gpio_voltages: IndexByGpio::from_fn(|gpio| match gpio {
-                    GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().g1v().as_microvolts() as f32),
-                    GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().g2v().as_microvolts() as f32),
-                    GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().g3v().as_microvolts() as f32),
+                    GpioId::Gpio1 => Voltage::new::<microvolt>(a.data().get(chip).data().g1v().as_microvolts() as f32),
+                    GpioId::Gpio2 => Voltage::new::<microvolt>(a.data().get(chip).data().g2v().as_microvolts() as f32),
+                    GpioId::Gpio3 => Voltage::new::<microvolt>(a.data().get(chip).data().g3v().as_microvolts() as f32),
 
-                    GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().g4v().as_microvolts() as f32),
-                    GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().g5v().as_microvolts() as f32),
-                    GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().g6v().as_microvolts() as f32),
+                    GpioId::Gpio4 => Voltage::new::<microvolt>(b.data().get(chip).data().g4v().as_microvolts() as f32),
+                    GpioId::Gpio5 => Voltage::new::<microvolt>(b.data().get(chip).data().g5v().as_microvolts() as f32),
+                    GpioId::Gpio6 => Voltage::new::<microvolt>(b.data().get(chip).data().g6v().as_microvolts() as f32),
 
-                    GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().g7v().as_microvolts() as f32),
-                    GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().g8v().as_microvolts() as f32),
-                    GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().g9v().as_microvolts() as f32),
+                    GpioId::Gpio7 => Voltage::new::<microvolt>(c.data().get(chip).data().g7v().as_microvolts() as f32),
+                    GpioId::Gpio8 => Voltage::new::<microvolt>(c.data().get(chip).data().g8v().as_microvolts() as f32),
+                    GpioId::Gpio9 => Voltage::new::<microvolt>(c.data().get(chip).data().g9v().as_microvolts() as f32),
 
-                    GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().g10v().as_microvolts() as f32),
+                    GpioId::Gpio10 => Voltage::new::<microvolt>(d.data().get(chip).data().g10v().as_microvolts() as f32),
                 }),
-                vmv: Voltage::new::<microvolt>(d.get(chip).data().vmv().as_microvolts() as f32),
-                vpv: Voltage::new::<microvolt>(d.get(chip).data().vpv().as_microvolts() as f32),
-            })
+                vmv: Voltage::new::<microvolt>(d.data().get(chip).data().vmv().as_microvolts() as f32),
+                vpv: Voltage::new::<microvolt>(d.data().get(chip).data().vpv().as_microvolts() as f32),
+            });
+
+            Nice {
+                data,
+                oldest_read: a.last_sucessful_read().min(b.last_sucessful_read()).min(c.last_sucessful_read()).min(d.last_sucessful_read()),
+            }
         }
     }
 
@@ -1821,7 +2057,7 @@ pub mod aux {
 
 /// StatusA register group.
 pub mod status_a {
-    use super::{RegisterCache, IndexByChip, StartupCell, StatusA, UpdateError, RegisterCacheReadHandle, Reading};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, StatusA, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::{Voltage, Temperature, microcelcius};
@@ -1840,11 +2076,36 @@ pub mod status_a {
         pub itmp: Temperature,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for StatusA register group.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -1856,7 +2117,7 @@ pub mod status_a {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -1876,18 +2137,20 @@ pub mod status_a {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let stata = self.stata.update(api).await?;
 
             Ok(Self::nice(stata))
         }
 
         /// Converts register readings into NiceData.
-        fn nice(stata: IndexByChip<Reading<StatusA>>) -> NiceData {
-            IndexByChip::from_fn(|chip| NiceDataChip {
-                vref2: Voltage::new::<microvolt>(stata.get(chip).data().vref2().as_microvolts() as f32),
-                itmp: Temperature::new::<microcelcius>(stata.get(chip).data().itmp().as_microcelsius() as f32),
-            })
+        fn nice(stata: RegisterCacheData<StatusA>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| NiceDataChip {
+                vref2: Voltage::new::<microvolt>(stata.data().get(chip).data().vref2().as_microvolts() as f32),
+                itmp: Temperature::new::<microcelcius>(stata.data().get(chip).data().itmp().as_microcelsius() as f32),
+            });
+
+            Nice { data, oldest_read: stata.last_sucessful_read() }
         }
     }
 
@@ -1920,7 +2183,7 @@ pub mod status_a {
 
 /// StatusB register group.
 pub mod status_b {
-    use super::{RegisterCache, IndexByChip, StartupCell, StatusB, UpdateError, RegisterCacheReadHandle, Reading};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, StatusB, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::{Voltage};
@@ -1941,11 +2204,36 @@ pub mod status_b {
         pub vres: Voltage,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for StatusB register group.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -1957,7 +2245,7 @@ pub mod status_b {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -1977,19 +2265,21 @@ pub mod status_b {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let statb = self.statb.update(api).await?;
 
             Ok(Self::nice(statb))
         }
 
         /// Converts register readings into NiceData.
-        fn nice(statb: IndexByChip<Reading<StatusB>>) -> NiceData {
-            IndexByChip::from_fn(|chip| NiceDataChip {
-                vd: Voltage::new::<microvolt>(statb.get(chip).data().vd().as_microvolts() as f32),
-                va: Voltage::new::<microvolt>(statb.get(chip).data().va().as_microvolts() as f32),
-                vres: Voltage::new::<microvolt>(statb.get(chip).data().vres().as_microvolts() as f32),
-            })
+        fn nice(statb: RegisterCacheData<StatusB>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| NiceDataChip {
+                vd: Voltage::new::<microvolt>(statb.data().get(chip).data().vd().as_microvolts() as f32),
+                va: Voltage::new::<microvolt>(statb.data().get(chip).data().va().as_microvolts() as f32),
+                vres: Voltage::new::<microvolt>(statb.data().get(chip).data().vres().as_microvolts() as f32),
+            });
+
+            Nice { data, oldest_read: statb.last_sucessful_read() }
         }
     }
 
@@ -2022,7 +2312,7 @@ pub mod status_b {
 
 /// Cache for PwmA and PwmB register groups.
 pub mod pwm {
-    use super::{RegisterCache, IndexByChip, StartupCell, PwmA, PwmB, UpdateError, RegisterCacheReadHandle, Reading};
+    use super::{RegisterCache, RegisterCacheData, IndexByChip, StartupCell, PwmA, PwmB, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
@@ -2032,11 +2322,36 @@ pub mod pwm {
     /// so you should probably look at the Raw readings if interested in that.
     pub type NiceData = IndexByChip<IndexByCell<PwmDutyCycleConfig>>;
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for Pwm register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -2048,7 +2363,7 @@ pub mod pwm {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -2072,7 +2387,7 @@ pub mod pwm {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let pwma = self.pwma.update(api).await?;
             let pwmb = self.pwmb.update(api).await?;
 
@@ -2080,24 +2395,29 @@ pub mod pwm {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(pwma: IndexByChip<Reading<PwmA>>, pwmb: IndexByChip<Reading<PwmB>>) -> NiceData {
-            IndexByChip::from_fn(|chip| {
+        fn nice(pwma: RegisterCacheData<PwmA>, pwmb: RegisterCacheData<PwmB>) -> Nice {
+            let data: NiceData = IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
-                    CellId::Cell1 => pwma.get(chip).data().pwm1(),
-                    CellId::Cell2 => pwma.get(chip).data().pwm2(),
-                    CellId::Cell3 => pwma.get(chip).data().pwm3(),
-                    CellId::Cell4 => pwma.get(chip).data().pwm4(),
-                    CellId::Cell5 => pwma.get(chip).data().pwm5(),
-                    CellId::Cell6 => pwma.get(chip).data().pwm6(),
-                    CellId::Cell7 => pwma.get(chip).data().pwm7(),
-                    CellId::Cell8 => pwma.get(chip).data().pwm8(),
-                    CellId::Cell9 => pwma.get(chip).data().pwm9(),
-                    CellId::Cell10 => pwma.get(chip).data().pwm10(),
-                    CellId::Cell11 => pwma.get(chip).data().pwm11(),
-                    CellId::Cell12 => pwma.get(chip).data().pwm12(),
-                    CellId::Cell13 => pwmb.get(chip).data().pwm13(),
+                    CellId::Cell1 => pwma.data().get(chip).data().pwm1(),
+                    CellId::Cell2 => pwma.data().get(chip).data().pwm2(),
+                    CellId::Cell3 => pwma.data().get(chip).data().pwm3(),
+                    CellId::Cell4 => pwma.data().get(chip).data().pwm4(),
+                    CellId::Cell5 => pwma.data().get(chip).data().pwm5(),
+                    CellId::Cell6 => pwma.data().get(chip).data().pwm6(),
+                    CellId::Cell7 => pwma.data().get(chip).data().pwm7(),
+                    CellId::Cell8 => pwma.data().get(chip).data().pwm8(),
+                    CellId::Cell9 => pwma.data().get(chip).data().pwm9(),
+                    CellId::Cell10 => pwma.data().get(chip).data().pwm10(),
+                    CellId::Cell11 => pwma.data().get(chip).data().pwm11(),
+                    CellId::Cell12 => pwma.data().get(chip).data().pwm12(),
+                    CellId::Cell13 => pwmb.data().get(chip).data().pwm13(),
                 })
-            })
+            });
+
+            Nice {
+                data,
+                oldest_read: pwma.last_sucessful_read().min(pwmb.last_sucessful_read()),
+            }
         }
     }
 

@@ -73,7 +73,7 @@ impl<R: ReadableGroup> RegisterCache<R> {
     /// On any driver error -- including a failed PEC -- the cache keeps whatever it had and
     /// `last_successful_read` does not advance, so consumers see the reading go stale rather
     /// than seeing corrupt data.
-    pub(in crate::hv_plate::cache) async fn update(&self, api: &mut alias::Api) -> Result<R, UpdateError> {
+    pub(in crate::hv_plate::cache) async fn update(&self, api: &mut alias::Api) -> Result<RegisterCacheData<R>, UpdateError> {
         let data = match api.read::<R>().await {
             Ok(data) => data,
             Err(err) => {
@@ -82,7 +82,8 @@ impl<R: ReadableGroup> RegisterCache<R> {
             },
         };
 
-        self.set(RegisterCacheData { data, last_successful_read: embassy_time::Instant::now() });
+        let data = RegisterCacheData { data, last_successful_read: embassy_time::Instant::now() };
+        self.set(data);
 
         Ok(data)
     }
@@ -114,7 +115,7 @@ impl CacheData {
 
 /// Pack current and BATT voltage, read coherently inside one SNAP window.
 pub mod current_voltage {
-    use super::{RegisterCache, StartupCell, CurrentAndBatteryVoltage, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, RegisterCacheData, StartupCell, CurrentAndBatteryVoltage, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::hv_plate::board;
@@ -129,11 +130,36 @@ pub mod current_voltage {
         pub batt_voltage: Voltage,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for the IVB1 register group.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -145,7 +171,7 @@ pub mod current_voltage {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -165,18 +191,20 @@ pub mod current_voltage {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let ivb1 = self.ivb1.update(api).await?;
 
             Ok(Self::nice(ivb1))
         }
 
         /// Converts register readings into NiceData.
-        fn nice(ivb1: CurrentAndBatteryVoltage) -> NiceData {
-            NiceData {
-                pack_current: board::pack_current(ivb1.i1().as_microvolts()),
-                batt_voltage: board::batt_voltage(ivb1.vb1().as_microvolts()),
-            }
+        fn nice(ivb1: RegisterCacheData<CurrentAndBatteryVoltage>) -> Nice {
+            let data = NiceData {
+                pack_current: board::pack_current(ivb1.data().i1().as_microvolts()),
+                batt_voltage: board::batt_voltage(ivb1.data().vb1().as_microvolts()),
+            };
+
+            Nice { data, oldest_read: ivb1.last_successful_read() }
         }
     }
 
@@ -207,7 +235,7 @@ pub mod current_voltage {
 
 /// Accumulated current and BATT voltage, for coulomb counting.
 pub mod accumulated {
-    use super::{RegisterCache, StartupCell, AccumulatedCurrentAndBatteryVoltage, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, RegisterCacheData, StartupCell, AccumulatedCurrentAndBatteryVoltage, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
 
@@ -224,11 +252,36 @@ pub mod accumulated {
         pub batt_sum_microvolts: i32,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for the IVB1ACC register group.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -240,7 +293,7 @@ pub mod accumulated {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -260,18 +313,20 @@ pub mod accumulated {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let ivb1acc = self.ivb1acc.update(api).await?;
 
             Ok(Self::nice(ivb1acc))
         }
 
         /// Converts register readings into NiceData.
-        fn nice(ivb1acc: AccumulatedCurrentAndBatteryVoltage) -> NiceData {
-            NiceData {
-                current_sum_microvolts: ivb1acc.i1acc().as_microvolts(),
-                batt_sum_microvolts: ivb1acc.vb1acc().as_microvolts(),
-            }
+        fn nice(ivb1acc: RegisterCacheData<AccumulatedCurrentAndBatteryVoltage>) -> Nice {
+            let data = NiceData {
+                current_sum_microvolts: ivb1acc.data().i1acc().as_microvolts(),
+                batt_sum_microvolts: ivb1acc.data().vb1acc().as_microvolts(),
+            };
+
+            Nice { data, oldest_read: ivb1acc.last_successful_read() }
         }
     }
 
@@ -304,7 +359,7 @@ pub mod accumulated {
 
 /// The FLAG register: fault latches plus the conversion counters.
 pub mod flag {
-    use super::{RegisterCache, StartupCell, Flag, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, RegisterCacheData, StartupCell, Flag, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
 
@@ -324,11 +379,36 @@ pub mod flag {
         pub i2cnt: u8,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for the FLAG register group.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -340,7 +420,7 @@ pub mod flag {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -360,20 +440,22 @@ pub mod flag {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let flag = self.flag.update(api).await?;
 
             Ok(Self::nice(flag))
         }
 
         /// Converts register readings into NiceData.
-        fn nice(flag: Flag) -> NiceData {
-            NiceData {
-                flags: flag,
-                i1cnt: flag.i1cnt(),
-                i1cntpha: flag.i1cntpha(),
-                i2cnt: flag.i2cnt(),
-            }
+        fn nice(flag: RegisterCacheData<Flag>) -> Nice {
+            let data = NiceData {
+                flags: *flag.data(),
+                i1cnt: flag.data().i1cnt(),
+                i1cntpha: flag.data().i1cntpha(),
+                i2cnt: flag.data().i2cnt(),
+            };
+
+            Nice { data, oldest_read: flag.last_successful_read() }
         }
     }
 
@@ -404,7 +486,7 @@ pub mod flag {
 
 /// The V1ADC voltage channels this board actually uses: TS voltage and the shunt thermistor.
 pub mod voltages {
-    use super::{RegisterCache, StartupCell, Voltages1A, Voltages1C, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, RegisterCacheData, StartupCell, Voltages1A, Voltages1C, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::hv_plate::board;
@@ -419,11 +501,36 @@ pub mod voltages {
         pub shunt_temperature: Temperature,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for the V1A and V1C register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -435,7 +542,7 @@ pub mod voltages {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -459,7 +566,7 @@ pub mod voltages {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let v1a = self.v1a.update(api).await?;
             let v1c = self.v1c.update(api).await?;
 
@@ -467,10 +574,15 @@ pub mod voltages {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(v1a: Voltages1A, v1c: Voltages1C) -> NiceData {
-            NiceData {
-                ts_voltage: board::ts_voltage(v1a.v2a().as_microvolts()),
-                shunt_temperature: board::shunt_temperature(v1c.v7a().as_microvolts()),
+        fn nice(v1a: RegisterCacheData<Voltages1A>, v1c: RegisterCacheData<Voltages1C>) -> Nice {
+            let data = NiceData {
+                ts_voltage: board::ts_voltage(v1a.data().v2a().as_microvolts()),
+                shunt_temperature: board::shunt_temperature(v1c.data().v7a().as_microvolts()),
+            };
+
+            Nice {
+                data,
+                oldest_read: v1a.last_successful_read().min(v1c.last_successful_read()),
             }
         }
     }
@@ -504,7 +616,7 @@ pub mod voltages {
 
 /// The AUX ADC rails and on-chip temperature sensors.
 pub mod aux {
-    use super::{RegisterCache, StartupCell, AuxA, AuxB, AuxC, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, RegisterCacheData, StartupCell, AuxA, AuxB, AuxC, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::{Temperature, Voltage, millicelcius};
@@ -533,11 +645,36 @@ pub mod aux {
         pub osccnt: u8,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for the AUXA through AUXC register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -549,7 +686,7 @@ pub mod aux {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -581,7 +718,7 @@ pub mod aux {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let a = self.auxa.update(api).await?;
             let b = self.auxb.update(api).await?;
             let c = self.auxc.update(api).await?;
@@ -590,17 +727,22 @@ pub mod aux {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(a: AuxA, b: AuxB, c: AuxC) -> NiceData {
-            NiceData {
-                vref1p25: Voltage::new::<microvolt>(a.vref1p25().as_microvolts() as f32),
-                vreg: Voltage::new::<microvolt>(a.vreg().as_microvolts() as f32),
-                vdd: Voltage::new::<microvolt>(b.vdd().as_microvolts() as f32),
-                vdig: Voltage::new::<microvolt>(b.vdig().as_microvolts() as f32),
-                epad: Voltage::new::<microvolt>(b.epad().as_microvolts() as f32),
-                vdiv: Voltage::new::<microvolt>(c.vdiv().as_microvolts() as f32),
-                die_temperature: Temperature::new::<millicelcius>(a.tmp1().as_millicelsius() as f32),
-                secondary_temperature: Temperature::new::<millicelcius>(c.tmp2().as_millicelsius() as f32),
-                osccnt: c.osccnt(),
+        fn nice(a: RegisterCacheData<AuxA>, b: RegisterCacheData<AuxB>, c: RegisterCacheData<AuxC>) -> Nice {
+            let data = NiceData {
+                vref1p25: Voltage::new::<microvolt>(a.data().vref1p25().as_microvolts() as f32),
+                vreg: Voltage::new::<microvolt>(a.data().vreg().as_microvolts() as f32),
+                vdd: Voltage::new::<microvolt>(b.data().vdd().as_microvolts() as f32),
+                vdig: Voltage::new::<microvolt>(b.data().vdig().as_microvolts() as f32),
+                epad: Voltage::new::<microvolt>(b.data().epad().as_microvolts() as f32),
+                vdiv: Voltage::new::<microvolt>(c.data().vdiv().as_microvolts() as f32),
+                die_temperature: Temperature::new::<millicelcius>(a.data().tmp1().as_millicelsius() as f32),
+                secondary_temperature: Temperature::new::<millicelcius>(c.data().tmp2().as_millicelsius() as f32),
+                osccnt: c.data().osccnt(),
+            };
+
+            Nice {
+                data,
+                oldest_read: a.last_successful_read().min(b.last_successful_read()).min(c.last_successful_read()),
             }
         }
     }
@@ -634,7 +776,7 @@ pub mod aux {
 
 /// The STATUS register and the overcurrent comparator results.
 pub mod status {
-    use super::{RegisterCache, StartupCell, Status, OverCurrentResults, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, RegisterCacheData, StartupCell, Status, OverCurrentResults, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
 
@@ -651,11 +793,36 @@ pub mod status {
         pub overcurrent: OverCurrentResults,
     }
 
+    /// Container for "nice" data.
+    #[derive(Copy, Clone)]
+    pub struct Nice {
+        /// The actual data.
+        data: NiceData,
+        /// The timestamp of the oldest data that makes up this NiceData.
+        ///
+        /// For context, a NiceData may be sourced from slightly different SPI reads. These reads
+        /// typically occur in short succession, but there is still a tiny
+        /// bit of time between them. So this timestamp provides a bound on how
+        /// stale data from this NiceData might be. In other words, no data in the NiceData is
+        /// from before `oldest_read`.
+        oldest_read: embassy_time::Instant,
+    }
+    impl Nice {
+        /// "Nice" data.
+        pub fn data(&self) -> &NiceData {
+            &self.data
+        }
+        /// The timestamp of the oldest data that makes up this NiceData.
+        pub fn oldest_read(&self) -> embassy_time::Instant {
+            self.oldest_read
+        }
+    }
+
     /// Stored Cache Data for the STATUS and overcurrent results register groups.
     /// Contains both the raw register readings, and the "nice" data.
     pub struct CacheData {
         raw: Raw,
-        nice: StartupCell<NiceData>,
+        nice: StartupCell<Nice>,
     }
     impl CacheData {
         /// Creates a new `CacheData` with uninitialized values.
@@ -667,7 +834,7 @@ pub mod status {
             &self.raw
         }
         /// Gets the "nice" version of this data.
-        pub const fn nice(&self) -> &UnwriteableStartupCell<NiceData> {
+        pub const fn nice(&self) -> &UnwriteableStartupCell<Nice> {
             self.nice.to_unwriteable()
         }
     }
@@ -691,7 +858,7 @@ pub mod status {
         }
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
+        async fn update(&self, api: &mut alias::Api) -> Result<Nice, UpdateError> {
             let status = self.status.update(api).await?;
             let oc = self.oc.update(api).await?;
 
@@ -699,8 +866,13 @@ pub mod status {
         }
 
         /// Converts register readings into NiceData.
-        fn nice(status: Status, oc: OverCurrentResults) -> NiceData {
-            NiceData { status, overcurrent: oc }
+        fn nice(status: RegisterCacheData<Status>, oc: RegisterCacheData<OverCurrentResults>) -> Nice {
+            let data = NiceData { status: *status.data(), overcurrent: *oc.data() };
+
+            Nice {
+                data,
+                oldest_read: status.last_successful_read().min(oc.last_successful_read()),
+            }
         }
     }
 

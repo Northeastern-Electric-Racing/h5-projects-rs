@@ -41,10 +41,10 @@ pub async fn segments_debug() {
         #[cfg(true)]
         '_can: {
             for chip in ChipId::iter() {
-                let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
-                let volts = if crate::state_machine::bms_state().is_charging() { cell_voltages.chip(chip) } else { filtered_cell_voltages.chip(chip) }; // u_TODO - if charging, we use cell_voltages, if not charging, we use filtered_cell_voltages. This is what TSECU-Shepherd did. but there's no charging state rn so for now who cares
-                let pwm = pwm.chip(chip);
-                let cvs = status_c.chip(chip).cell_channel_comparison_faults;
+                let temps = redundant_aux.data().chip(chip).to_temps().cell_temperatures;
+                let volts = if crate::state_machine::bms_state().is_charging() { cell_voltages.data().chip(chip) } else { filtered_cell_voltages.data().chip(chip) }; // u_TODO - if charging, we use cell_voltages, if not charging, we use filtered_cell_voltages. This is what TSECU-Shepherd did. but there's no charging state rn so for now who cares
+                let pwm = pwm.data().chip(chip);
+                let cvs = status_c.data().chip(chip).cell_channel_comparison_faults;
 
                 match chip.kind() {
                     ChipKind::Alpha => {
@@ -115,8 +115,8 @@ pub async fn segments_debug() {
                 defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Segment", chip.as_u8()], desc = "What segment this chip is on (0 through 4).", "{=u8}", chip.segment().as_u8());
                 defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Kind", chip.as_u8()], desc = "If this chip is Alpha or Beta.", "{}", chip.kind());
 
-                let volts = filtered_cell_voltages.chip(chip);
-                let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
+                let volts = filtered_cell_voltages.data().chip(chip);
+                let temps = redundant_aux.data().chip(chip).to_temps().cell_temperatures;
                 let comparison_fault_counts = _fault_counts.chip(chip).csxflt.idx_by_cell();
 
                 for cell in CellId::iter() {
@@ -200,15 +200,15 @@ pub async fn hv_plate_debug() {
 
         // The accumulator, FLAG and STATUS readings are only consumed by the monitor block, so
         // they are annotated for the `DEFMT_MONITOR=off` build.
-        let current_voltage = current_voltage_ready.get();
-        let voltages = voltages_ready.get();
+        let current_voltage = *current_voltage_ready.get().data();
+        let voltages = *voltages_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let accumulated = accumulated_ready.get();
+        let accumulated = *accumulated_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let flag = flag_ready.get();
-        let aux = aux_ready.get();
+        let flag = *flag_ready.get().data();
+        let aux = *aux_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let status = status_ready.get();
+        let status = *status_ready.get().data();
 
         '_println: {
             defmt::println!("HV Plate Data:");

@@ -121,21 +121,21 @@ pub mod analyzer {
         pub async fn new() -> IndexByChip<Self> {
             let cache = crate::segments::cache();
 
-            let redundant_aux = cache.get_redundant_aux().nice().ready().await.get();
-            let aux = cache.get_aux().nice().ready().await.get();
-            let status_a = cache.get_status_a().nice().ready().await.get();
-            let status_b = cache.get_status_b().nice().ready().await.get();
-            let status_c = cache.get_status_c().nice().ready().await.get();
-            let s_voltages = cache.get_s_voltages().nice().ready().await.get();
-            let s_voltages_ow_even_on = cache.get_s_voltages_ow_even_on().nice().ready().await.get();
-            let s_voltages_ow_odd_on = cache.get_s_voltages_ow_odd_on().nice().ready().await.get();
-            let pwm = cache.get_pwm().nice().ready().await.get();
+            let redundant_aux = *cache.get_redundant_aux().nice().ready().await.get().data();
+            let aux = *cache.get_aux().nice().ready().await.get().data();
+            let status_a = *cache.get_status_a().nice().ready().await.get().data();
+            let status_b = *cache.get_status_b().nice().ready().await.get().data();
+            let status_c = *cache.get_status_c().nice().ready().await.get().data();
+            let s_voltages = *cache.get_s_voltages().nice().ready().await.get().data();
+            let s_voltages_ow_even_on = *cache.get_s_voltages_ow_even_on().nice().ready().await.get().data();
+            let s_voltages_ow_odd_on = *cache.get_s_voltages_ow_odd_on().nice().ready().await.get().data();
+            let pwm = *cache.get_pwm().nice().ready().await.get().data();
 
             // Get cell voltagse, either from `cell_voltages` or `filtered_cell_voltages` depending on if we're charging or not
             let cell_voltages = match state_machine::bms_state() {
-                BmsState::Charging => cache.get_cell_voltages().nice().ready().await.get(),
+                BmsState::Charging => *cache.get_cell_voltages().nice().ready().await.get().data(),
 
-                _ => cache.get_filtered_cell_voltages().nice().ready().await.get(),
+                _ => *cache.get_filtered_cell_voltages().nice().ready().await.get().data(),
             };
 
             IndexByChip::from_fn(|chip| {
@@ -518,7 +518,7 @@ pub mod analyzer {
             let Some(data) = crate::hv_plate::cache().get_current_voltage().nice().try_get() else {
                 return;
             };
-            let mut pack_current = data.pack_current;
+            let mut pack_current = data.data().pack_current;
             let mut update_ocv = false;
 
             let ocv_update_allowed: bool = {
