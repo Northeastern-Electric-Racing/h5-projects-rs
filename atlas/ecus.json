@@ -32,8 +32,8 @@
       "label": "Vehicle Control Unit",
       "hardware": {
         "can_peripheral": "FDCAN2",
-        "can_rx": "PD9",
-        "can_tx": "PB13"
+        "can_rx": "PB5",
+        "can_tx": "PB6"
       },
       "can": {
         "request_id": "0x014",
@@ -52,7 +52,7 @@
       "label": "Lightning",
       "hardware": {
         "can_peripheral": "FDCAN2",
-        "can_rx": "PD9",
+        "can_rx": "PB12",
         "can_tx": "PB13"
       },
       "can": {
@@ -72,34 +72,14 @@
       "label": "MSB Front",
       "hardware": {
         "can_peripheral": "FDCAN2",
-        "can_rx": "PD9",
-        "can_tx": "PB13"
+        "can_rx": "PB5",
+        "can_tx": "PB6"
       },
       "can": {
         "request_id": "0x01C",
         "response_id": "0x01D",
         "write_data_id": "0x01E",
         "application_boot_request_id": "0x01F",
-        "application_boot_request_data": [
-          "0xB0",
-          "0x07",
-          "0x10",
-          "0xAD"
-        ]
-      }
-    },
-    "msb_back": {
-      "label": "MSB Back",
-      "hardware": {
-        "can_peripheral": "FDCAN2",
-        "can_rx": "PD9",
-        "can_tx": "PB13"
-      },
-      "can": {
-        "request_id": "0x020",
-        "response_id": "0x021",
-        "write_data_id": "0x022",
-        "application_boot_request_id": "0x023",
         "application_boot_request_data": [
           "0xB0",
           "0x07",
