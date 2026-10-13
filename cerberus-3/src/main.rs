@@ -162,6 +162,11 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn efuses::efuse_task()."),
     );
 
+    spawner.spawn(
+        statemachine::statemachine_task()
+            .expect("Failed to spawn statemachine::statemachine_task()."),
+    );
+
     // RTDS
     // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
