@@ -37,8 +37,6 @@ pub enum UpdateError {
     UnsnapError(LineError),
     /// Error occurred while triggering or polling a conversion.
     ConversionError(LineError),
-    /// Unable to convert raw data to nice data after updating.
-    NiceError,
 }
 
 /// Actual register cache data.
@@ -75,7 +73,7 @@ impl<R: ReadableGroup> RegisterCache<R> {
     /// On any driver error -- including a failed PEC -- the cache keeps whatever it had and
     /// `last_successful_read` does not advance, so consumers see the reading go stale rather
     /// than seeing corrupt data.
-    pub(in crate::hv_plate::cache) async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+    pub(in crate::hv_plate::cache) async fn update(&self, api: &mut alias::Api) -> Result<R, UpdateError> {
         let data = match api.read::<R>().await {
             Ok(data) => data,
             Err(err) => {
@@ -86,7 +84,7 @@ impl<R: ReadableGroup> RegisterCache<R> {
 
         self.set(RegisterCacheData { data, last_successful_read: embassy_time::Instant::now() });
 
-        Ok(())
+        Ok(data)
     }
 }
 
@@ -168,24 +166,17 @@ pub mod current_voltage {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.ivb1.update(api).await?;
+            let ivb1 = self.ivb1.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(ivb1))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let ivb1 = *self.ivb1.try_get()?.data();
-
-            Some(NiceData {
+        /// Converts register readings into NiceData.
+        fn nice(ivb1: CurrentAndBatteryVoltage) -> NiceData {
+            NiceData {
                 pack_current: board::pack_current(ivb1.i1().as_microvolts()),
                 batt_voltage: board::batt_voltage(ivb1.vb1().as_microvolts()),
-            })
+            }
         }
     }
 
@@ -270,24 +261,17 @@ pub mod accumulated {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.ivb1acc.update(api).await?;
+            let ivb1acc = self.ivb1acc.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(ivb1acc))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let ivb1acc = *self.ivb1acc.try_get()?.data();
-
-            Some(NiceData {
+        /// Converts register readings into NiceData.
+        fn nice(ivb1acc: AccumulatedCurrentAndBatteryVoltage) -> NiceData {
+            NiceData {
                 current_sum_microvolts: ivb1acc.i1acc().as_microvolts(),
                 batt_sum_microvolts: ivb1acc.vb1acc().as_microvolts(),
-            })
+            }
         }
     }
 
@@ -377,26 +361,19 @@ pub mod flag {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.flag.update(api).await?;
+            let flag = self.flag.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(flag))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let flag = *self.flag.try_get()?.data();
-
-            Some(NiceData {
+        /// Converts register readings into NiceData.
+        fn nice(flag: Flag) -> NiceData {
+            NiceData {
                 flags: flag,
                 i1cnt: flag.i1cnt(),
                 i1cntpha: flag.i1cntpha(),
                 i2cnt: flag.i2cnt(),
-            })
+            }
         }
     }
 
@@ -483,26 +460,18 @@ pub mod voltages {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.v1a.update(api).await?;
-            self.v1c.update(api).await?;
+            let v1a = self.v1a.update(api).await?;
+            let v1c = self.v1c.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(v1a, v1c))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let v1a = *self.v1a.try_get()?.data();
-            let v1c = *self.v1c.try_get()?.data();
-
-            Some(NiceData {
+        /// Converts register readings into NiceData.
+        fn nice(v1a: Voltages1A, v1c: Voltages1C) -> NiceData {
+            NiceData {
                 ts_voltage: board::ts_voltage(v1a.v2a().as_microvolts()),
                 shunt_temperature: board::shunt_temperature(v1c.v7a().as_microvolts()),
-            })
+            }
         }
     }
 
@@ -613,25 +582,16 @@ pub mod aux {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.auxa.update(api).await?;
-            self.auxb.update(api).await?;
-            self.auxc.update(api).await?;
+            let a = self.auxa.update(api).await?;
+            let b = self.auxb.update(api).await?;
+            let c = self.auxc.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(a, b, c))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let a = *self.auxa.try_get()?.data();
-            let b = *self.auxb.try_get()?.data();
-            let c = *self.auxc.try_get()?.data();
-
-            Some(NiceData {
+        /// Converts register readings into NiceData.
+        fn nice(a: AuxA, b: AuxB, c: AuxC) -> NiceData {
+            NiceData {
                 vref1p25: Voltage::new::<microvolt>(a.vref1p25().as_microvolts() as f32),
                 vreg: Voltage::new::<microvolt>(a.vreg().as_microvolts() as f32),
                 vdd: Voltage::new::<microvolt>(b.vdd().as_microvolts() as f32),
@@ -641,7 +601,7 @@ pub mod aux {
                 die_temperature: Temperature::new::<millicelcius>(a.tmp1().as_millicelsius() as f32),
                 secondary_temperature: Temperature::new::<millicelcius>(c.tmp2().as_millicelsius() as f32),
                 osccnt: c.osccnt(),
-            })
+            }
         }
     }
 
@@ -732,23 +692,15 @@ pub mod status {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.status.update(api).await?;
-            self.oc.update(api).await?;
+            let status = self.status.update(api).await?;
+            let oc = self.oc.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(status, oc))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let status = *self.status.try_get()?.data();
-            let oc = *self.oc.try_get()?.data();
-
-            Some(NiceData { status, overcurrent: oc })
+        /// Converts register readings into NiceData.
+        fn nice(status: Status, oc: OverCurrentResults) -> NiceData {
+            NiceData { status, overcurrent: oc }
         }
     }
 

@@ -47,8 +47,6 @@ pub enum UpdateError {
     LineBFailed(Error<SpiError>),
     /// Both lines failed during update. Inner contains both SPI errors.
     BothLinesFailed { linea_err: Error<SpiError>, lineb_err: Error<SpiError> },
-    /// Unable to convert raw data to nice data after updating.
-    NiceError,
     /// Impossible error that should not be possible to happen. Using this instead of unreachable!()
     /// or an unwrap/expect so an impossible error that somehow happens doesn't panic the whole bms
     ImpossibleError,
@@ -104,7 +102,7 @@ impl<R: ReadableGroup> RegisterCache<R> {
     }
 
     /// Reads the register and updates the cache.
-    pub(in crate::segments::cache) async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+    pub(in crate::segments::cache) async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<R>>, UpdateError> {
         let data: [Reading<R>; ADBMS6830B_NUM_CHIPS] = {
             let responses = api.read::<R>().await;
 
@@ -144,12 +142,11 @@ impl<R: ReadableGroup> RegisterCache<R> {
             readings
         };
 
-        self.set(RegisterCacheData {
-            data: IndexByChip::new(data),
-            last_sucessful_read: embassy_time::Instant::now(),
-        });
+        let data = IndexByChip::new(data);
 
-        Ok(())
+        self.set(RegisterCacheData { data, last_sucessful_read: embassy_time::Instant::now() });
+
+        Ok(data)
     }
 }
 
@@ -455,7 +452,7 @@ impl CacheData {
 
 /// Register groups RedundantAuxillaryA through D.
 pub mod redundant_aux {
-    use super::{RegisterCache, IndexByChip, StartupCell, RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, IndexByChip, StartupCell, RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD, UpdateError, RegisterCacheReadHandle, Reading};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -520,27 +517,17 @@ pub mod redundant_aux {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.raxa.update(api).await?;
-            self.raxb.update(api).await?;
-            self.raxc.update(api).await?;
-            self.raxd.update(api).await?;
+            let a = self.raxa.update(api).await?;
+            let b = self.raxb.update(api).await?;
+            let c = self.raxc.update(api).await?;
+            let d = self.raxd.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(a, b, c, d))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let a = *self.raxa.try_get()?.data();
-            let b = *self.raxb.try_get()?.data();
-            let c = *self.raxc.try_get()?.data();
-            let d = *self.raxd.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| {
+        /// Converts register readings into NiceData.
+        fn nice(a: IndexByChip<Reading<RedundantAuxillaryA>>, b: IndexByChip<Reading<RedundantAuxillaryB>>, c: IndexByChip<Reading<RedundantAuxillaryC>>, d: IndexByChip<Reading<RedundantAuxillaryD>>) -> NiceData {
+            IndexByChip::from_fn(|chip| {
                 IndexByGpio::from_fn(|gpio| match gpio {
                     GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
                     GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
@@ -556,7 +543,7 @@ pub mod redundant_aux {
 
                     GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
                 })
-            }))
+            })
         }
     }
 
@@ -589,7 +576,7 @@ pub mod redundant_aux {
 
 /// Register groups CellVoltages A through E (no F because we only use 13 cells).
 pub mod cell_voltages {
-    use super::{RegisterCache, IndexByChip, StartupCell, CellVoltagesA, CellVoltagesB, CellVoltagesC, CellVoltagesD, CellVoltagesE, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, IndexByChip, StartupCell, CellVoltagesA, CellVoltagesB, CellVoltagesC, CellVoltagesD, CellVoltagesE, UpdateError, RegisterCacheReadHandle, Reading};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -659,29 +646,18 @@ pub mod cell_voltages {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.cva.update(api).await?;
-            self.cvb.update(api).await?;
-            self.cvc.update(api).await?;
-            self.cvd.update(api).await?;
-            self.cve.update(api).await?;
+            let a = self.cva.update(api).await?;
+            let b = self.cvb.update(api).await?;
+            let c = self.cvc.update(api).await?;
+            let d = self.cvd.update(api).await?;
+            let e = self.cve.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(a, b, c, d, e))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let a = *self.cva.try_get()?.data();
-            let b = *self.cvb.try_get()?.data();
-            let c = *self.cvc.try_get()?.data();
-            let d = *self.cvd.try_get()?.data();
-            let e = *self.cve.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| {
+        /// Converts register readings into NiceData.
+        fn nice(a: IndexByChip<Reading<CellVoltagesA>>, b: IndexByChip<Reading<CellVoltagesB>>, c: IndexByChip<Reading<CellVoltagesC>>, d: IndexByChip<Reading<CellVoltagesD>>, e: IndexByChip<Reading<CellVoltagesE>>) -> NiceData {
+            IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
                     CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().c1v().as_microvolts() as f32),
                     CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().c2v().as_microvolts() as f32),
@@ -701,7 +677,7 @@ pub mod cell_voltages {
 
                     CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().c13v().as_microvolts() as f32),
                 })
-            }))
+            })
         }
     }
 
@@ -732,7 +708,7 @@ pub mod cell_voltages {
 
 /// Register groups AverageCellVoltages A through E (no F because we only use 13 cells).
 pub mod average_cell_voltages {
-    use super::{RegisterCache, IndexByChip, StartupCell, AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, IndexByChip, StartupCell, AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE, UpdateError, RegisterCacheReadHandle, Reading};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -802,29 +778,18 @@ pub mod average_cell_voltages {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.aca.update(api).await?;
-            self.acb.update(api).await?;
-            self.acc.update(api).await?;
-            self.acd.update(api).await?;
-            self.ace.update(api).await?;
+            let a = self.aca.update(api).await?;
+            let b = self.acb.update(api).await?;
+            let c = self.acc.update(api).await?;
+            let d = self.acd.update(api).await?;
+            let e = self.ace.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(a, b, c, d, e))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let a = *self.aca.try_get()?.data();
-            let b = *self.acb.try_get()?.data();
-            let c = *self.acc.try_get()?.data();
-            let d = *self.acd.try_get()?.data();
-            let e = *self.ace.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| {
+        /// Converts register readings into NiceData.
+        fn nice(a: IndexByChip<Reading<AverageCellVoltagesA>>, b: IndexByChip<Reading<AverageCellVoltagesB>>, c: IndexByChip<Reading<AverageCellVoltagesC>>, d: IndexByChip<Reading<AverageCellVoltagesD>>, e: IndexByChip<Reading<AverageCellVoltagesE>>) -> NiceData {
+            IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
                     CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().ac1v().as_microvolts() as f32),
                     CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().ac2v().as_microvolts() as f32),
@@ -844,7 +809,7 @@ pub mod average_cell_voltages {
 
                     CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().ac13v().as_microvolts() as f32),
                 })
-            }))
+            })
         }
     }
 
@@ -875,7 +840,7 @@ pub mod average_cell_voltages {
 
 /// Register groups FilteredCellVoltages A through E (no F because we only use 13 cells).
 pub mod filtered_cell_voltages {
-    use super::{RegisterCache, IndexByChip, StartupCell, FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, IndexByChip, StartupCell, FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE, UpdateError, RegisterCacheReadHandle, Reading};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -945,29 +910,18 @@ pub mod filtered_cell_voltages {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.fca.update(api).await?;
-            self.fcb.update(api).await?;
-            self.fcc.update(api).await?;
-            self.fcd.update(api).await?;
-            self.fce.update(api).await?;
+            let a = self.fca.update(api).await?;
+            let b = self.fcb.update(api).await?;
+            let c = self.fcc.update(api).await?;
+            let d = self.fcd.update(api).await?;
+            let e = self.fce.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(a, b, c, d, e))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let a = *self.fca.try_get()?.data();
-            let b = *self.fcb.try_get()?.data();
-            let c = *self.fcc.try_get()?.data();
-            let d = *self.fcd.try_get()?.data();
-            let e = *self.fce.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| {
+        /// Converts register readings into NiceData.
+        fn nice(a: IndexByChip<Reading<FilteredCellVoltagesA>>, b: IndexByChip<Reading<FilteredCellVoltagesB>>, c: IndexByChip<Reading<FilteredCellVoltagesC>>, d: IndexByChip<Reading<FilteredCellVoltagesD>>, e: IndexByChip<Reading<FilteredCellVoltagesE>>) -> NiceData {
+            IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
                     CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().fc1v().as_microvolts() as f32),
                     CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().fc2v().as_microvolts() as f32),
@@ -987,7 +941,7 @@ pub mod filtered_cell_voltages {
 
                     CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().fc13v().as_microvolts() as f32),
                 })
-            }))
+            })
         }
     }
 
@@ -1018,7 +972,7 @@ pub mod filtered_cell_voltages {
 
 /// Register groups SVoltages A through E (no F because we only use 13 cells).
 pub mod s_voltages {
-    use super::{RegisterCache, IndexByChip, StartupCell, SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, IndexByChip, StartupCell, SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE, UpdateError, RegisterCacheReadHandle, Reading};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -1088,29 +1042,18 @@ pub mod s_voltages {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.sca.update(api).await?;
-            self.scb.update(api).await?;
-            self.scc.update(api).await?;
-            self.scd.update(api).await?;
-            self.sce.update(api).await?;
+            let a = self.sca.update(api).await?;
+            let b = self.scb.update(api).await?;
+            let c = self.scc.update(api).await?;
+            let d = self.scd.update(api).await?;
+            let e = self.sce.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(a, b, c, d, e))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let a = *self.sca.try_get()?.data();
-            let b = *self.scb.try_get()?.data();
-            let c = *self.scc.try_get()?.data();
-            let d = *self.scd.try_get()?.data();
-            let e = *self.sce.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| {
+        /// Converts register readings into NiceData.
+        fn nice(a: IndexByChip<Reading<SVoltagesA>>, b: IndexByChip<Reading<SVoltagesB>>, c: IndexByChip<Reading<SVoltagesC>>, d: IndexByChip<Reading<SVoltagesD>>, e: IndexByChip<Reading<SVoltagesE>>) -> NiceData {
+            IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
                     CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().s1v().as_microvolts() as f32),
                     CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().s2v().as_microvolts() as f32),
@@ -1130,7 +1073,7 @@ pub mod s_voltages {
 
                     CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().s13v().as_microvolts() as f32),
                 })
-            }))
+            })
         }
     }
 
@@ -1391,23 +1334,14 @@ pub mod status_c {
             Self { statc: RegisterCache::new() }
         }
 
-        /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.statc.update(api).await?;
-
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+        /// Updates the Raw.
+        async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<StatusC>>, UpdateError> {
+            self.statc.update(api).await
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let statc = *self.statc.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| {
+        /// Converts register readings into NiceData.
+        fn nice(statc: IndexByChip<Reading<StatusC>>) -> NiceData {
+            IndexByChip::from_fn(|chip| {
                 let chip_statc = statc.get(chip).data();
                 NiceDataChip {
                     cell_channel_comparison_faults: IndexByCell::from_fn(|cell| match cell {
@@ -1443,7 +1377,7 @@ pub mod status_c {
                     supply_rail_delta: chip_statc.vde(),
                     supply_rail_delta_latent: chip_statc.vdel(),
                 }
-            }))
+            })
         }
     }
 
@@ -1451,11 +1385,11 @@ pub mod status_c {
         /// Updates StatusC cache.
         ///
         /// ### Returns
-        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
-        async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            let nice = self.raw.update(api).await?;
-            self.nice.set(nice);
-            Ok(())
+        /// Will return `Ok(readings)`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(readings)`, the cached data was updated correctly and can be read now.
+        async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<StatusC>>, UpdateError> {
+            let statc = self.raw.update(api).await?;
+            self.nice.set(Raw::nice(statc));
+            Ok(statc)
         }
     }
 
@@ -1539,15 +1473,12 @@ pub mod status_c {
 
         /// Updates StatusC.
         pub(in crate::segments) async fn update_status_c(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            self.status_c.update(api).await?;
+            let statc = self.status_c.update(api).await?;
+            let clears = self.update_status_c_fault_counts(&statc);
 
-            if let Some(statc_data) = self.status_c.raw.statc.try_get() {
-                let clears = self.update_status_c_fault_counts(statc_data.data());
-
-                if let Err(err) = api.write(&clears.into_array()).await {
-                    defmt::error!("Segments: Cache: in `update_status_c()`: ClearFlags write failed. Error: {}", err);
-                    return Err(UpdateError::ClearFlagsError(err));
-                }
+            if let Err(err) = api.write(&clears.into_array()).await {
+                defmt::error!("Segments: Cache: in `update_status_c()`: ClearFlags write failed. Error: {}", err);
+                return Err(UpdateError::ClearFlagsError(err));
             }
 
             Ok(())
@@ -1621,23 +1552,14 @@ pub mod status_d {
             Self { statd: RegisterCache::new() }
         }
 
-        /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
-        async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.statd.update(api).await?;
-
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+        /// Updates the Raw.
+        async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<StatusD>>, UpdateError> {
+            self.statd.update(api).await
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let statd = *self.statd.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| {
+        /// Converts register readings into NiceData.
+        fn nice(statd: IndexByChip<Reading<StatusD>>) -> NiceData {
+            IndexByChip::from_fn(|chip| {
                 let chip_statd = statd.get(chip).data();
                 NiceDataChip {
                     cell_undervoltage_overvoltage_state: IndexByCell::from_fn(|cell| match cell {
@@ -1657,7 +1579,7 @@ pub mod status_d {
                     }),
                     oscillator_check_counter: chip_statd.oc_cntr(),
                 }
-            }))
+            })
         }
     }
 
@@ -1665,11 +1587,11 @@ pub mod status_d {
         /// Updates StatusD cache.
         ///
         /// ### Returns
-        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
-        async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            let nice = self.raw.update(api).await?;
-            self.nice.set(nice);
-            Ok(())
+        /// Will return `Ok(readings)`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(readings)`, the cached data was updated correctly and can be read now.
+        async fn update(&self, api: &mut alias::Api) -> Result<IndexByChip<Reading<StatusD>>, UpdateError> {
+            let statd = self.raw.update(api).await?;
+            self.nice.set(Raw::nice(statd));
+            Ok(statd)
         }
     }
 
@@ -1742,15 +1664,12 @@ pub mod status_d {
 
         /// Updates StatusD.
         pub(in crate::segments) async fn update_status_d(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            self.status_d.update(api).await?;
+            let statd = self.status_d.update(api).await?;
+            let clears = self.update_status_d_fault_counts(&statd);
 
-            if let Some(statd_data) = self.status_d.raw.statd.try_get() {
-                let clears = self.update_status_d_fault_counts(statd_data.data());
-
-                if let Err(err) = api.write(&clears.into_array()).await {
-                    defmt::error!("Segments: Cache: in `update_status_d()`: ClearOvervoltageUndervoltage write failed. Error: {}", err);
-                    return Err(UpdateError::ClearFlagsError(err));
-                }
+            if let Err(err) = api.write(&clears.into_array()).await {
+                defmt::error!("Segments: Cache: in `update_status_d()`: ClearOvervoltageUndervoltage write failed. Error: {}", err);
+                return Err(UpdateError::ClearFlagsError(err));
             }
 
             Ok(())
@@ -1765,7 +1684,7 @@ pub mod status_d {
 
 /// Register groups AuxillaryA through D.
 pub mod aux {
-    use super::{RegisterCache, IndexByChip, StartupCell, AuxillaryA, AuxillaryB, AuxillaryC, AuxillaryD, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, IndexByChip, StartupCell, AuxillaryA, AuxillaryB, AuxillaryC, AuxillaryD, UpdateError, RegisterCacheReadHandle, Reading};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::Voltage;
@@ -1841,27 +1760,17 @@ pub mod aux {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.auxa.update(api).await?;
-            self.auxb.update(api).await?;
-            self.auxc.update(api).await?;
-            self.auxd.update(api).await?;
+            let a = self.auxa.update(api).await?;
+            let b = self.auxb.update(api).await?;
+            let c = self.auxc.update(api).await?;
+            let d = self.auxd.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(a, b, c, d))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let a = *self.auxa.try_get()?.data();
-            let b = *self.auxb.try_get()?.data();
-            let c = *self.auxc.try_get()?.data();
-            let d = *self.auxd.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| NiceDataChip {
+        /// Converts register readings into NiceData.
+        fn nice(a: IndexByChip<Reading<AuxillaryA>>, b: IndexByChip<Reading<AuxillaryB>>, c: IndexByChip<Reading<AuxillaryC>>, d: IndexByChip<Reading<AuxillaryD>>) -> NiceData {
+            IndexByChip::from_fn(|chip| NiceDataChip {
                 gpio_voltages: IndexByGpio::from_fn(|gpio| match gpio {
                     GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().g1v().as_microvolts() as f32),
                     GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().g2v().as_microvolts() as f32),
@@ -1879,7 +1788,7 @@ pub mod aux {
                 }),
                 vmv: Voltage::new::<microvolt>(d.get(chip).data().vmv().as_microvolts() as f32),
                 vpv: Voltage::new::<microvolt>(d.get(chip).data().vpv().as_microvolts() as f32),
-            }))
+            })
         }
     }
 
@@ -1912,7 +1821,7 @@ pub mod aux {
 
 /// StatusA register group.
 pub mod status_a {
-    use super::{RegisterCache, IndexByChip, StartupCell, StatusA, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, IndexByChip, StartupCell, StatusA, UpdateError, RegisterCacheReadHandle, Reading};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::{Voltage, Temperature, microcelcius};
@@ -1968,24 +1877,17 @@ pub mod status_a {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.stata.update(api).await?;
+            let stata = self.stata.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(stata))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let stata = *self.stata.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| NiceDataChip {
+        /// Converts register readings into NiceData.
+        fn nice(stata: IndexByChip<Reading<StatusA>>) -> NiceData {
+            IndexByChip::from_fn(|chip| NiceDataChip {
                 vref2: Voltage::new::<microvolt>(stata.get(chip).data().vref2().as_microvolts() as f32),
                 itmp: Temperature::new::<microcelcius>(stata.get(chip).data().itmp().as_microcelsius() as f32),
-            }))
+            })
         }
     }
 
@@ -2018,7 +1920,7 @@ pub mod status_a {
 
 /// StatusB register group.
 pub mod status_b {
-    use super::{RegisterCache, IndexByChip, StartupCell, StatusB, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, IndexByChip, StartupCell, StatusB, UpdateError, RegisterCacheReadHandle, Reading};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
     use crate::units::{Voltage};
@@ -2076,25 +1978,18 @@ pub mod status_b {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.statb.update(api).await?;
+            let statb = self.statb.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(statb))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let statb = *self.statb.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| NiceDataChip {
+        /// Converts register readings into NiceData.
+        fn nice(statb: IndexByChip<Reading<StatusB>>) -> NiceData {
+            IndexByChip::from_fn(|chip| NiceDataChip {
                 vd: Voltage::new::<microvolt>(statb.get(chip).data().vd().as_microvolts() as f32),
                 va: Voltage::new::<microvolt>(statb.get(chip).data().va().as_microvolts() as f32),
                 vres: Voltage::new::<microvolt>(statb.get(chip).data().vres().as_microvolts() as f32),
-            }))
+            })
         }
     }
 
@@ -2127,7 +2022,7 @@ pub mod status_b {
 
 /// Cache for PwmA and PwmB register groups.
 pub mod pwm {
-    use super::{RegisterCache, IndexByChip, StartupCell, PwmA, PwmB, UpdateError, RegisterCacheReadHandle};
+    use super::{RegisterCache, IndexByChip, StartupCell, PwmA, PwmB, UpdateError, RegisterCacheReadHandle, Reading};
     use super::alias;
     use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
@@ -2178,23 +2073,15 @@ pub mod pwm {
 
         /// Updates the Raw. If all updates succeed, this returns a NiceData created from the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<NiceData, UpdateError> {
-            self.pwma.update(api).await?;
-            self.pwmb.update(api).await?;
+            let pwma = self.pwma.update(api).await?;
+            let pwmb = self.pwmb.update(api).await?;
 
-            match self.try_nice() {
-                Some(data) => Ok(data),
-                None => Err(UpdateError::NiceError),
-            }
+            Ok(Self::nice(pwma, pwmb))
         }
 
-        /// Converts the Raw into NiceData.
-        ///
-        /// If not all the Raw registers have been filled in yet, this will return `None`.
-        fn try_nice(&self) -> Option<NiceData> {
-            let pwma = *self.pwma.try_get()?.data();
-            let pwmb = *self.pwmb.try_get()?.data();
-
-            Some(IndexByChip::from_fn(|chip| {
+        /// Converts register readings into NiceData.
+        fn nice(pwma: IndexByChip<Reading<PwmA>>, pwmb: IndexByChip<Reading<PwmB>>) -> NiceData {
+            IndexByChip::from_fn(|chip| {
                 IndexByCell::from_fn(|cell| match cell {
                     CellId::Cell1 => pwma.get(chip).data().pwm1(),
                     CellId::Cell2 => pwma.get(chip).data().pwm2(),
@@ -2210,7 +2097,7 @@ pub mod pwm {
                     CellId::Cell12 => pwma.get(chip).data().pwm12(),
                     CellId::Cell13 => pwmb.get(chip).data().pwm13(),
                 })
-            }))
+            })
         }
     }
 

@@ -30,7 +30,6 @@ pub async fn segments_debug() {
 
         // u_TODO - should probably inspect the PEC status and other metadata before transforming into NiceData, but i don't think TSECU-Shepherd does that so for now this is probably fine
 
-        // Convert "raw" readings to NiceData. When `try_nice()` fails, it means that the cache hasn't been updated yet (since starting up), so we skip for now and go back to top of the loop.
         let redundant_aux = redundant_aux_ready.get();
         let filtered_cell_voltages = filtered_cell_voltages_ready.get();
         let cell_voltages = cell_voltages_ready.get();
