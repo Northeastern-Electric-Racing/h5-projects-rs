@@ -7,18 +7,22 @@ use defmt::debug;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::spi::{self, Spi};
+// TODO: needed again when the magnetometer / IMU are re-enabled.
+// use embassy_stm32::gpio::{Level, Output, Speed};
+// use embassy_stm32::spi::{self, Spi};
+// use embassy_time::Delay;
+// use embedded_hal_bus::spi::ExclusiveDevice;
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::{time::Hertz, wdg};
-use embassy_time::{Delay, Timer};
-use embedded_hal_bus::spi::ExclusiveDevice;
+use embassy_time::Timer;
+use msb_fw_2::bind_interrupts::Irqs;
+use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
 use msb_fw_2::shock_pot;
 use msb_fw_2::steering_angle;
 use msb_fw_2::strain_guage;
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
-use msb_fw_2::{shock_pot, steering_angle, strain_guage, magnetometer, hdc2021, load_cell, thermocouple, imu}; 
+use msb_fw_2::{hdc2021, load_cell, thermocouple};
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -101,19 +105,20 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(load_cell::load_cell_task().expect("Failed to spawn load_cell::load_cell_task()."));
     spawner.spawn(thermocouple::thermocouple_task().expect("Failed to spawn thermocouple::thermocouple_task()."));
 
-    /// magnetometer on SPI2
-    let mut spi2_config = spi::Config::default();
-    spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
-    spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
+    // TODO: re-enable with `pub mod magnetometer;` once the lis2mdl-ner dependency resolves.
+    // /// magnetometer on SPI2
+    // let mut spi2_config = spi::Config::default();
+    // spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
+    // spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
 
-    let spi2 = Spi::new(p.SPI2, p.PA12, p.PG1, p.PB14, p.GPDMA1_CH2, p.GPDMA1_CH3, spi2_config);
-    let mag_cs = Output::new(p.PA11, Level::High, Speed::VeryHigh);
-    let mag_spi = ExlusiveDevice::new(spi2, mag_cs, Delay).expect("Failed to create SPI device for magnetometer");
-    spawner.spawn(magnetometer::magnetometer_task(mag_spi).expect("Failed to spawn magnetometer::magnetometer_task()."));
+    // let spi2 = Spi::new(p.SPI2, p.PA12, p.PG1, p.PB14, p.GPDMA1_CH2, p.GPDMA1_CH3, spi2_config);
+    // let mag_cs = Output::new(p.PA11, Level::High, Speed::VeryHigh);
+    // let mag_spi = ExclusiveDevice::new(spi2, mag_cs, Delay).expect("Failed to create SPI device for magnetometer");
+    // spawner.spawn(magnetometer::magnetometer_task(mag_spi).expect("Failed to spawn magnetometer::magnetometer_task()."));
 
 
 
-    /// its driver is still WIP
+    // its driver is still WIP
     // /// imu on SPI1
     // let mut spi1_config = spi::Config::default();
     // spi1_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
@@ -124,10 +129,10 @@ async fn main(spawner: Spawner) -> ! {
     // spawner.spawn(imu::imu_task(imu_spi).expect("Failed to spawn imu::imu_task()."));
     
 
-    /// HDC2021 on I2C1
+    // HDC2021 on I2C1
     let mut i2c1_config = i2c::Config::default();
-    i2c1_config.speed = embassy_stm32::i2c::Speed::Standard; // 100 kHz
-    let i2c1 = I2c::new(p.I2C1, p.PB8, p.PB9, p.GPDMA1_CH6, p.GPDMA1_CH7, i2c1_config);
+    i2c1_config.frequency = Hertz::khz(100); // standard mode
+    let i2c1 = I2c::new(p.I2C1, p.PB8, p.PB9, p.GPDMA1_CH6, p.GPDMA1_CH7, Irqs, i2c1_config);
 
     spawner.spawn(hdc2021::hdc2021_task(i2c1).expect("Failed to spawn hdc2021::hdc2021_task()."));
 
@@ -142,6 +147,13 @@ async fn main(spawner: Spawner) -> ! {
         right_pin: p.PC12,
     };
     spawner.spawn(wheel_speed::wheel_speed_task(wheel_speed_resources).expect("Failed to spawn wheel_speed::wheel_speed_task()."));
+
+    let can_resources = CanResources {
+        can: p.FDCAN2,
+        rx: p.PB5,
+        tx: p.PB6,
+    };
+    can::start(spawner, can_resources);
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
