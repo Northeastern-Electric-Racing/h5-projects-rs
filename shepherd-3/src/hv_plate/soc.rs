@@ -118,11 +118,10 @@ impl Estimator {
     /// Folds this cycle's reading into the count.
     pub fn accumulate(&mut self) {
         // Read data from cache
-        let flag = cache::CACHE.get_flag();
-        let accumulated = cache::CACHE.get_accumulated();
-        let (Some(read_at), Ok(flag), Ok(accumulated)) = (accumulated.ivb1acc.last_successful_read(), flag.try_nice(), accumulated.try_nice()) else {
-            return;
-        };
+        let (Some(flag_nice), Some(accumulated_nice)) = (cache().get_flag().nice().try_get(), cache().get_accumulated().nice().try_get()) else { return };
+        let flag = flag_nice.data();
+        let accumulated = accumulated_nice.data();
+        let read_at = accumulated_nice.oldest_read();
 
         let (i1cnt, i1cntpha) = (flag.i1cnt, flag.i1cntpha);
         // Matches sign for `api::pack_current`

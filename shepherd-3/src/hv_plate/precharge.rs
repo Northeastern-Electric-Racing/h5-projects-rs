@@ -97,13 +97,13 @@ impl Precharge {
         // u_TODO - right now the routine pulls from analyzer kind of silently in the hv plate task loop.
         // For now this function will just do a `analyzer::analyzer()` call,
         // but we should change later once we get TS sense working properly
-        let (Some(analyzer), Ok(batt)) = (crate::pack::analyzer::analyzer(), cache::CACHE.get_current_voltage().try_nice()) else {
+        let (Some(analyzer), Some(batt_nice)) = (crate::pack::analyzer::analyzer(), cache().get_current_voltage().nice().try_get()) else {
             return State::Open;
         };
         let (Some(ts), Some(current)) = (analyzer.data.ts_voltage, analyzer.data.pack_current) else {
             return State::Open;
         };
-        let batt = batt.batt_voltage;
+        let batt = batt_nice.data().batt_voltage;
 
         self.ts.push(ts);
         self.batt.push(batt);
