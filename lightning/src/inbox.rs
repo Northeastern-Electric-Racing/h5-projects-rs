@@ -57,11 +57,10 @@ pub mod inbox {
                                 match u16::from_le_bytes([
                                     *envelope.frame.data().get(4).unwrap_or(&1),
                                     *envelope.frame.data().get(4).unwrap_or(&1),
-                                ]) & 0x07FF 
+                                ]) & 0x07FF
                                 {
                                     0 => Some(FaultframeState::IMDOk),
-                                    _ => Some(FaultframeState::IMDFault)
-                                    
+                                    _ => Some(FaultframeState::IMDFault),
                                 }
                             }
                             // Bitmask on the 7th bit
