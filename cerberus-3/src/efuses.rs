@@ -15,9 +15,9 @@ const MAX_TWELVE_BIT_RESOUTION: u16 = 4095;
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum EfuseControlState {
-    EfuseOn = 0, // Hard set on
+    EfuseOn = 0,   // Hard set on
     EfuseAuto = 1, // Hard set off
-    EfuseOff = 2, // Turns on and off under a specific predicate condition
+    EfuseOff = 2,  // Turns on and off under a specific predicate condition
 }
 
 /// ENUM for all Efuses on the car
@@ -376,22 +376,42 @@ pub async fn efuse_task(pins: EfusePins) {
                 EfuseControlState::EfuseAuto => {
                     let turn_on = match &efuse.auto_on_predicate {
                         Some(auto_mode_predicate) => match auto_mode_predicate.operation {
-                            PredicateOperation::LESS => (auto_mode_predicate.value1)() < (auto_mode_predicate.value2)(),
-                            PredicateOperation::GREATER => (auto_mode_predicate.value1)() > (auto_mode_predicate.value2)(),
-                            PredicateOperation::GREQ => (auto_mode_predicate.value1)() >= (auto_mode_predicate.value2)(),
-                            PredicateOperation::LEQ => (auto_mode_predicate.value1)() <= (auto_mode_predicate.value2)(),
-                            PredicateOperation::EQ => (auto_mode_predicate.value1)() == (auto_mode_predicate.value2)(),
+                            PredicateOperation::LESS => {
+                                (auto_mode_predicate.value1)() < (auto_mode_predicate.value2)()
+                            }
+                            PredicateOperation::GREATER => {
+                                (auto_mode_predicate.value1)() > (auto_mode_predicate.value2)()
+                            }
+                            PredicateOperation::GREQ => {
+                                (auto_mode_predicate.value1)() >= (auto_mode_predicate.value2)()
+                            }
+                            PredicateOperation::LEQ => {
+                                (auto_mode_predicate.value1)() <= (auto_mode_predicate.value2)()
+                            }
+                            PredicateOperation::EQ => {
+                                (auto_mode_predicate.value1)() == (auto_mode_predicate.value2)()
+                            }
                         },
                         None => true,
                     };
 
                     let turn_off = match &efuse.auto_off_predicate {
                         Some(auto_mode_predicate) => match auto_mode_predicate.operation {
-                            PredicateOperation::LESS => (auto_mode_predicate.value1)() < (auto_mode_predicate.value2)(),
-                            PredicateOperation::GREATER => (auto_mode_predicate.value1)() > (auto_mode_predicate.value2)(),
-                            PredicateOperation::GREQ => (auto_mode_predicate.value1)() >= (auto_mode_predicate.value2)(),
-                            PredicateOperation::LEQ => (auto_mode_predicate.value1)() <= (auto_mode_predicate.value2)(),
-                            PredicateOperation::EQ => (auto_mode_predicate.value1)() == (auto_mode_predicate.value2)(),
+                            PredicateOperation::LESS => {
+                                (auto_mode_predicate.value1)() < (auto_mode_predicate.value2)()
+                            }
+                            PredicateOperation::GREATER => {
+                                (auto_mode_predicate.value1)() > (auto_mode_predicate.value2)()
+                            }
+                            PredicateOperation::GREQ => {
+                                (auto_mode_predicate.value1)() >= (auto_mode_predicate.value2)()
+                            }
+                            PredicateOperation::LEQ => {
+                                (auto_mode_predicate.value1)() <= (auto_mode_predicate.value2)()
+                            }
+                            PredicateOperation::EQ => {
+                                (auto_mode_predicate.value1)() == (auto_mode_predicate.value2)()
+                            }
                         },
                         None => true,
                     };
