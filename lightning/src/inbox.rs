@@ -2,7 +2,7 @@ pub use self::inbox::FaultframeState;
 pub mod inbox {
     use core::fmt::Debug;
 
-    use defmt::{debug, warn};
+    use defmt::warn;
     use embassy_stm32::can::CanRx;
     use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
     const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
@@ -60,16 +60,16 @@ pub mod inbox {
                                 ]) & 0x07FF 
                                 {
                                     0 => Some(FaultframeState::IMDOk),
-                                    _ => {
-                                        debug!("IMD Fault data: {}", envelope.frame.data());
-                                        Some(FaultframeState::IMDFault)
-                                    }
+                                    _ => Some(FaultframeState::IMDFault)
+                                    
                                 }
                             }
+                            // Bitmask on the 7th bit
                             &BMS_CAN_ID_PROCESSED => match envelope.frame.data()[0] & 0x80 {
                                 0 => Some(FaultframeState::BMSOk),
                                 _ => Some(FaultframeState::BMSFault),
                             },
+                            // Bitmask on the 7th bit
                             &LATCHING_CAN_ID_PROCESSED => match envelope.frame.data()[0] & 0x80 {
                                 0 => None, // Nothing needs to be done if no reset it requested
                                 _ => Some(FaultframeState::ResetRequested),
@@ -85,7 +85,7 @@ pub mod inbox {
                         }
                     },
                     Err(_e) => {
-                        warn!("timeout");
+                        // warn!("timeout");
                         None
                     }
                 };
