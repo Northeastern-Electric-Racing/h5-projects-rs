@@ -168,11 +168,11 @@ pub async fn faults_debug(spawner: Spawner) {
 /// Thing that queues a failt!
 #[embassy_executor::task]
 pub async fn faults_queuer_1() {
-    use crate::{faults, faults::FaultId};
+    use crate::{faults, faults::FaultCommand, faults::AutomaticAction};
     use embassy_time::{Timer};
 
     loop {
-        faults::queue(FaultId::FakeFault1).await;
+        faults::queue(FaultCommand::FakeFault1(AutomaticAction::Trigger)).await;
         Timer::after_millis(5000).await;
     }
 }
@@ -180,11 +180,11 @@ pub async fn faults_queuer_1() {
 /// Thing that queues another fault!
 #[embassy_executor::task]
 pub async fn faults_queuer_2() {
-    use crate::{faults, faults::FaultId};
+    use crate::{faults, faults::FaultCommand, faults::AutomaticAction};
     use embassy_time::{Timer};
 
     loop {
-        faults::queue(FaultId::FakeFault2).await;
+        faults::queue(FaultCommand::FakeFault2(AutomaticAction::Trigger)).await;
         Timer::after_millis(10000).await;
     }
 }

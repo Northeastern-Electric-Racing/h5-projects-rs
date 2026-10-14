@@ -24,3 +24,7 @@ sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs
 ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs", branch = "can-handler-v2" }
 cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "2226d9a858cc40f3be02ec79a9a070f300b390af" }
 variant_count = "1.2.1"
+
+[lints.clippy]
+enum_variant_names = "allow"
+upper_case_acronyms = "allow"

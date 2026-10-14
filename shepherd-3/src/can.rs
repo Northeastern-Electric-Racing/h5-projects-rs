@@ -50,14 +50,14 @@ mod api {
         let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
         let can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None);
 
-        let (tx, rx, props) = can.start();
+        let (tx, rx, _props) = can.start();
 
         spawner.spawn(handler::can_tx(tx).expect("Failed to spawn can_handler::can_tx()."));
         spawner.spawn(handler::can_rx(rx).expect("Failed to spawn can_handler::can_rx()."));
         spawner.spawn(handler::can_rx_processer().expect("Failed to spawn can_handler::can_rx_processer()."));
 
         #[cfg(defmt_monitor)]
-        spawner.spawn(handler::can_props(props).expect("Failed to spawn can_handler::can_props()."));
+        spawner.spawn(handler::can_props(_props).expect("Failed to spawn can_handler::can_props()."));
     }
 }
 pub use api::*;
@@ -109,6 +109,97 @@ pub mod types {
     impl BetaCellDataDebug {
         pub fn as_frame(&self) -> Frame {
             let frame = cangen::BetaCellDataDebug::new().with_therm(self.therm).with_voltage_a(self.voltage_a).with_voltage_b(self.voltage_b).with_chip_id(self.chip_id).with_cell_a(self.cell_a).with_cell_b(self.cell_b).with_discharging_a(self.discharging_a).with_discharging_b(self.discharging_b).with_cvs_a(self.cvs_a).with_cvs_b(self.cvs_b);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct CellVoltage {
+        pub high_val: f32,
+        pub high_chip: u8,
+        pub high_cell: u8,
+        pub low_val: f32,
+        pub low_chip: u8,
+        pub low_cell: u8,
+        pub avg_val: f32,
+    }
+    impl CellVoltage {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::CellVoltage::new().with_high_val(self.high_val).with_high_chip(self.high_chip).with_high_cell(self.high_cell).with_low_val(self.low_val).with_low_chip(self.low_chip).with_low_cell(self.low_cell).with_avg_val(self.avg_val);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct SegmentAverageVoltages {
+        pub seg1: f32,
+        pub seg2: f32,
+        pub seg3: f32,
+        pub seg4: f32,
+        pub seg5: f32,
+    }
+    impl SegmentAverageVoltages {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::SegmentAverageVoltages::new().with_seg1(self.seg1).with_seg2(self.seg2).with_seg3(self.seg3).with_seg4(self.seg4).with_seg5(self.seg5);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct SegmentTotalVoltages {
+        pub seg1: f32,
+        pub seg2: f32,
+        pub seg3: f32,
+        pub seg4: f32,
+        pub seg5: f32,
+    }
+    impl SegmentTotalVoltages {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::SegmentTotalVoltages::new().with_seg1(self.seg1).with_seg2(self.seg2).with_seg3(self.seg3).with_seg4(self.seg4).with_seg5(self.seg5);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct CellTemperatures {
+        pub high_val: f32,
+        pub high_chip: u8,
+        pub high_cell: u8,
+        pub low_val: f32,
+        pub low_chip: u8,
+        pub low_cell: u8,
+        pub avg_val: f32,
+    }
+    impl CellTemperatures {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::CellTemperatures::new().with_high_val(self.high_val).with_high_chip(self.high_chip).with_high_cell(self.high_cell).with_low_val(self.low_val).with_low_chip(self.low_chip).with_low_cell(self.low_cell).with_avg_val(self.avg_val);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct SegmentTemperatures {
+        pub seg1: f32,
+        pub seg2: f32,
+        pub seg3: f32,
+        pub seg4: f32,
+        pub seg5: f32,
+    }
+    impl SegmentTemperatures {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::SegmentTemperatures::new().with_seg1(self.seg1).with_seg2(self.seg2).with_seg3(self.seg3).with_seg4(self.seg4).with_seg5(self.seg5);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct PackSocStatus {
+        pub pack_soc: f32,
+        pub pack_soc_drift: f32,
+    }
+    impl PackSocStatus {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::PackSocStatus::new().with_Pack_SoC(self.pack_soc).with_Pack_SoC_Drift(self.pack_soc_drift);
 
             frame.to_can_frame()
         }

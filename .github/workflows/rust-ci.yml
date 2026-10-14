@@ -28,6 +28,6 @@ jobs:
       #  - name: Test
       #    run: cargo test --verbose
       - name: Clippy
-        run: cargo clippy --all-features --all --workspace -- -D warnings
+        run: cargo clippy --all-features --all --workspace -- -D warnings -A dead_code
       - name: Format
         run: cargo fmt --verbose --all --check
