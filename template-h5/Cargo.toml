@@ -17,3 +17,6 @@ embassy-futures.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 #static_cell.workspace = true
+
+[lints]
+workspace = true
