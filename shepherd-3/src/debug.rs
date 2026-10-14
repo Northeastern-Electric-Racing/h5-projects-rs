@@ -16,49 +16,35 @@ pub async fn segments_debug() {
     // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
     let mut subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
 
+    let redundant_aux_ready = segments::cache().get_redundant_aux().nice().ready().await;
+    let filtered_cell_voltages_ready = segments::cache().get_filtered_cell_voltages().nice().ready().await;
+    let cell_voltages_ready = segments::cache().get_cell_voltages().nice().ready().await;
+    let pwm_ready = segments::cache().get_pwm().nice().ready().await;
+    let status_c_ready = segments::cache().get_status_c().nice().ready().await;
+    let s_voltages_ready = segments::cache().get_s_voltages().nice().ready().await;
+    let _fault_counts = segments::cache().get_fault_counts();
+
     loop {
         // Run one loop of this task every time new Segments data arrives.
         subscription.wait().await;
 
-        // Get "raw" cache readings.
-        let redundant_aux_raw = segments::cache().get_redundant_aux();
-        let filtered_cell_voltages_raw = segments::cache().get_filtered_cell_voltages();
-        let cell_voltages_raw = segments::cache().get_cell_voltages();
-        let pwm_raw = segments::cache().get_pwm();
-        let status_c_raw = segments::cache().get_status_c();
-        let s_voltages_raw = segments::cache().get_s_voltages();
-        let _fault_counts = segments::cache().get_fault_counts();
-
         // u_TODO - should probably inspect the PEC status and other metadata before transforming into NiceData, but i don't think TSECU-Shepherd does that so for now this is probably fine
 
-        // Convert "raw" readings to NiceData. When `try_nice()` fails, it means that the cache hasn't been updated yet (since starting up), so we skip for now and go back to top of the loop.
-        let Ok(redundant_aux) = redundant_aux_raw.try_nice() else {
-            continue;
-        };
-        let Ok(filtered_cell_voltages) = filtered_cell_voltages_raw.try_nice() else {
-            continue;
-        };
-        let Ok(_cell_voltages) = cell_voltages_raw.try_nice() else {
-            continue;
-        };
-        let Ok(pwm) = pwm_raw.try_nice() else {
-            continue;
-        };
-        let Ok(status_c) = status_c_raw.try_nice() else {
-            continue;
-        };
-        let Ok(_s_voltages) = s_voltages_raw.try_nice() else {
-            continue;
-        };
+        let redundant_aux = redundant_aux_ready.get();
+        let filtered_cell_voltages = filtered_cell_voltages_ready.get();
+        let cell_voltages = cell_voltages_ready.get();
+        let pwm = pwm_ready.get();
+        let status_c = status_c_ready.get();
+        let _s_voltages = s_voltages_ready.get();
 
         // Iterate through every chip and send data over CAN.
         #[cfg(true)]
         '_can: {
             for chip in ChipId::iter() {
-                let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
-                let volts = filtered_cell_voltages.chip(chip); // u_TODO - if charging, we use cell_voltages, if not charging, we use filtered_cell_voltages. This is what TSECU-Shepherd did. but there's no charging state rn so for now who cares
-                let pwm = pwm.chip(chip);
-                let cvs = status_c.chip(chip).cell_channel_comparison_faults;
+                let temps = redundant_aux.data().chip(chip).to_temps().cell_temperatures;
+                let volts = if crate::state_machine::bms_state().is_charging() { cell_voltages.data().chip(chip) } else { filtered_cell_voltages.data().chip(chip) }; // u_TODO - if charging, we use cell_voltages, if not charging, we use filtered_cell_voltages. This is what TSECU-Shepherd did. but there's no charging state rn so for now who cares
+                let pwm = pwm.data().chip(chip);
+                let cvs = status_c.data().chip(chip).cell_channel_comparison_faults;
 
                 match chip.kind() {
                     ChipKind::Alpha => {
@@ -129,8 +115,8 @@ pub async fn segments_debug() {
                 defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Segment", chip.as_u8()], desc = "What segment this chip is on (0 through 4).", "{=u8}", chip.segment().as_u8());
                 defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Kind", chip.as_u8()], desc = "If this chip is Alpha or Beta.", "{}", chip.kind());
 
-                let volts = filtered_cell_voltages.chip(chip);
-                let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
+                let volts = filtered_cell_voltages.data().chip(chip);
+                let temps = redundant_aux.data().chip(chip).to_temps().cell_temperatures;
                 let comparison_fault_counts = _fault_counts.chip(chip).csxflt.idx_by_cell();
 
                 for cell in CellId::iter() {
@@ -201,45 +187,28 @@ pub async fn hv_plate_debug() {
     // Subscribe to the HV plate fresh data signal so we are notified when new data comes in.
     let mut subscription = HV_PLATE_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
 
+    let current_voltage_ready = hv_plate::cache().get_current_voltage().nice().ready().await;
+    let voltages_ready = hv_plate::cache().get_voltages().nice().ready().await;
+    let accumulated_ready = hv_plate::cache().get_accumulated().nice().ready().await;
+    let flag_ready = hv_plate::cache().get_flag().nice().ready().await;
+    let aux_ready = hv_plate::cache().get_aux().nice().ready().await;
+    let status_ready = hv_plate::cache().get_status().nice().ready().await;
+
     loop {
         // Run one loop of this task every time new HV plate data arrives.
         subscription.wait().await;
 
-        // Get "raw" cache readings.
-        let current_voltage_raw = hv_plate::cache().get_current_voltage();
-        let voltages_raw = hv_plate::cache().get_voltages();
-        let accumulated_raw = hv_plate::cache().get_accumulated();
-        let flag_raw = hv_plate::cache().get_flag();
-        let aux_raw = hv_plate::cache().get_aux();
-        let status_raw = hv_plate::cache().get_status();
-
-        // Convert "raw" readings to NiceData. When `try_nice()` fails, it means that the cache hasn't been updated yet (since starting up), so we skip for now and go back to top of the loop.
-        //
         // The accumulator, FLAG and STATUS readings are only consumed by the monitor block, so
-        // they are annotated for the `DEFMT_MONITOR=off` build. They are not dead even then:
-        // each `else { continue }` is what holds the cycle back until that register group has
-        // actually been read.
-        let Ok(current_voltage) = current_voltage_raw.try_nice() else {
-            continue;
-        };
-        let Ok(voltages) = voltages_raw.try_nice() else {
-            continue;
-        };
+        // they are annotated for the `DEFMT_MONITOR=off` build.
+        let current_voltage = *current_voltage_ready.get().data();
+        let voltages = *voltages_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let Ok(accumulated) = accumulated_raw.try_nice() else {
-            continue;
-        };
+        let accumulated = *accumulated_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let Ok(flag) = flag_raw.try_nice() else {
-            continue;
-        };
-        let Ok(aux) = aux_raw.try_nice() else {
-            continue;
-        };
+        let flag = *flag_ready.get().data();
+        let aux = *aux_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let Ok(status) = status_raw.try_nice() else {
-            continue;
-        };
+        let status = *status_ready.get().data();
 
         '_println: {
             defmt::println!("HV Plate Data:");

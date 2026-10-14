@@ -514,7 +514,7 @@ pub mod task {
     use crate::broadcast::Broadcast;
     use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
     use embassy_time::{Instant, Duration, Timer};
-    use crate::helpers::Deadline;
+    use crate::helpers::deadline::Deadline;
 
     /// `Broadcast` static for segments task. This allows the Segments task to flag other tasks when it successfully runs the jobs.
     ///
