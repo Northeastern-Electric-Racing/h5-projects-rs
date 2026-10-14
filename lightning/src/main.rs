@@ -10,23 +10,18 @@ use crate::inbox::inbox::{BMS_CAN_ID, IMD_CAN_ID, LATCHING_CAN_ID};
 use can_handler::NerCan;
 use can_handler::{ExtFilter, StdFilter};
 use core::fmt::Write;
-use core::num::{NonZeroU8, NonZeroU16};
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::debug;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_stm32::can::Frame;
-use embassy_stm32::can::filter::ExtendedFilter;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::Uart;
 use embassy_stm32::{Config, can, dma, peripherals, usart};
 use embassy_stm32::{bind_interrupts, wdg::IndependentWatchdog};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker, Timer};
-use embedded_can::ExtendedId;
 use heapless::String;
 use heapless::mpmc::Queue;
 
@@ -91,7 +86,7 @@ async fn main(_spawner: Spawner) -> ! {
     // initialize the project, ensure we can debug during sleep
     let p = embassy_stm32::init(config);
 
-    let mut ner_can = NerCan::init(can::CanConfigurator::new(p.FDCAN2, p.PB12, p.PB13, IrqsCan))
+    let ner_can = NerCan::init(can::CanConfigurator::new(p.FDCAN2, p.PB12, p.PB13, IrqsCan))
         .with_standard_filters(&[
             StdFilter {
                 slot: can::filter::StandardFilterSlot::_0,
@@ -132,7 +127,7 @@ async fn main(_spawner: Spawner) -> ! {
     static QUEUTEX: Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>> =
         Mutex::new(&FFS_QUEUE);
 
-    let (can_tx, can_rx, can_props) = ner_can.start();
+    let (_can_tx, can_rx, _can_props) = ner_can.start();
 
     let mut s: String<128> = String::new();
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();

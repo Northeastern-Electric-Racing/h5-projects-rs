@@ -3,8 +3,8 @@ pub mod inbox {
     use core::fmt::Debug;
 
     use defmt::{debug, warn};
-    use embassy_stm32::can::{CanRx, Frame};
-    use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Receiver, mutex::Mutex};
+    use embassy_stm32::can::CanRx;
+    use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
     const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
 
     pub const GRACE_PERIOD_DURATION: Duration = Duration::from_secs(5); // Needs to be public such
@@ -54,10 +54,10 @@ pub mod inbox {
                         Ok(envelope) => match envelope.frame.id() {
                             &IMD_CAN_ID_PROCESSED => {
                                 // Only the 4th and 5th bits mean there is an error on the IMD
-                                match (u16::from_le_bytes([
+                                match u16::from_le_bytes([
                                     *envelope.frame.data().get(4).unwrap_or(&1),
                                     *envelope.frame.data().get(4).unwrap_or(&1),
-                                ]) & 0x07FF)
+                                ]) & 0x07FF 
                                 {
                                     0 => Some(FaultframeState::IMDOk),
                                     _ => {
@@ -79,12 +79,12 @@ pub mod inbox {
                                 None
                             }
                         },
-                        Err(e) => {
+                        Err(_e) => {
                             // warn!("Did not receive CAN Frame. Error: {}", e);
                             None
                         }
                     },
-                    Err(e) => {
+                    Err(_e) => {
                         warn!("timeout");
                         None
                     }

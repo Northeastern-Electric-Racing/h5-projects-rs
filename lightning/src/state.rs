@@ -13,7 +13,7 @@ pub mod state_machine {
     use defmt::{error, warn};
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::mutex::Mutex;
-    use embassy_time::{Duration, Instant};
+
     use heapless::mpmc::Queue;
     #[embassy_executor::task]
     pub async fn state_machine(
@@ -21,7 +21,7 @@ pub mod state_machine {
         mut leds: Leds,
     ) -> ! {
         let mut state: State = State::Startup;
-        let mut grace_period: bool = true;
+        let mut grace_period: bool;
         let mut bms_seen: bool = false;
         let mut imd_seen: bool = false;
         // Note that this always waits slightly longer than the grace period
