@@ -19,6 +19,7 @@ mod adc;
 mod can;
 mod efuses;
 mod rtds;
+mod statemachine;
 
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
@@ -159,6 +160,11 @@ async fn main(spawner: Spawner) -> ! {
             spare_er: p.PG11,
         })
         .expect("Failed to spawn efuses::efuse_task()."),
+    );
+
+    spawner.spawn(
+        statemachine::statemachine_task()
+            .expect("Failed to spawn statemachine::statemachine_task()."),
     );
 
     // RTDS
