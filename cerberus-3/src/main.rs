@@ -18,6 +18,7 @@ use {defmt_rtt as _, panic_probe as _};
 mod adc;
 mod can;
 mod efuses;
+mod pedals;
 mod rtds;
 
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
