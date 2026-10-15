@@ -116,7 +116,7 @@ impl_efuse_msg!(
     SpareEfuse,
 );
 
-/// Builder pattern for convertering EfuseMsg into a frame
+/// Builder pattern for converting EfuseMsg into a frame
 fn frame_for<M: EfuseMsg>(t: &EfuseTelemetry) -> Frame {
     M::build(t).to_can_frame()
 }
