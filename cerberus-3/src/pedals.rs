@@ -1,4 +1,10 @@
+//! pedals
+//! handles all pedals related functions <br>
+//! ie, drive locks, torque and regen calls
+
 use defmt::bitflags;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use variant_count::VariantCount;
 
@@ -17,7 +23,9 @@ const MIN_APPS1_VOLTS: f32 = 2.1; // Volts
 const MIN_APPS2_VOLTS: f32 = 1.1; // Volts
 pub const PEDAL_BRAKE_TURNOFF_THRESH: f32 = 0.004;
 
-#[derive(VariantCount, Clone, Copy)]
+static LOCK_MUTEX: Mutex<ThreadModeRawMutex, DriveLocksState> = Mutex::new(DriveLocksState::INIT);
+
+#[derive(VariantCount, Clone, Copy, Debug)]
 pub enum DriveLocks {
     BrakeOc,
     BrakeSc,
@@ -54,6 +62,7 @@ impl DriveLocks {
     }
 }
 
+#[derive(Clone, Copy)]
 struct DriveLocksState {
     drive_locks: DriveFaultFlags,
     brake_pressed: bool,
@@ -193,8 +202,16 @@ impl DriveLocksState {
     }
 }
 
+pub async fn get_brake_state() -> bool {
+    LOCK_MUTEX.lock().await.brake_pressed
+}
+
+pub async fn get_accel_state() -> bool {
+    LOCK_MUTEX.lock().await.accel_pressed
+}
+
 #[embassy_executor::task]
-pub async fn pedal_task() {
+pub async fn pedals_task() {
     let mut drive_lock: DriveLocksState = DriveLocksState::INIT;
 
     loop {
@@ -230,6 +247,7 @@ pub async fn pedal_task() {
 
         // todo: call tc_process
 
+        *LOCK_MUTEX.lock().await = drive_lock;
         Timer::after(PEDALS_PERIOD).await;
     }
 }

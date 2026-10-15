@@ -25,6 +25,7 @@ use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
 use ner_can::{can_rx, can_tx};
+use pedals::pedals_task;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -121,6 +122,7 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn adc::adc1_task()."),
     );
 
+    // ADC2 (pedals)
     spawner.spawn(
         adc2_task(Adc2Resources {
             adc: p.ADC2,
@@ -132,6 +134,9 @@ async fn main(spawner: Spawner) -> ! {
         })
         .expect("Failed to spawn adc2_task()."),
     );
+
+    // pedals
+    spawner.spawn(pedals_task().expect("Failed to spawn pedals::pedals_task"));
 
     // eFuses
     spawner.spawn(
@@ -165,10 +170,7 @@ async fn main(spawner: Spawner) -> ! {
     // RTDS
     // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
-    spawner.spawn(
-        rtds::rtds_task(rtds_pin, rtds::is_shutdown_closed_placeholder)
-            .expect("Failed to spawn rtds::rtds_task()."),
-    );
+    spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
