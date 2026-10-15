@@ -10,7 +10,8 @@ use embassy_sync::watch::Watch;
 use embassy_time::{Delay, Duration, Ticker};
 use hdc2021_ner::{Address, Hdc2021, MANUFACTURER_ID, Measurement};
 
-pub type Hdc2021I2c = I2c<'static, Async>;
+pub type Hdc2021I2c = I2c<'static, Async, embassy_stm32::i2c::Master>;
+
  
 /// how often to measure
 /// temperature and humidity change slowly

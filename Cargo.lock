@@ -1052,6 +1052,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hdc2021-ner"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=hdc2021-ner#db34c8c76424d87619eeb08f3b6337147ca9f8f3"
+dependencies = [
+ "defmt 1.1.1",
+ "embedded-hal-async",
+]
+
+[[package]]
 name = "heapless"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1180,6 +1189,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 name = "msb-fw-2"
 version = "0.1.0"
 dependencies = [
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",
@@ -1190,6 +1200,8 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
+ "embedded-hal-bus",
+ "hdc2021-ner",
  "heapless",
  "panic-probe",
  "static_cell",

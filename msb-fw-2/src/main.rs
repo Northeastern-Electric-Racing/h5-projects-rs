@@ -134,7 +134,8 @@ async fn main(spawner: Spawner) -> ! {
     i2c1_config.frequency = Hertz::khz(100); // standard mode
     let i2c1 = I2c::new(p.I2C1, p.PB8, p.PB9, p.GPDMA1_CH6, p.GPDMA1_CH7, Irqs, i2c1_config);
 
-    spawner.spawn(hdc2021::hdc2021_task(i2c1).expect("Failed to spawn hdc2021::hdc2021_task()."));
+    spawner.spawn(hdc2021::hdc2021_task(i2c1)
+        .expect("Failed to spawn hdc2021::hdc2021_task()."));
 
 
 
