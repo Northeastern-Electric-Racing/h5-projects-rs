@@ -1,6 +1,6 @@
 //! RTDS (ready to drive sound)
 //!
-//! rtds_task owns the pin. everything else just calls `sound_rtds` / `cancel_rtds` which
+//! rtds_task owns the pin. Everything else just calls `sound_rtds` / `cancel_rtds` which
 //! throw a command on the queue. The task just sleeps until a new command or the deadline is reached.
 
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -74,7 +74,6 @@ pub fn is_sounding() -> bool {
 
 struct Rtds {
     pin: Output<'static>,
-    shutdown_closed: fn() -> bool,
     /// when to stop the sound, Some while it's playing
     sound_deadline: Option<Instant>,
 }
@@ -82,7 +81,7 @@ struct Rtds {
 impl Rtds {
     fn set_pin(&mut self) {
         // shutdown open = can't drive, so don't let rtds go off
-        if !(self.shutdown_closed)() {
+        if !is_shutdown_closed_placeholder() {
             debug!("RTDS shut down due to shutdown_closed.");
             return;
         }
@@ -128,10 +127,9 @@ impl Rtds {
 ///
 /// `shutdown_closed` gets checked every time we'd turn the pin on, so rtds never plays with shutdown open
 #[embassy_executor::task]
-pub async fn rtds_task(pin: Output<'static>, shutdown_closed: fn() -> bool) -> ! {
+pub async fn rtds_task(pin: Output<'static>) -> ! {
     let mut rtds = Rtds {
         pin,
-        shutdown_closed,
         sound_deadline: None,
     };
     rtds.clear_pin();

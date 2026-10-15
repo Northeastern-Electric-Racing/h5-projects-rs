@@ -1,3 +1,9 @@
+//! efuses
+//! Handles all functions related to efuses
+//! Auto efuses use function pointers and evaluates conditions every loop <br>
+//! The status of an efuse can be polled by calling is_enabled, or is_faulted <br>
+//! The efuse condition can also be updated using update_control_state <br>
+
 use cangen::ToCanFrame;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
@@ -9,7 +15,7 @@ use crate::adc::{self, AdcMuxData};
 use crate::can;
 
 const V_REF: f32 = 3.3;
-const MAX_TWELVE_BIT_RESOUTION: u16 = 4095;
+const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
 
 /// Discriminants match the `control_state` encoding in the CAN spec.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -331,7 +337,7 @@ impl Efuse {
 
     pub fn get_data(&self, adc_data: &AdcMuxData) -> Option<(f32, f32)> {
         if let Some(data) = adc_data.get_efuse_data(self.efuse_id) {
-            let voltage = data as f32 / MAX_TWELVE_BIT_RESOUTION as f32 * V_REF;
+            let voltage = data as f32 / MAX_TWELVE_BIT_RESOLUTION as f32 * V_REF;
             let current = voltage * self.scale;
             Some((voltage, current))
         } else {
