@@ -1,3 +1,9 @@
+//! Cerberus-3 vehicle state machine.
+//!
+//! Owns the car's functional state (`FuncState`: Ready, Pit, Reverse,
+//! Performance, Efficiency, Faulted) and the NERO dash menu position
+//! (`NeroMenu`), and arbitrates transitions between them.
+
 use cangen::ToCanFrame;
 use defmt::{bitflags, debug, info, warn};
 use embassy_futures::select::{Either3, select3};
