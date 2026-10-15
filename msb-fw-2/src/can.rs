@@ -13,13 +13,14 @@
 //! at the `cangen` rev pinned in the workspace `Cargo.toml`. There is one MSB on the car, so it uses
 //! the front message set:
 //!
-//! | ID    | Message          | Sent from                                      |
-//! |-------|------------------|------------------------------------------------|
-//! | 0x606 | Front Shockpot   | right shock pot: travel (in, f32) + raw ADC count |
-//! | 0x605 | Front MSB Strain | strain gauges 1, 2 (raw ADC counts)            |
+//! | ID    | Message              | Sent from                                      |
+//! |-------|----------------------|------------------------------------------------|
+//! | 0x606 | Front Left Shockpot  | left shock pot: travel (in) + raw ADC count    |
+//! | 0x626 | Front Right Shockpot | right shock pot: travel (in) + raw ADC count   |
+//! | 0x605 | Front MSB Strain     | strain gauges 1, 2 (raw ADC counts)            |
 //!
-//! TODO: the pinned definitions have one shock pot slot and no messages for the left pot, strain
-//! gauges 3-4, wheel speed or steering angle. Add those once the definitions include them.
+//! TODO: the pinned definitions have no messages for strain gauges 3-4, wheel speed or steering
+//! angle. Add those once the definitions include them.
 //!
 //! The MSB only transmits: the global filter rejects every incoming frame.
 
@@ -206,9 +207,6 @@ async fn health_task(properties: Properties) {
     }
 }
 
-/// The shock pot sent in the one-pot `Front Shockpot` message.
-const CAN_SHOCK_POT: ShockPot = ShockPot::Right;
-
 /// Sends each sensor's message as soon as that sensor publishes new readings.
 #[embassy_executor::task]
 async fn telemetry_task() {
@@ -221,21 +219,33 @@ async fn telemetry_task() {
 
     loop {
         // Whichever sensor published first; the other is picked up on the next pass.
-        let frame = match select(shock_pot_rx.changed(), strain_gauge_rx.changed()).await {
-            Either::First(readings) => shock_pot_frame(&readings),
-            Either::Second(readings) => strain_gauge_frame(&readings),
-        };
-        send(frame).await;
+        match select(shock_pot_rx.changed(), strain_gauge_rx.changed()).await {
+            Either::First(readings) => {
+                for frame in shock_pot_frames(&readings) {
+                    send(frame).await;
+                }
+            }
+            Either::Second(readings) => send(strain_gauge_frame(&readings)).await,
+        }
     }
 }
 
-/// `Front Shockpot` (0x606): the right shock pot's travel in inches, plus its raw ADC count.
-fn shock_pot_frame(readings: &[ShockPotReading; NUM_SHOCK_POTS]) -> Frame {
-    let r = readings[CAN_SHOCK_POT as usize];
-    cangen::FrontShockpot::new()
-        .with_shock1(r.inch_travel)
-        .with_shock1_raw(r.raw)
-        .to_can_frame()
+/// `Front Left Shockpot` (0x606) and `Front Right Shockpot` (0x626): each pot's travel in inches
+/// plus its raw ADC count. `cangen` scales the travel (x1000) and saturates it at 0, so negative
+/// travel (from the trim) goes out as 0.
+fn shock_pot_frames(readings: &[ShockPotReading; NUM_SHOCK_POTS]) -> [Frame; 2] {
+    let left = readings[ShockPot::Left as usize];
+    let right = readings[ShockPot::Right as usize];
+    [
+        cangen::FrontLeftShockpot::new()
+            .with_shock_left(left.inch_travel)
+            .with_shock_left_raw(u32::from(left.raw))
+            .to_can_frame(),
+        cangen::FrontRightShockpot::new()
+            .with_shock_right(right.inch_travel)
+            .with_shock_right_raw(u32::from(right.raw))
+            .to_can_frame(),
+    ]
 }
 
 /// `Front MSB Strain` (0x605): strain gauges 1 and 2.
