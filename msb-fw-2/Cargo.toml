@@ -4,6 +4,7 @@ name = "msb-fw-2"
 version = "0.1.0"
 
 [dependencies]
+cangen.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true

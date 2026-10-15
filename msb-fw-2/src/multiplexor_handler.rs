@@ -1,11 +1,12 @@
+use crate::bind_interrupts::Irqs;
 use embassy_futures::join::join;
+use embassy_stm32::Peri;
 use embassy_stm32::adc::{Adc, AdcChannel, Config as AdcConfig, SampleTime};
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
 use embassy_stm32::peripherals::{
-    ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1, PA0, PA3, PC0, PC2, PC3, PC6, PC7, PC8, PC9, PF6, PF7, PF8, PF9, PF12, PF13, PF14,
+    ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1, PA0, PA3, PC0, PC2, PC3, PC6, PC7, PC8, PC9, PF6, PF7, PF8,
+    PF9, PF12, PF13, PF14,
 };
-use crate::bind_interrupts::Irqs;
-use embassy_stm32::Peri;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Ticker, Timer};
@@ -61,7 +62,12 @@ pub enum MuxChannel {
 }
 
 impl MuxChannel {
-    pub const ALL: [MuxChannel; 4] = [MuxChannel::Ch1, MuxChannel::Ch2, MuxChannel::Ch3, MuxChannel::Ch4];
+    pub const ALL: [MuxChannel; 4] = [
+        MuxChannel::Ch1,
+        MuxChannel::Ch2,
+        MuxChannel::Ch3,
+        MuxChannel::Ch4,
+    ];
 }
 
 /// Which input a switch connects to its `Dx` output.
@@ -93,7 +99,12 @@ struct Mux<'d> {
 }
 
 impl<'d> Mux<'d> {
-    fn new(sel1: Peri<'d, impl Pin>, sel2: Peri<'d, impl Pin>, sel3: Peri<'d, impl Pin>, sel4: Peri<'d, impl Pin>) -> Self {
+    fn new(
+        sel1: Peri<'d, impl Pin>,
+        sel2: Peri<'d, impl Pin>,
+        sel3: Peri<'d, impl Pin>,
+        sel4: Peri<'d, impl Pin>,
+    ) -> Self {
         Self {
             sel: [
                 Output::new(sel1, Level::Low, Speed::Low),
@@ -234,7 +245,10 @@ pub struct MuxSnapshot {
 }
 
 impl MuxSnapshot {
-    const EMPTY: Self = Self { raw: [[[0; 2]; 4]; 2], timestamp: Instant::from_ticks(0) };
+    const EMPTY: Self = Self {
+        raw: [[[0; 2]; 4]; 2],
+        timestamp: Instant::from_ticks(0),
+    };
 
     const fn index(mux: MuxId, channel: MuxChannel, input: MuxInput) -> (usize, usize, usize) {
         let m = match mux {
