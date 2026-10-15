@@ -7,18 +7,18 @@ use defmt::debug;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
+
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::{time::Hertz, wdg};
 use embassy_time::{Delay, Timer};
-use embedded_hal_bus::spi::ExclusiveDevice;
+
+// use embedded_hal_bus::spi::ExclusiveDevice;
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
-use msb_fw_2::shock_pot;
-use msb_fw_2::steering_angle;
-use msb_fw_2::strain_guage;
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
-use msb_fw_2::{shock_pot, steering_angle, strain_guage, magnetometer, hdc2021, load_cell, thermocouple, imu}; 
+use msb_fw_2::bind_interrupts::Irqs;
+use msb_fw_2::{shock_pot, steering_angle, load_cell, strain_guage, thermocouple }; //, ,magnetometer, , hdc2021, imu}; 
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -67,9 +67,15 @@ async fn main(spawner: Spawner) -> ! {
         config.rcc.mux.fdcan12sel = Fdcansel::Pll2Q;
 
         config.rcc.voltage_scale = VoltageScale::Scale1;
+
+        config.rcc.mux.i2c1sel = I2csel::Pclk1; // C: RCC_I2C1CLKSOURCE_PCLK1
     }
 
     let p = embassy_stm32::init(config);
+ 
+   
+
+
 
     let mux_resources = MuxResources {
         adc1: p.ADC1,
@@ -101,20 +107,23 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(load_cell::load_cell_task().expect("Failed to spawn load_cell::load_cell_task()."));
     spawner.spawn(thermocouple::thermocouple_task().expect("Failed to spawn thermocouple::thermocouple_task()."));
 
-    /// magnetometer on SPI2
-    let mut spi2_config = spi::Config::default();
-    spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
-    spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
-
-    let spi2 = Spi::new(p.SPI2, p.PA12, p.PG1, p.PB14, p.GPDMA1_CH2, p.GPDMA1_CH3, spi2_config);
-    let mag_cs = Output::new(p.PA11, Level::High, Speed::VeryHigh);
-    let mag_spi = ExlusiveDevice::new(spi2, mag_cs, Delay).expect("Failed to create SPI device for magnetometer");
-    spawner.spawn(magnetometer::magnetometer_task(mag_spi).expect("Failed to spawn magnetometer::magnetometer_task()."));
 
 
+    // /// magnetometer on SPI2 -> need to chk this too
+    // /// 
+    // let mut spi2_config = spi::Config::default();
+    // spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
+    // spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
 
-    /// its driver is still WIP
-    // /// imu on SPI1
+    // let spi2 = Spi::new(p.SPI2, p.PA12, p.PG1, p.PB14, p.GPDMA1_CH2, p.GPDMA1_CH3, Irqs, spi2_config);
+    // let mag_cs = Output::new(p.PA11, Level::High, Speed::VeryHigh);
+    // let mag_spi = ExlusiveDevice::new(spi2, mag_cs, Delay).expect("Failed to create SPI device for magnetometer");
+    // spawner.spawn(magnetometer::magnetometer_task(mag_spi).expect("Failed to spawn magnetometer::magnetometer_task()."));
+
+
+
+    // its driver is still WIP
+    // // imu on SPI1
     // let mut spi1_config = spi::Config::default();
     // spi1_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
     // spi1_config.frequency = Hertz(1_000_000); // 1 MHz,
@@ -124,12 +133,19 @@ async fn main(spawner: Spawner) -> ! {
     // spawner.spawn(imu::imu_task(imu_spi).expect("Failed to spawn imu::imu_task()."));
     
 
-    /// HDC2021 on I2C1
-    let mut i2c1_config = i2c::Config::default();
-    i2c1_config.speed = embassy_stm32::i2c::Speed::Standard; // 100 kHz
-    let i2c1 = I2c::new(p.I2C1, p.PB8, p.PB9, p.GPDMA1_CH6, p.GPDMA1_CH7, i2c1_config);
 
-    spawner.spawn(hdc2021::hdc2021_task(i2c1).expect("Failed to spawn hdc2021::hdc2021_task()."));
+
+    // // HDC2021 on I2C1 -> [ERROR] HDC2021: ID read failed (cant read the id)
+    // let mut i2c1_config = i2c::Config::default();
+    // i2c1_config.frequency = Hertz::khz(100); // 100 kHz
+    // i2c1_config.sda_pullup = true;   // 
+    // i2c1_config.scl_pullup = true;   // 
+    // let i2c1 = I2c::new(p.I2C1, p.PB8, p.PB9, p.GPDMA1_CH6, p.GPDMA1_CH7, Irqs, i2c1_config);
+
+    // spawner.spawn(hdc2021::hdc2021_task(i2c1).expect("Failed to spawn hdc2021::hdc2021_task()."));
+
+
+    
 
 
 
@@ -149,8 +165,8 @@ async fn main(spawner: Spawner) -> ! {
         debug!("Status: Alive");
         Timer::after_millis(500).await;
         watchdog.pet();
-    }
-}
+     }
+ }
 
 #[exception]
 unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {

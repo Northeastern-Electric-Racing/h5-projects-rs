@@ -3,14 +3,15 @@
 //! just runs it and publishes readings. The I2C bus is set up in main.rs and handed to
 //! [`hdc2021_task`].
 
-use embassy_stm32::i2c::I2c;
+use embassy_stm32::i2c::{I2c, Master};
 use embassy_stm32::mode::Async;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Delay, Duration, Ticker};
 use hdc2021_ner::{Address, Hdc2021, MANUFACTURER_ID, Measurement};
 
-pub type Hdc2021I2c = I2c<'static, Async>;
+/// I2C1 in async mode, with the MSB as bus master.
+pub type Hdc2021I2c = I2c<'static, Async, Master>;
  
 /// how often to measure
 /// temperature and humidity change slowly

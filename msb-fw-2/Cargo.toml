@@ -17,6 +17,9 @@ embassy-futures.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 static_cell.workspace = true
+hdc2021-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "hdc2021-ner" }
+   
+
 
 [lints]
 workspace = true
