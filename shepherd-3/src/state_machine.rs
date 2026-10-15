@@ -34,6 +34,11 @@ mod sm {
                 Faulted  => matches!(next, Boot),
             }
         }
+
+        /// Whether the state is `BmsState::Charging` or not.
+        pub const fn is_charging(self) -> bool {
+            matches!(self, BmsState::Charging)
+        }
     }
 
     /// What the state machine reads, snapshotted once per tick by value.

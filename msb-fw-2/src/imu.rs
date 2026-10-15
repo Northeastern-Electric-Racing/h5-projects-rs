@@ -27,7 +27,7 @@ const POLL_PERIOD: Duration = Duration::from_millis(20);
 /// same as the C firmware
 
 const CONFIG: Config = Config {
-    accel_range: AccelRange::G2, /// let's see if this is good enough
+    accel_range: AccelRange::G2, // let's see if this is good enough
     gyro_range: GyroRange::Dps2000,
     data_rate: DataRate::Hz120,
 };

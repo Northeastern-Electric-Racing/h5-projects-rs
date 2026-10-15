@@ -27,10 +27,10 @@ use crate::bind_interrupts::Irqs;
 use crate::shock_pot::{NUM_SHOCK_POTS, SHOCK_POT_DATA, ShockPot, ShockPotReading};
 use crate::strain_guage::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
 use cangen::ToCanFrame;
+use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::Peri;
-use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_stm32::can::enums::BusErrorMode;
 use embassy_stm32::can::{CanConfigurator, CanRx, CanTx, Frame, Properties};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
@@ -107,7 +107,9 @@ pub fn start(spawner: Spawner, r: CanResources) {
 /// Queues a frame to send, waiting if [`OUTGOING`] is full.
 pub async fn send(frame: Frame) {
     if let Err(TrySendError::Full(frame)) = OUTGOING.try_send(frame) {
-        defmt::warn!("CAN: OUTGOING is full; waiting for space. Consider raising OUTGOING_CAPACITY.");
+        defmt::warn!(
+            "CAN: OUTGOING is full; waiting for space. Consider raising OUTGOING_CAPACITY."
+        );
         OUTGOING.send(frame).await;
     }
 }
@@ -134,7 +136,10 @@ async fn can_tx_task(mut tx: CanTx<'static>, _rx: CanRx<'static>) {
             }
             Either::Second(()) => {
                 stats::bump(&stats::DROPPED_STALLED);
-                defmt::warn!("CAN: TX stalled for {=u64} ms; dropped a frame.", TX_TIMEOUT.as_millis());
+                defmt::warn!(
+                    "CAN: TX stalled for {=u64} ms; dropped a frame.",
+                    TX_TIMEOUT.as_millis()
+                );
             }
         }
     }
@@ -177,12 +182,24 @@ async fn health_task(properties: Properties) {
         if healthy {
             defmt::info!(
                 "CAN health: {=str} | tx_err={=u8} rx_err={=u8} | sent={=u32}/s dropped={=u32} | queued={=usize}/{=usize}",
-                mode_name, tec, rec, sent_per_period, dropped_per_period, queued, OUTGOING_CAPACITY
+                mode_name,
+                tec,
+                rec,
+                sent_per_period,
+                dropped_per_period,
+                queued,
+                OUTGOING_CAPACITY
             );
         } else {
             defmt::warn!(
                 "CAN health: {=str} | tx_err={=u8} rx_err={=u8} | sent={=u32}/s dropped={=u32} | queued={=usize}/{=usize} | total requeued={=u32}",
-                mode_name, tec, rec, sent_per_period, dropped_per_period, queued, OUTGOING_CAPACITY,
+                mode_name,
+                tec,
+                rec,
+                sent_per_period,
+                dropped_per_period,
+                queued,
+                OUTGOING_CAPACITY,
                 stats::get(&stats::REQUEUED)
             );
         }
@@ -195,8 +212,12 @@ const CAN_SHOCK_POT: ShockPot = ShockPot::Right;
 /// Sends each sensor's message as soon as that sensor publishes new readings.
 #[embassy_executor::task]
 async fn telemetry_task() {
-    let mut shock_pot_rx = SHOCK_POT_DATA.receiver().expect("Too many SHOCK_POT_DATA receivers.");
-    let mut strain_gauge_rx = STRAIN_GAUGE_DATA.receiver().expect("Too many STRAIN_GAUGE_DATA receivers.");
+    let mut shock_pot_rx = SHOCK_POT_DATA
+        .receiver()
+        .expect("Too many SHOCK_POT_DATA receivers.");
+    let mut strain_gauge_rx = STRAIN_GAUGE_DATA
+        .receiver()
+        .expect("Too many STRAIN_GAUGE_DATA receivers.");
 
     loop {
         // Whichever sensor published first; the other is picked up on the next pass.
@@ -211,7 +232,10 @@ async fn telemetry_task() {
 /// `Front Shockpot` (0x606): the right shock pot's travel in inches, plus its raw ADC count.
 fn shock_pot_frame(readings: &[ShockPotReading; NUM_SHOCK_POTS]) -> Frame {
     let r = readings[CAN_SHOCK_POT as usize];
-    cangen::FrontShockpot::new().with_shock1(r.inch_travel).with_shock1_raw(r.raw).to_can_frame()
+    cangen::FrontShockpot::new()
+        .with_shock1(r.inch_travel)
+        .with_shock1_raw(r.raw)
+        .to_can_frame()
 }
 
 /// `Front MSB Strain` (0x605): strain gauges 1 and 2.
@@ -221,5 +245,8 @@ fn shock_pot_frame(readings: &[ShockPotReading; NUM_SHOCK_POTS]) -> Frame {
 fn strain_gauge_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Frame {
     let strain1 = u32::from(readings[StrainGauge::Sg1 as usize].raw);
     let strain2 = u32::from(readings[StrainGauge::Sg2 as usize].raw);
-    cangen::FrontMsbStrain::new().with_strain1(strain1).with_strain2(strain2).to_can_frame()
+    cangen::FrontMsbStrain::new()
+        .with_strain1(strain1)
+        .with_strain2(strain2)
+        .to_can_frame()
 }
