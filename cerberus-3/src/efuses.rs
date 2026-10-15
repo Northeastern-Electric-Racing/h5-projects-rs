@@ -2,7 +2,7 @@ use cangen::ToCanFrame;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer};
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
@@ -190,16 +190,19 @@ impl Efuse {
                 Output::new(pins.brake_en, Level::Low, EN_SPEED),
                 Input::new(pins.brake_er, ER_PULL),
                 200.0,
-                EfuseControlState::EfuseOff,
+                EfuseControlState::EfuseAuto,
                 Some(AutoPredicate {
-                    value1: || 0.0,
-                    value2: || 0.0,
-                    operation: PredicateOperation::EQ,
+                    value1: || 0.0, /* pedals brake percentage */
+                    value2: || crate::pedals::PEDAL_BRAKE_THRESH,
+                    operation: PredicateOperation::GREATER,
                 }),
                 Some(AutoPredicate {
-                    value1: || 0.0,
-                    value2: || 0.0,
-                    operation: PredicateOperation::EQ,
+                    value1: || 0.0, /* pedals brake threshold */
+                    value2: || {
+                        crate::pedals::PEDAL_BRAKE_THRESH
+                            - crate::pedals::PEDAL_BRAKE_TURNOFF_THRESH
+                    },
+                    operation: PredicateOperation::LESS,
                 }),
                 frame_for::<cangen::BrakeEfuse>,
             ),
@@ -361,7 +364,7 @@ impl Efuse {
     }
 }
 
-const EFUSE_PERIOD_MS: u64 = 100;
+const EFUSE_PERIOD: Duration = Duration::from_millis(100);
 
 #[embassy_executor::task]
 pub async fn efuse_task(pins: EfusePins) {
@@ -432,6 +435,6 @@ pub async fn efuse_task(pins: EfusePins) {
             can::OUTGOING.send(efuse.to_frame(&adc)).await;
         }
 
-        Timer::after_millis(EFUSE_PERIOD_MS).await;
+        Timer::after(EFUSE_PERIOD).await;
     }
 }
