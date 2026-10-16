@@ -21,13 +21,14 @@ BOOTLOADER_ECU=bms cargo build --release
 BOOTLOADER_ECU=bms cargo run --release  # Build, flash, and view probe logs.
 ```
 
-To download and reset without viewing logs, build first, then run:
+To build, download, and reset without viewing logs, run from `atlas/`:
 
 ```sh
-probe-rs download --chip STM32H563ZITx --verify --reset ../target/thumbv8m.main-none-eabihf/release/atlas
+BOOTLOADER_ECU=bms cargo download
 ```
 
-From the repository root, add `-p atlas` to the Cargo commands. To retain multiple
+From the repository root, add `-p atlas` to `cargo build` or `cargo run`; the
+`download` alias is available from `atlas/`. To retain multiple
 ECU builds, add `--target-dir ../target/<ecu>-can-bootloader` when running from
 `atlas/` and use the ELF beneath that directory. CI builds and lints every
 configured ECU into a separate output directory.
