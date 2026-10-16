@@ -12,7 +12,7 @@
       "label": "Battery Management System",
       "hardware": {
         "can_peripheral": "FDCAN2",
-        "can_rx": "PA0",
+        "can_rx": "PD9",
         "can_tx": "PB13"
       },
       "can": {
