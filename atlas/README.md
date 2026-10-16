@@ -58,7 +58,7 @@ request fails, the bootloader logs an error and stays in update mode.
 
 Add `boot-control.workspace = true` to the application dependencies.
 The workspace aliases the `boot-control-stm32h563` package as `boot-control`.
-The helper and its `memory.x` live in `firmware-rs/bootloader-app/platforms/stm32h563`. Initialize CAN
+The helper and its `memory.x` live in `firmware-rs/boot-control/platforms/stm32h563`. Initialize CAN
 as usual and allow the application's boot-request ID through its receive filters.
 Pass the ID and payload explicitly; the helper does not read `ecus.json`.
 
