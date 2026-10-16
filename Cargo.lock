@@ -1239,6 +1239,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 name = "msb-fw-2"
 version = "0.1.0"
 dependencies = [
+ "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=45c9c098e9f729812cfbe101cc7d9747759f0a2e)",
  "cortex-m",
  "cortex-m-rt",
