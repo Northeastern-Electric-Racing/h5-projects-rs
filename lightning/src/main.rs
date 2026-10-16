@@ -38,6 +38,10 @@ bind_interrupts!(struct IrqsUsart {
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
 
+// Match this ECU's application boot-entry settings in atlas/ecus.json.
+const BOOT_REQUEST_ID: u16 = 0x01B;
+const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     info!("Initializing wheel...");
@@ -98,6 +102,11 @@ async fn main(_spawner: Spawner) -> ! {
                 id1: IMD_CAN_ID,
                 id2: None,
             },
+            StdFilter {
+                slot: can::filter::StandardFilterSlot::_2,
+                id1: BOOT_REQUEST_ID,
+                id2: None,
+            },
         ])
         .with_extended_filters(&[ExtFilter {
             slot: can::filter::ExtendedFilterSlot::_2,
@@ -133,12 +142,17 @@ async fn main(_spawner: Spawner) -> ! {
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();
     unwrap!(usart.write(s.as_bytes()).await);
 
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
+
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 5000000);
     watchdog.unleash();
     let mut ticker = Ticker::every(Duration::from_millis(500));
 
     _spawner.spawn(
-        inbox::inbox::populate_queue(can_rx, &QUEUTEX)
+        inbox::inbox::populate_queue(can_rx, &QUEUTEX, bootloader)
             .expect("Failed to spawn inbox queue populator"),
     );
 

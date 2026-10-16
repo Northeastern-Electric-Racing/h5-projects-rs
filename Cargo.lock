@@ -153,7 +153,7 @@ checksum = "840ad5d907de7448d88a3f22b4a7b5d326c6eb3deeb9f94cfaaec7354a80b305"
 name = "atlas"
 version = "0.1.0"
 dependencies = [
- "can-handler",
+ "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2)",
  "cortex-m",
  "cortex-m-rt",
  "crc",
@@ -284,6 +284,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "can-handler"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
+dependencies = [
+ "defmt 1.1.1",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-stm32",
+ "embassy-sync",
+ "embassy-time",
+ "embedded-can",
+ "heapless",
+]
+
+[[package]]
 name = "cangen"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
@@ -321,7 +336,7 @@ name = "cerberus"
 version = "0.1.0"
 dependencies = [
  "boot-control-stm32h563",
- "can-handler",
+ "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2)",
  "cangen",
  "cortex-m",
  "cortex-m-rt",
@@ -1243,7 +1258,7 @@ name = "lightning"
 version = "0.1.0"
 dependencies = [
  "boot-control-stm32h563",
- "can-handler",
+ "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",

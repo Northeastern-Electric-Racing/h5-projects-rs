@@ -34,7 +34,7 @@ jobs:
 
 
   bootloader:
-    name: Atlas bootloaders
+    name: atlas build
     runs-on: ubuntu-latest
     steps:
       - name: Clone repo

@@ -1,6 +1,5 @@
 fn main() {
-    let memory_path = std::env::var("DEP_BOOT_CONTROL_MEMORY_X")
-        .expect("Bootloader application dependency must provide its memory.x path");
+    let memory_path = std::env::var("DEP_BOOT_CONTROL_MEMORY_X").expect("Bootloader application dependency must provide its memory.x path");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", memory_path);
     // Link at the application address, leaving Atlas and update storage reserved.
