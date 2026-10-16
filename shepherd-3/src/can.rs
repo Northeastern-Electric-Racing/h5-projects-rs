@@ -38,7 +38,7 @@ mod api {
 
     /// Initializes CAN and starts up the CAN handler.
     #[embassy_executor::task]
-    pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources, bootloader: atlas_app::Bootloader<'static>) {
+    pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources, bootloader: boot_control::Bootloader<'static>) {
         use embassy_stm32::can::{CanConfigurator};
         use embassy_stm32::can::filter::{StandardFilterSlot};
 
@@ -420,7 +420,7 @@ mod handler {
 
     /// Passes frames received off the bus to the incoming channel.
     #[embassy_executor::task]
-    pub async fn can_rx(mut rx: CanRx<'static>, mut bootloader: atlas_app::Bootloader<'static>) -> ! {
+    pub async fn can_rx(mut rx: CanRx<'static>, mut bootloader: boot_control::Bootloader<'static>) -> ! {
         let mut rx_count: u32 = 0;
         let mut rx_err_count: u32 = 0;
 

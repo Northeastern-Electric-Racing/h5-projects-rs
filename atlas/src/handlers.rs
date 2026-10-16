@@ -14,7 +14,6 @@ use crate::types::{Context, Control, UpdateState};
 // Request lengths include the opcode byte.
 const WRITE_REQUEST_LEN: usize = 7;
 const START_UPDATE_LEN: usize = 8;
-const SET_BAUD_LEN: usize = 2;
 
 // Remember the last committed block so a lost final ACK does not cause a rewrite.
 #[derive(Clone, Copy)]
@@ -60,7 +59,7 @@ impl Handlers {
             WRITE_MEMORY,
             ACTIVATE,
         ];
-        let second = [GET_INFO, COMPUTE_CRC, START_UPDATE, SET_BAUD_RATE];
+        let second = [GET_INFO, COMPUTE_CRC, START_UPDATE];
 
         if can.ack(GET_INFO).await {
             let _ = can.send(RESPONSE_ID, &first).await;
@@ -292,20 +291,6 @@ impl Handlers {
             Control::StartApp
         } else {
             Control::Continue
-        }
-    }
-
-    /// ACK at the current rate before applying the requested CAN bitrate.
-    pub async fn set_baud(&mut self, frame: &Frame, can: &mut CanHandler<'_>) {
-        let data = frame.data();
-        if data.len() != SET_BAUD_LEN || baud_rate(data[1]).is_none() {
-            let _ = can.nack(SET_BAUD_RATE).await;
-            return;
-        }
-
-        // The host must receive this response before either side changes bitrate.
-        if can.ack(SET_BAUD_RATE).await {
-            let _ = can.set_baud(data[1]).await;
         }
     }
 }

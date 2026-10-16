@@ -33,7 +33,10 @@ pub(super) fn init(
 }
 
 #[embassy_executor::task]
-pub(super) async fn receive(mut can: Can<'static>, mut bootloader: atlas_app::Bootloader<'static>) {
+pub(super) async fn receive(
+    mut can: Can<'static>,
+    mut bootloader: boot_control::Bootloader<'static>,
+) {
     loop {
         match can.read().await {
             Ok(envelope) => {

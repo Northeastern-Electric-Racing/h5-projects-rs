@@ -32,8 +32,9 @@ jobs:
       - name: Format
         run: cargo fmt --verbose --all --check
 
-  format:
-    name: Format Atlas
+
+  bootloader:
+    name: Atlas bootloaders
     runs-on: ubuntu-latest
     steps:
       - name: Clone repo
@@ -42,61 +43,26 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
-      - name: Format firmware and application helper
-        run: cargo fmt --package atlas --package atlas-app --check
-      - name: Format host tools
-        run: cargo fmt --manifest-path atlas/tools/Cargo.toml --check
-
-  ecu-configs:
-    runs-on: ubuntu-latest
-    outputs:
-      ecus: ${{ steps.config.outputs.ecus }}
-    steps:
-      - name: Clone repo
-        uses: actions/checkout@v6
-      - name: Read ECU names
-        id: config
+      - name: Build and lint every ECU
         run: |
-          python3 - <<'PY'
+          python3 - <<'PYTHON'
           import json
           import os
           import re
+          import subprocess
           from pathlib import Path
 
           config = json.loads(Path("atlas/ecus.json").read_text())
           ecus = sorted(config["ecus"])
           if not ecus or any(not re.fullmatch(r"[a-z0-9_-]+", ecu) for ecu in ecus):
               raise SystemExit("Expected ECU names containing lowercase letters, digits, hyphens, or underscores")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"ecus={json.dumps(ecus)}\n")
-          PY
-
-  bootloader:
-    name: Bootloader (${{ matrix.ecu }})
-    needs: ecu-configs
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        ecu: ${{ fromJSON(needs.ecu-configs.outputs.ecus) }}
-    env:
-      BOOTLOADER_ECU: ${{ matrix.ecu }}
-    steps:
-      - name: Clone repo
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          rustflags: ""
-      - name: Build
-        working-directory: atlas
-        run: cargo build-atlas "$BOOTLOADER_ECU"
-      - name: Clippy
-        run: >-
-          cargo clippy --release --all-features
-          --package atlas
-          --target thumbv8m.main-none-eabihf
-          --target-dir "target/${BOOTLOADER_ECU}-can-bootloader"
-          -- -D warnings
+          for ecu in ecus:
+              print(f"Building atlas for {ecu}", flush=True)
+              env = dict(os.environ, BOOTLOADER_ECU=ecu)
+              args = ["--release", "--package", "atlas",
+                      "--target", "thumbv8m.main-none-eabihf",
+                      "--target-dir", f"target/{ecu}-can-bootloader"]
+              subprocess.run(["cargo", "build", *args], env=env, check=True)
+              subprocess.run(["cargo", "clippy", *args, "--all-features", "--", "-D", "warnings"],
+                             env=env, check=True)
+          PYTHON

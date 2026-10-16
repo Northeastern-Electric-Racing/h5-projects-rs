@@ -33,7 +33,6 @@ where
         COMPUTE_CRC => handlers.compute_crc(can, updater, context).await,
         ACTIVATE => return handlers.activate(can, updater, context).await,
         START_APP => return handlers.start_app(can).await,
-        SET_BAUD_RATE => handlers.set_baud(frame, can).await,
         command => {
             let _ = can.nack(command).await;
         }

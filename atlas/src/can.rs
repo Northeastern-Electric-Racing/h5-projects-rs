@@ -1,67 +1,55 @@
 //! Transport bootloader command and data frames over classical CAN.
 
 use embassy_stm32::bind_interrupts;
-use embassy_stm32::can::config::{FdCanConfig, GlobalFilter, NonMatchingFilter};
-use embassy_stm32::can::filter::{Action, FilterType, StandardFilter, StandardFilterSlot};
+use embassy_stm32::can::filter::StandardFilterSlot;
 use embassy_stm32::can::frame::Frame;
 use embassy_stm32::can::{Can, CanConfigurator, IT0InterruptHandler, IT1InterruptHandler};
 use embassy_time::{Duration, Timer, with_timeout};
-use embedded_can::{Id, StandardId};
+use embedded_can::Id;
+use ner_can::{NerCan, StdFilter};
 
 use crate::commands::*;
-use crate::config::{BAUD_DELAY_MS, TX_TIMEOUT_MS};
+use crate::config::TX_TIMEOUT_MS;
 
 // Peripheral, pins, registers, and interrupt bindings follow the selected ECU.
 include!(concat!(env!("OUT_DIR"), "/ecu_can_hardware.rs"));
 
-/// Own the CAN controller through receive, transmit, and bitrate changes.
+/// Own the CAN controller through receive, transmit, and application handoff.
 pub struct CanHandler<'d> {
-    // Temporarily taken while synchronously changing controller configuration.
-    can: Option<Can<'d>>,
+    can: Can<'d>,
+}
+
+impl CanHandler<'static> {
+    /// Start the selected controller with only bootloader receive IDs enabled.
+    pub fn new(
+        fdcan: embassy_stm32::Peri<'static, CanPeripheral>,
+        rx: embassy_stm32::Peri<'static, CanRxPin>,
+        tx: embassy_stm32::Peri<'static, CanTxPin>,
+    ) -> Self {
+        let mut ner_can = NerCan::init(CanConfigurator::new(fdcan, rx, tx, Irqs))
+            .with_standard_filters(&[StdFilter {
+                slot: StandardFilterSlot::_0,
+                id1: REQUEST_ID,
+                id2: Some(DATA_ID),
+            }]);
+        let config = &mut ner_can.can_configurator;
+        // Keep ACKs pending for retry until transmission succeeds or flush times out.
+        config.set_config(config.config().set_automatic_retransmit(true));
+        config.set_bitrate(CAN_LINE_BITRATE);
+
+        // Keep the controller together so shutdown can return it to configuration mode.
+        Self {
+            can: ner_can.can_configurator.into_normal_mode(),
+        }
+    }
 }
 
 impl<'d> CanHandler<'d> {
-    /// Start the selected controller with only bootloader receive IDs enabled.
-    pub fn new(
-        fdcan: embassy_stm32::Peri<'d, CanPeripheral>,
-        rx: embassy_stm32::Peri<'d, CanRxPin>,
-        tx: embassy_stm32::Peri<'d, CanTxPin>,
-    ) -> Self {
-        let mut config = CanConfigurator::new(fdcan, rx, tx, Irqs);
-
-        config.set_config(FdCanConfig::default().set_global_filter(GlobalFilter {
-            handle_standard_frames: NonMatchingFilter::Reject,
-            handle_extended_frames: NonMatchingFilter::Reject,
-            reject_remote_standard_frames: true,
-            reject_remote_extended_frames: true,
-        }));
-        config.set_bitrate(CAN_LINE_BITRATE); // Reset restores the configured line bitrate.
-        Self::install_filters(&mut config);
-
-        Self {
-            can: Some(config.into_normal_mode()),
-        }
-    }
-
-    // Configuration mode clears filter RAM, so install filters on every start.
-    fn install_filters(config: &mut CanConfigurator<'d>) {
-        config.properties().set_standard_filter(
-            StandardFilterSlot::_0,
-            StandardFilter {
-                filter: FilterType::DedicatedDual(
-                    StandardId::new(REQUEST_ID).unwrap(),
-                    StandardId::new(DATA_ID).unwrap(),
-                ),
-                action: Action::StoreInFifo0, // Commands and data share the receive loop.
-            },
-        );
-    }
-
     /// Wait for a bootloader frame, ignoring bus errors and unrelated traffic.
     pub async fn recv(&mut self) -> Frame {
         loop {
             // A bus error or unrelated frame is not a receive timeout.
-            let Ok(envelope) = self.can.as_mut().unwrap().read().await else {
+            let Ok(envelope) = self.can.read().await else {
                 continue;
             };
             let frame = envelope.frame;
@@ -90,7 +78,7 @@ impl<'d> CanHandler<'d> {
         };
 
         // Embassy returns a displaced queued frame when the mailbox was replaced.
-        self.can.as_mut().unwrap().write(&frame).await.is_none()
+        self.can.write(&frame).await.is_none()
     }
 
     /// Queue a command ACK containing the command opcode.
@@ -110,7 +98,7 @@ impl<'d> CanHandler<'d> {
 
     /// Wait for pending transmissions to drain, with a bounded timeout.
     pub async fn flush(&mut self) -> bool {
-        // A queued ACK must leave the controller before reset or reconfiguration.
+        // A queued ACK must leave the controller before reset or application handoff.
         with_timeout(Duration::from_millis(TX_TIMEOUT_MS), async {
             while CAN_REGS.txbrp().read().0 != 0 {
                 // Yield so interrupts and other executor work can keep progressing.
@@ -121,32 +109,9 @@ impl<'d> CanHandler<'d> {
         .is_ok()
     }
 
-    /// Apply a bitrate code after flushing the ACK queued at the old rate.
-    pub async fn set_baud(&mut self, value: u8) -> bool {
-        let Some(bitrate) = baud_rate(value) else {
-            return false;
-        };
-
-        if !self.flush().await {
-            // Keep the current bitrate when pending transmissions cannot drain.
-            return false;
-        }
-
-        // Give the host time to receive the ACK before the bus rate changes.
-        Timer::after_millis(BAUD_DELAY_MS).await;
-
-        // No await while ownership is taken; restore cleared filters before start.
-        let mut config = self.can.take().unwrap().into_config_mode();
-        config.set_bitrate(bitrate);
-        Self::install_filters(&mut config);
-        self.can = Some(config.into_normal_mode());
-
-        true
-    }
-
     /// Stop CAN and clear its interrupt sources before application handoff.
-    pub fn shutdown(mut self) {
-        let _config = self.can.take().unwrap().into_config_mode();
+    pub fn shutdown(self) {
+        let _config = self.can.into_config_mode();
         let regs = CAN_REGS;
         regs.ie().write(|w| w.0 = 0);
         regs.ile().write(|w| w.0 = 0);

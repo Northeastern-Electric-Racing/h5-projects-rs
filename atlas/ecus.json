@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "can_line_bitrate": 500000,
-  "supported_bit_rates": [
-    125000,
-    250000,
-    500000,
-    1000000
+  "application_boot_request_data": [
+    "0xB0",
+    "0x07",
+    "0x10",
+    "0xAD"
   ],
   "ecus": {
     "bms": {
@@ -19,13 +19,7 @@
         "request_id": "0x010",
         "response_id": "0x011",
         "write_data_id": "0x012",
-        "application_boot_request_id": "0x013",
-        "application_boot_request_data": [
-          "0xB0",
-          "0x07",
-          "0x10",
-          "0xAD"
-        ]
+        "application_boot_request_id": "0x013"
       }
     },
     "vcu": {
@@ -39,13 +33,7 @@
         "request_id": "0x014",
         "response_id": "0x015",
         "write_data_id": "0x016",
-        "application_boot_request_id": "0x017",
-        "application_boot_request_data": [
-          "0xB0",
-          "0x07",
-          "0x10",
-          "0xAD"
-        ]
+        "application_boot_request_id": "0x017"
       }
     },
     "lightning": {
@@ -59,13 +47,7 @@
         "request_id": "0x018",
         "response_id": "0x019",
         "write_data_id": "0x01A",
-        "application_boot_request_id": "0x01B",
-        "application_boot_request_data": [
-          "0xB0",
-          "0x07",
-          "0x10",
-          "0xAD"
-        ]
+        "application_boot_request_id": "0x01B"
       }
     },
     "msb_front": {
@@ -79,13 +61,7 @@
         "request_id": "0x01C",
         "response_id": "0x01D",
         "write_data_id": "0x01E",
-        "application_boot_request_id": "0x01F",
-        "application_boot_request_data": [
-          "0xB0",
-          "0x07",
-          "0x10",
-          "0xAD"
-        ]
+        "application_boot_request_id": "0x01F"
       }
     }
   }

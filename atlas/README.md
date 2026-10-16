@@ -2,32 +2,35 @@
 
 CAN bootloader with per-ECU settings, firmware verification, and software
 swap/rollback. All ECU builds use one bootloader implementation and memory layout.
+The CAN bitrate is fixed at build time by `can_line_bitrate`; runtime bitrate changes
+are not supported.
 
 ## Layout
 
 - `src/`: bootloader firmware.
-- `app/`: application helper and application linker layout.
-- `ecus.json`: shared `can_line_bitrate`, ECU CAN IDs, and CAN peripheral/pins.
-- `config.rs`: configuration parsing and validation.
+- `ecus.json`: shared line bitrate and boot-entry payload, ECU CAN IDs, and CAN peripheral/pins.
 - `memory.x`: fixed flash/RAM regions and runtime bounds exported as linker symbols.
-- `build.rs`: CAN configuration generation and linker setup.
-- `tools/`: build and probe helper.
+- `build.rs`: JSON parsing, validation, CAN configuration generation, and linker setup.
 
 ## Build and flash
 
-Run from this directory, using `bms`, `vcu`, or another configured ECU name:
+From `atlas/`, select an ECU from `ecus.json`:
 
 ```sh
-cargo build-atlas bms
-cargo download-atlas bms  # Build, download, and reset through probe-rs.
-cargo run-atlas bms       # Build and run with probe logs.
+BOOTLOADER_ECU=bms cargo build --release
+BOOTLOADER_ECU=bms cargo run --release  # Build, flash, and view probe logs.
 ```
 
-Use `cargo build-atlas --help` for usage.
+To download and reset without viewing logs, build first, then run:
 
-Install `probe-rs` for download/run. The package, Rust target, and probe chip are
-fixed in `tools/main.rs`. Firmware outputs go to
-`../target/<ecu>-can-bootloader/<rust_target>/release/<cargo_package>`.
+```sh
+probe-rs download --chip STM32H563ZITx --verify --reset ../target/thumbv8m.main-none-eabihf/release/atlas
+```
+
+From the repository root, add `-p atlas` to the Cargo commands. To retain multiple
+ECU builds, add `--target-dir ../target/<ecu>-can-bootloader` when running from
+`atlas/` and use the ELF beneath that directory. CI builds and lints every
+configured ECU into a separate output directory.
 
 The build script generates CAN bindings and constants from the selected ECU.
 Memory regions are defined directly in `memory.x`; runtime address checks use its
@@ -52,12 +55,14 @@ request fails, the bootloader logs an error and stays in update mode.
 
 ## Application integration
 
-Add `atlas-app.workspace = true` to the application dependencies. Initialize CAN
+Add `boot-control.workspace = true` to the application dependencies.
+The workspace aliases the `boot-control-stm32h563` package as `boot-control`.
+The helper and its `memory.x` live in `firmware-rs/bootloader-app/platforms/stm32h563`. Initialize CAN
 as usual and allow the application's boot-request ID through its receive filters.
 Pass the ID and payload explicitly; the helper does not read `ecus.json`.
 
 ```rust
-let mut bootloader = atlas_app::Bootloader::new(p.FLASH, 0x013, &[0xB0, 0x07, 0x10, 0xAD]);
+let mut bootloader = boot_control::Bootloader::new(p.FLASH, 0x013, &[0xB0, 0x07, 0x10, 0xAD]);
 // Confirm only after required application initialization and checks succeed.
 bootloader.confirm_boot()?;
 
@@ -70,7 +75,9 @@ data frame persists the request and resets; the bootloader answers host commands
 afterward. Flash failures return an error without resetting. Projects that need
 to stop outputs first can check `is_request(&frame)` before calling `handle_frame`.
 
-Applications using Atlas must link with `app/memory.x` at `0x0802E000`.
+Applications must link with the helper's `memory.x` at `0x0802E000`.
+Their build scripts read `DEP_BOOT_CONTROL_MEMORY_X` and pass
+`--remap-inputs=*memory.x=<path>` to the linker, avoiding checkout-specific paths.
 The application helper does not stage firmware or perform swaps. Flash Atlas for
 the same ECU first, then download the application ELF without a chip erase.
 

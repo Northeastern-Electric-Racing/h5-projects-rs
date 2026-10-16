@@ -123,7 +123,7 @@ async fn main(spawner: Spawner) {
 
     hardfault::report_last_reset();
 
-    let mut bootloader = atlas_app::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader.confirm_boot().expect("Failed to confirm application startup");
     let r = split_resources!(p);

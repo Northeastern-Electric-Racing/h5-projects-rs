@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs", branch = "can-handler-v2" }
 cortex-m-rt.workspace = true
 cortex-m.workspace = true
 crc.workspace = true

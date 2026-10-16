@@ -10,7 +10,7 @@ ecu = "bms"
 hil = []
 
 [dependencies]
-atlas-app.workspace = true
+boot-control.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true

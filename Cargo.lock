@@ -153,6 +153,7 @@ checksum = "840ad5d907de7448d88a3f22b4a7b5d326c6eb3deeb9f94cfaaec7354a80b305"
 name = "atlas"
 version = "0.1.0"
 dependencies = [
+ "can-handler",
  "cortex-m",
  "cortex-m-rt",
  "crc",
@@ -168,18 +169,6 @@ dependencies = [
  "panic-probe",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "atlas-app"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "embassy-boot-stm32",
- "embassy-embedded-hal",
- "embassy-stm32",
- "embassy-sync",
- "embedded-can",
 ]
 
 [[package]]
@@ -263,6 +252,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "boot-control-stm32h563"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=add%2Fcan-flash-cli#81b8f5658bc27fb7fb1af724dcb13b38b6d4723d"
+dependencies = [
+ "cortex-m",
+ "embassy-boot-stm32",
+ "embassy-embedded-hal",
+ "embassy-stm32",
+ "embassy-sync",
+ "embedded-can",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -318,7 +320,7 @@ dependencies = [
 name = "cerberus"
 version = "0.1.0"
 dependencies = [
- "atlas-app",
+ "boot-control-stm32h563",
  "can-handler",
  "cangen",
  "cortex-m",
@@ -1240,7 +1242,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 name = "lightning"
 version = "0.1.0"
 dependencies = [
- "atlas-app",
+ "boot-control-stm32h563",
  "can-handler",
  "cortex-m",
  "cortex-m-rt",
@@ -1301,7 +1303,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 name = "msb-fw-2"
 version = "0.1.0"
 dependencies = [
- "atlas-app",
+ "boot-control-stm32h563",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",
@@ -1701,7 +1703,7 @@ dependencies = [
  "adbms2950",
  "adbms6830b",
  "assign-resources",
- "atlas-app",
+ "boot-control-stm32h563",
  "cangen",
  "cortex-m",
  "cortex-m-rt",

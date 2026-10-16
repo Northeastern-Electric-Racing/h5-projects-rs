@@ -67,7 +67,7 @@ async fn main(spawner: Spawner) -> ! {
     let p = embassy_stm32::init(config);
 
     let can = can::init(p.FDCAN2, p.PB5, p.PB6);
-    let mut bootloader = atlas_app::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");

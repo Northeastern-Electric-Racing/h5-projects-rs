@@ -89,7 +89,7 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     });
-    let mut bootloader = atlas_app::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader
         .confirm_boot()

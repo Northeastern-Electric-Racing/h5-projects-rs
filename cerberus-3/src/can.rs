@@ -46,7 +46,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
 
 // Handle boot requests before forwarding normal application traffic.
 #[embassy_executor::task]
-pub async fn receive(mut rx: CanRx<'static>, mut bootloader: atlas_app::Bootloader<'static>) {
+pub async fn receive(mut rx: CanRx<'static>, mut bootloader: boot_control::Bootloader<'static>) {
     loop {
         match rx.read().await {
             Ok(envelope) => {
