@@ -1,9 +1,9 @@
 use crate::units::{Current, Resistance, Temperature, Voltage};
 
-/// Shunt resistance, in ohms. 0.05 milliohms.
-///
-/// At the I1ADC's 1 uV per code this makes one code worth 20 mA.
-const SHUNT_RESISTANCE_OHMS: f32 = 0.05_f32 / 1000.0_f32;
+/// Shunt resistance, in microohms. 0.05 milliohms.
+pub(super) const SHUNT_MICROOHMS: i64 = 50;
+/// Shunt resistance, in ohms, for the instantaneous readings.
+const SHUNT_RESISTANCE_OHMS: f32 = SHUNT_MICROOHMS as f32 * 1.0e-6_f32;
 
 /// Top resistor of the BATT voltage divider, in ohms.
 const BATT_DIVIDER_R1_OHMS: f32 = 3_600_000.0_f32;
@@ -37,11 +37,16 @@ const fn volts(microvolts: i32) -> f32 {
     microvolts as f32 * 1.0e-6_f32
 }
 
+/// Re-signs a reading so that **positive means discharge**.
+pub(super) const fn discharge_positive(raw_shunt_microvolts: i32) -> i32 {
+    -raw_shunt_microvolts
+}
+
 /// Pack current, from the shunt voltage the I1ADC measured (`Current1::as_microvolts()`).
 pub fn pack_current(shunt_microvolts: i32) -> Current {
     use uom::si::electric_current::ampere;
 
-    let shunt_volts = volts(shunt_microvolts);
+    let shunt_volts = volts(discharge_positive(shunt_microvolts));
     Current::new::<ampere>(shunt_volts / SHUNT_RESISTANCE_OHMS)
 }
 

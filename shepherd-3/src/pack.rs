@@ -9,6 +9,8 @@ use crate::{
 pub mod analyzer {
     use super::*;
     use embassy_time::Instant;
+    use embassy_sync::blocking_mutex::ThreadModeMutex;
+    use core::cell::Cell;
     use crate::helpers::snapshot_cell::SnapshotCell;
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
@@ -22,6 +24,31 @@ pub mod analyzer {
 
     /// The most recently published analyzer data.
     static ANALYZER: SnapshotCell<Option<AnalyzerHolder>> = SnapshotCell::new(None);
+
+    /// What other nodes report about the pack over CAN.
+    struct ReportedOverCan {
+        /// Positive is discharge.
+        pack_current: Cell<Option<Current>>,
+        ts_voltage: Cell<Option<Voltage>>,
+    }
+
+    impl ReportedOverCan {
+        const fn new() -> Self {
+            Self { pack_current: Cell::new(None), ts_voltage: Cell::new(None) }
+        }
+    }
+
+    static REPORTED_DATA: ThreadModeMutex<ReportedOverCan> = ThreadModeMutex::new(ReportedOverCan::new());
+
+    /// Records pack current from a CAN frame. Called by the CAN RX processor.
+    pub fn store_can_pack_current(current: Current) {
+        REPORTED_DATA.lock(|reported| reported.pack_current.set(Some(current)));
+    }
+
+    /// Records TS voltage from a CAN frame. Called by the CAN RX processor.
+    pub fn store_can_ts_voltage(voltage: Voltage) {
+        REPORTED_DATA.lock(|reported| reported.ts_voltage.set(Some(voltage)));
+    }
 
     /// Copies out the analyzer data.
     ///
@@ -194,6 +221,12 @@ pub mod analyzer {
         pub avg_ocv: Voltage,
         pub delta_ocv: Voltage,
         pub pack_ocv: Voltage,
+        /// When the last OCV snapshot was taken
+        pub last_settled_at: Option<Instant>,
+
+        pub pack_current: Option<Current>,
+        pub ts_voltage: Option<Voltage>,
+        pub soc: Option<Ratio>,
 
         /// Deadline after which `open_cell_voltage` can be updated.
         ocv_timer: Option<Deadline>,
@@ -214,9 +247,6 @@ pub mod analyzer {
 
         /// Voltage of pack
         pub pack_voltage: Voltage,
-
-        /// State of Charge (SoC) of the pack.
-        pub soc: Ratio,
     }
     impl Analyzer {
         /// Creates a new Analyzer with `chip_data`, and blank data for all the
@@ -283,7 +313,10 @@ pub mod analyzer {
 
                 pack_voltage: Voltage::new::<volt>(f32::MIN),
 
-                soc: Ratio::new::<ratio>(0.0_f32),
+                pack_current: None,
+                ts_voltage: None,
+                soc: None,
+                last_settled_at: None,
             }
         }
     }
@@ -557,6 +590,9 @@ pub mod analyzer {
                         self.open_cell_voltage[chip][cell] = self.chip_data[chip].cell_voltages[cell];
                     }
                 }
+
+                // The rest timer has just expired, so this is the moment the pack is settled
+                self.last_settled_at = Some(Instant::now());
             }
         }
     }
@@ -601,6 +637,12 @@ pub mod analyzer {
             let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new(chip_data));
             analyzer.chip_data = chip_data;
 
+            let soc_data = crate::hv_plate::soc_data();
+            // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly
+            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.shunt_current);
+            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get());
+            analyzer.soc = soc_data.state_of_charge;
+
             // this whole section is supposed to look pretty similar to the C code just so
             // we make sure we bring everything over correctly.
             // calc_cell_temps() is in the C code, but is not needed here because the chipdata already calculates cell temps.
@@ -608,6 +650,7 @@ pub mod analyzer {
             analyzer.calc_cell_voltages();
             analyzer.calc_open_cell_voltage();
             analyzer.calc_pack_voltage_stats();
+
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
 
@@ -726,19 +769,13 @@ pub mod analyzer {
                 }
             }
 
-            can::send(
-                PackSocStatus {
-                    pack_soc: analyzer.soc.get::<ratio>(),
-                    pack_soc_drift: f32::MIN, // u_TODO make this real eventually
-                }
-                .as_frame(),
-            )
-            .await;
+            let pack_soc = analyzer.soc.map_or(0.0_f32, |soc| soc.get::<ratio>());
+            can::send(PackSocStatus { pack_soc, pack_soc_drift: soc_data.drift }.as_frame()).await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
-                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge. This is a ratio/percentage from 0.0 to 1.0", "{=f32}", analyzer.soc.get::<ratio>());
-                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Pack SoC drift. CURRENTLY NOT A REAL VALUE.", "{=f32}", f32::MIN);
+                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge, 0.0 to 1.0. NaN until an open-circuit voltage has seeded the count, so a gap in the trace means no estimate rather than an empty pack.", "{=f32}", analyzer.soc.map_or(f32::NAN, |soc| soc.get::<ratio>()));
+                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Gap the last OCV seed found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", soc_data.drift);
             }
 
             #[cfg(defmt_monitor)]
