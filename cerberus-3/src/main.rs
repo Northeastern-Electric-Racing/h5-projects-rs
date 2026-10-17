@@ -21,6 +21,7 @@ mod buttons;
 mod can;
 mod debug;
 mod efuses;
+mod faults;
 mod lightning;
 mod pedals;
 mod peripherals;
