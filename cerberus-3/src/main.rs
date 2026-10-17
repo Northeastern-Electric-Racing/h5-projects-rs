@@ -22,6 +22,7 @@ mod can;
 mod debug;
 mod efuses;
 mod ethernet;
+mod faults;
 mod lightning;
 mod pedals;
 mod peripherals;
