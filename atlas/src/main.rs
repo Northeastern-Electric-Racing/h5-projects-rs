@@ -61,8 +61,13 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut updater = BlockingFirmwareUpdater::new(config, aligned.as_mut());
 
-    // Take the controller and pins selected in ecus.json.
-    let mut can = include!(concat!(env!("OUT_DIR"), "/ecu_can_init.rs"));
+    // Take the pins selected by BOOTLOADER_ECU.
+    #[cfg(ecu = "bms")]
+    let mut can = CanHandler::new(p.FDCAN2, p.PD9, p.PB13);
+    #[cfg(ecu = "lightning")]
+    let mut can = CanHandler::new(p.FDCAN2, p.PB12, p.PB13);
+    #[cfg(any(ecu = "vcu", ecu = "msb_front", ecu = "msb_back"))]
+    let mut can = CanHandler::new(p.FDCAN2, p.PB5, p.PB6);
 
     match boot::run(&mut can, &mut updater, &boot.state).await {
         Control::Reset => SCB::sys_reset(),

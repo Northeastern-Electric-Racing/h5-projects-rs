@@ -44,21 +44,26 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     (tx, rx)
 }
 
-// Handle boot requests before forwarding normal application traffic.
+// Queue received frames for the application processor.
 #[embassy_executor::task]
-pub async fn receive(mut rx: CanRx<'static>, mut bootloader: boot_control::Bootloader<'static>) {
+pub async fn receive(mut rx: CanRx<'static>) {
     loop {
         match rx.read().await {
             Ok(envelope) => {
-                if bootloader.is_request(&envelope.frame) {
-                    if bootloader.handle_frame(&envelope.frame).is_err() {
-                        defmt::error!("Failed to persist bootloader request");
-                    }
-                } else {
-                    INCOMING.send(envelope.frame).await;
-                }
+                INCOMING.send(envelope.frame).await;
             }
             Err(error) => defmt::warn!("CAN receive error: {}", error),
+        }
+    }
+}
+
+// Handle application commands after receiving them from the queue.
+#[embassy_executor::task]
+pub(super) async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) {
+    loop {
+        let frame = INCOMING.receive().await;
+        if bootloader.handle_frame(&frame).is_err() {
+            defmt::error!("Failed to persist bootloader request");
         }
     }
 }

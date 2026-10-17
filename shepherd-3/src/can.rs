@@ -53,8 +53,8 @@ mod api {
         let (tx, rx, _props) = can.start();
 
         spawner.spawn(handler::can_tx(tx).expect("Failed to spawn can_handler::can_tx()."));
-        spawner.spawn(handler::can_rx(rx, bootloader).expect("Failed to spawn can_handler::can_rx()."));
-        spawner.spawn(handler::can_rx_processer().expect("Failed to spawn can_handler::can_rx_processer()."));
+        spawner.spawn(handler::can_rx(rx).expect("Failed to spawn can_handler::can_rx()."));
+        spawner.spawn(handler::can_rx_processer(bootloader).expect("Failed to spawn can_handler::can_rx_processer(bootloader)."));
 
         #[cfg(defmt_monitor)]
         spawner.spawn(handler::can_props(_props).expect("Failed to spawn can_handler::can_props()."));
@@ -420,20 +420,14 @@ mod handler {
 
     /// Passes frames received off the bus to the incoming channel.
     #[embassy_executor::task]
-    pub async fn can_rx(mut rx: CanRx<'static>, mut bootloader: boot_control::Bootloader<'static>) -> ! {
+    pub async fn can_rx(mut rx: CanRx<'static>) -> ! {
         let mut rx_count: u32 = 0;
         let mut rx_err_count: u32 = 0;
 
         loop {
             match rx.read().await {
                 Ok(can_recv) => {
-                    if bootloader.is_request(&can_recv.frame) {
-                        if bootloader.handle_frame(&can_recv.frame).is_err() {
-                            defmt::error!("Failed to persist bootloader request");
-                        }
-                    } else {
-                        super::channels::INCOMING.send(can_recv.frame).await;
-                    }
+                    super::channels::INCOMING.send(can_recv.frame).await;
                     rx_count += 1;
                 },
                 Err(err) => {
@@ -449,9 +443,12 @@ mod handler {
 
     /// Reads incoming CAN frames from the software queue.
     #[embassy_executor::task]
-    pub async fn can_rx_processer() -> ! {
+    pub async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) -> ! {
         loop {
-            let _frame = super::channels::INCOMING.receive().await;
+            let frame = super::channels::INCOMING.receive().await;
+            if bootloader.handle_frame(&frame).is_err() {
+                defmt::error!("Failed to persist bootloader request");
+            }
         }
     }
 

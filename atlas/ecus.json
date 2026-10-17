@@ -10,11 +10,6 @@
   "ecus": {
     "bms": {
       "label": "Battery Management System",
-      "hardware": {
-        "can_peripheral": "FDCAN2",
-        "can_rx": "PD9",
-        "can_tx": "PB13"
-      },
       "can": {
         "request_id": "0x010",
         "response_id": "0x011",
@@ -24,11 +19,6 @@
     },
     "vcu": {
       "label": "Vehicle Control Unit",
-      "hardware": {
-        "can_peripheral": "FDCAN2",
-        "can_rx": "PB5",
-        "can_tx": "PB6"
-      },
       "can": {
         "request_id": "0x014",
         "response_id": "0x015",
@@ -38,11 +28,6 @@
     },
     "lightning": {
       "label": "Lightning",
-      "hardware": {
-        "can_peripheral": "FDCAN2",
-        "can_rx": "PB12",
-        "can_tx": "PB13"
-      },
       "can": {
         "request_id": "0x018",
         "response_id": "0x019",
@@ -52,16 +37,20 @@
     },
     "msb_front": {
       "label": "MSB Front",
-      "hardware": {
-        "can_peripheral": "FDCAN2",
-        "can_rx": "PB5",
-        "can_tx": "PB6"
-      },
       "can": {
         "request_id": "0x01C",
         "response_id": "0x01D",
         "write_data_id": "0x01E",
         "application_boot_request_id": "0x01F"
+      }
+    },
+    "msb_back": {
+      "label": "MSB Back",
+      "can": {
+        "request_id": "0x020",
+        "response_id": "0x021",
+        "write_data_id": "0x022",
+        "application_boot_request_id": "0x023"
       }
     }
   }

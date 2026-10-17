@@ -1,9 +1,13 @@
 use embassy_stm32::can::config::{FdCanConfig, GlobalFilter};
 use embassy_stm32::can::filter::{Action, FilterType, StandardFilter, StandardFilterSlot};
-use embassy_stm32::can::{Can, CanConfigurator, IT0InterruptHandler, IT1InterruptHandler};
+use embassy_stm32::can::{Can, CanConfigurator, Frame, IT0InterruptHandler, IT1InterruptHandler};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
 use embassy_stm32::{Peri, bind_interrupts};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use embedded_can::StandardId;
+
+static INCOMING: Channel<ThreadModeRawMutex, Frame, 32> = Channel::new();
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<FDCAN2>;
@@ -33,18 +37,24 @@ pub(super) fn init(
 }
 
 #[embassy_executor::task]
-pub(super) async fn receive(
-    mut can: Can<'static>,
-    mut bootloader: boot_control::Bootloader<'static>,
-) {
+pub(super) async fn receive(mut can: Can<'static>) {
     loop {
         match can.read().await {
             Ok(envelope) => {
-                if bootloader.handle_frame(&envelope.frame).is_err() {
-                    defmt::error!("Failed to persist bootloader request");
-                }
+                INCOMING.send(envelope.frame).await;
             }
             Err(error) => defmt::warn!("CAN receive error: {}", error),
+        }
+    }
+}
+
+// Handle application commands after receiving them from the queue.
+#[embassy_executor::task]
+pub(super) async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) {
+    loop {
+        let frame = INCOMING.receive().await;
+        if bootloader.handle_frame(&frame).is_err() {
+            defmt::error!("Failed to persist bootloader request");
         }
     }
 }

@@ -2,19 +2,20 @@
 
 CAN bootloader with per-ECU settings, firmware verification, and software
 swap/rollback. All ECU builds use one bootloader implementation and memory layout.
-The CAN bitrate is fixed at build time by `can_line_bitrate`; runtime bitrate changes
+The CAN bitrate is fixed at build time by `CAN_LINE_BITRATE` in `src/commands.rs`; runtime bitrate changes
 are not supported.
 
 ## Layout
 
 - `src/`: bootloader firmware.
-- `ecus.json`: shared line bitrate and boot-entry payload, ECU CAN IDs, and CAN peripheral/pins.
+- `ecus.json`: flashing-host settings; not read by the firmware build.
 - `memory.x`: fixed flash/RAM regions and runtime bounds exported as linker symbols.
-- `build.rs`: JSON parsing, validation, CAN configuration generation, and linker setup.
+- `build.rs`: ECU selection and linker setup.
 
 ## Build and flash
 
-From `atlas/`, select an ECU from `ecus.json`:
+Atlas defaults to BMS, including when building from the workspace root.
+From `atlas/`, override it with `bms`, `vcu`, `lightning`, `msb_front`, or `msb_back`:
 
 ```sh
 BOOTLOADER_ECU=bms cargo build --release
@@ -30,10 +31,11 @@ BOOTLOADER_ECU=bms cargo download
 From the repository root, add `-p atlas` to `cargo build` or `cargo run`; the
 `download` alias is available from `atlas/`. To retain multiple
 ECU builds, add `--target-dir ../target/<ecu>-can-bootloader` when running from
-`atlas/` and use the ELF beneath that directory. CI builds and lints every
-configured ECU into a separate output directory.
+`atlas/` and use the ELF beneath that directory.
 
-The build script generates CAN bindings and constants from the selected ECU.
+The build script sets `cfg(ecu)` from `BOOTLOADER_ECU`. CAN IDs and bitrate live
+in `src/commands.rs`; pins and controller bindings live in `src/main.rs` and
+`src/can.rs`. Keep `ecus.json` consistent with those settings for the flashing host.
 Memory regions are defined directly in `memory.x`; runtime address checks use its
 linker symbols.
 
@@ -84,5 +86,6 @@ the same ECU first, then download the application ELF without a chip erase.
 
 ## Adding an ECU
 
-Add an entry to `ecus.json` with unique CAN IDs and supported hardware settings.
-Use its name with the same commands. There is no platform selection.
+Add the name to `build.rs`, the CAN IDs to `src/commands.rs`, and the pin mappings
+to `src/main.rs` and `src/can.rs`. Update the host settings in `ecus.json` too.
+Add the name to `ATLAS_ECUS` in `.github/workflows/rust-ci.yml`.

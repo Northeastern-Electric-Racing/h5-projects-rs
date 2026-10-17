@@ -13,6 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ATLAS_ECUS: bms vcu lightning msb_front msb_back
 
     steps:
       - name: Clone repo
@@ -24,54 +26,24 @@ jobs:
         with:
           rustflags: ""
       - name: Build
-        run: cargo build --verbose --workspace --all-features --exclude atlas
+        run: |
+          cargo build --verbose --workspace --all-features --exclude atlas
+          for ecu in $ATLAS_ECUS; do
+            echo "::group::Build atlas for $ecu"
+            BOOTLOADER_ECU="$ecu" cargo build --release --package atlas \
+              --target thumbv8m.main-none-eabihf
+            echo "::endgroup::"
+          done
       #  - name: Test
       #    run: cargo test --verbose
       - name: Clippy
-        run: cargo clippy --all-features --workspace --exclude atlas -- -D warnings -A dead_code
-      - name: Format
-        run: cargo fmt --verbose -p msb-fw-2 -p shepherd-3 -p lightning -p cerberus -p template-h5 --check
-
-  bootloader:
-    name: atlas build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone repo
-        uses: actions/checkout@v6
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          rustflags: ""
-      - name: Build
         run: |
-          python3 - <<'PYTHON'
-          import json
-          import os
-          import re
-          import subprocess
-          from pathlib import Path
-
-          config = json.loads(Path("atlas/ecus.json").read_text())
-          ecus = sorted(config["ecus"])
-          if not ecus or any(not re.fullmatch(r"[a-z0-9_-]+", ecu) for ecu in ecus):
-              raise SystemExit("Expected ECU names containing lowercase letters, digits, hyphens, or underscores")
-          with open(os.environ["GITHUB_ENV"], "a") as env_file:
-              env_file.write(f"ATLAS_ECUS={' '.join(ecus)}\n")
-          for ecu in ecus:
-              print(f"Building atlas for {ecu}", flush=True)
-              env = dict(os.environ, BOOTLOADER_ECU=ecu)
-              args = ["--release", "--package", "atlas",
-                      "--target", "thumbv8m.main-none-eabihf",
-                      "--target-dir", f"target/{ecu}-can-bootloader"]
-              subprocess.run(["cargo", "build", *args], env=env, check=True)
-          PYTHON
-      - name: Clippy
-        run: |
+          cargo clippy --all-features --workspace --exclude atlas -- -D warnings -A dead_code
           for ecu in $ATLAS_ECUS; do
+            echo "::group::Clippy atlas for $ecu"
             BOOTLOADER_ECU="$ecu" cargo clippy --release --package atlas \
-              --target thumbv8m.main-none-eabihf \
-              --target-dir "target/$ecu-can-bootloader" \
-              --all-features -- -D warnings
+              --target thumbv8m.main-none-eabihf -- -D warnings
+            echo "::endgroup::"
           done
       - name: Format
-        run: cargo fmt --verbose --package atlas --check
+        run: cargo fmt --verbose --all --check

@@ -151,8 +151,9 @@ async fn main(_spawner: Spawner) -> ! {
     watchdog.unleash();
     let mut ticker = Ticker::every(Duration::from_millis(500));
 
+    _spawner.spawn(inbox::inbox::can_rx(can_rx).expect("Failed to spawn CAN receiver"));
     _spawner.spawn(
-        inbox::inbox::populate_queue(can_rx, &QUEUTEX, bootloader)
+        inbox::inbox::populate_queue(&QUEUTEX, bootloader)
             .expect("Failed to spawn inbox queue populator"),
     );
 

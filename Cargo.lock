@@ -167,8 +167,6 @@ dependencies = [
  "embedded-can",
  "embedded-storage",
  "panic-probe",
- "serde",
- "serde_json",
 ]
 
 [[package]]

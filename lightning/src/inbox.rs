@@ -3,7 +3,10 @@ pub mod inbox {
     use core::fmt::Debug;
 
     use defmt::warn;
-    use embassy_stm32::can::CanRx;
+    use embassy_stm32::can::{CanRx, Frame};
+    use embassy_sync::channel::Channel;
+
+    static INCOMING: Channel<ThreadModeRawMutex, Frame, 32> = Channel::new();
     use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
     const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -36,35 +39,39 @@ pub mod inbox {
         ResetRequested,
     }
 
-    /// This struct requires an already existing NerCan instance, as well as an already spawned
-    /// can_handler task. The point of the Inbox is to parse the can messages and relay them to the
-    /// state machine cleanly
+    // Queue received frames separately from application command processing.
+    #[embassy_executor::task]
+    pub async fn can_rx(mut receiver: CanRx<'static>) -> ! {
+        loop {
+            match receiver.read().await {
+                Ok(envelope) => INCOMING.send(envelope.frame).await,
+                Err(error) => warn!("CAN receive error: {}", error),
+            }
+        }
+    }
 
+    // Process boot requests and relay fault messages to the state machine.
     #[embassy_executor::task]
     pub async fn populate_queue(
-        mut receiver: CanRx<'static>,
         quetex: &'static Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>>,
         mut bootloader: boot_control::Bootloader<'static>,
     ) -> ! {
         let boot_time: Instant = Instant::now();
-        // receiver.read(); // The IMD goes a bit crazy on init, this gets rid of the frame.
         loop {
             let latest: Option<FaultframeState> =
-                match receiver.read().with_timeout(CAN_RECV_TIMEOUT).await {
-                    Ok(frame) => match frame {
+                match INCOMING.receive().with_timeout(CAN_RECV_TIMEOUT).await {
+                    Ok(frame) => {
                         // Handle boot entry independently of the fault-frame grace period.
-                        Ok(envelope) if bootloader.is_request(&envelope.frame) => {
-                            if bootloader.handle_frame(&envelope.frame).is_err() {
-                                defmt::error!("Failed to persist bootloader request");
-                            }
+                        if bootloader.handle_frame(&frame).is_err() {
+                            defmt::error!("Failed to persist bootloader request");
                             continue;
                         }
-                        Ok(envelope) => match envelope.frame.id() {
+                        match frame.id() {
                             &IMD_CAN_ID_PROCESSED => {
                                 // Only the 4th and 5th bits mean there is an error on the IMD
                                 match u16::from_le_bytes([
-                                    *envelope.frame.data().get(4).unwrap_or(&1),
-                                    *envelope.frame.data().get(4).unwrap_or(&1),
+                                    *frame.data().get(4).unwrap_or(&1),
+                                    *frame.data().get(4).unwrap_or(&1),
                                 ]) & 0x07FF
                                 {
                                     0 => Some(FaultframeState::IMDOk),
@@ -72,12 +79,12 @@ pub mod inbox {
                                 }
                             }
                             // Bitmask on the 7th bit
-                            &BMS_CAN_ID_PROCESSED => match envelope.frame.data()[0] & 0x80 {
+                            &BMS_CAN_ID_PROCESSED => match frame.data()[0] & 0x80 {
                                 0 => Some(FaultframeState::BMSOk),
                                 _ => Some(FaultframeState::BMSFault),
                             },
                             // Bitmask on the 7th bit
-                            &LATCHING_CAN_ID_PROCESSED => match envelope.frame.data()[0] & 0x80 {
+                            &LATCHING_CAN_ID_PROCESSED => match frame.data()[0] & 0x80 {
                                 0 => None, // Nothing needs to be done if no reset it requested
                                 _ => Some(FaultframeState::ResetRequested),
                             },
@@ -85,12 +92,8 @@ pub mod inbox {
                                 warn!("Unknown ID. Somthing is wrong with the filters. ");
                                 None
                             }
-                        },
-                        Err(_e) => {
-                            // warn!("Did not receive CAN Frame. Error: {}", e);
-                            None
                         }
-                    },
+                    }
                     Err(_e) => {
                         // warn!("timeout");
                         None

@@ -102,7 +102,8 @@ async fn main(spawner: Spawner) -> ! {
         )
         .expect("Failed to spawn ner_can::can_tx()."),
     );
-    spawner.spawn(can::receive(can_rx_half, bootloader).expect("Failed to spawn can::receive()."));
+    spawner.spawn(can::receive(can_rx_half).expect("Failed to spawn can::receive()."));
+    spawner.spawn(can::can_rx_processer(bootloader).expect("Failed to spawn CAN processor"));
 
     // ADC1 + analog mux
     spawner.spawn(

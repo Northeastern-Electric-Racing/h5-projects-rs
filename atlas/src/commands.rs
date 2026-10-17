@@ -13,5 +13,19 @@ pub const START_UPDATE: u8 = 0xA9;
 pub const ACK: u8 = 0x5A;
 pub const NACK: u8 = 0xB5;
 
-// Selected ECU IDs and line bitrate generated from ecus.json.
-include!(concat!(env!("OUT_DIR"), "/ecu_can.rs"));
+// BOOTLOADER_ECU selects the protocol IDs at build time.
+#[cfg(ecu = "bms")]
+pub const REQUEST_ID: u16 = 0x010;
+#[cfg(ecu = "vcu")]
+pub const REQUEST_ID: u16 = 0x014;
+#[cfg(ecu = "lightning")]
+pub const REQUEST_ID: u16 = 0x018;
+#[cfg(ecu = "msb_front")]
+pub const REQUEST_ID: u16 = 0x01C;
+#[cfg(ecu = "msb_back")]
+pub const REQUEST_ID: u16 = 0x020;
+
+// Each ECU reserves consecutive request, response, data, and app-entry IDs.
+pub const RESPONSE_ID: u16 = REQUEST_ID + 0x01;
+pub const DATA_ID: u16 = REQUEST_ID + 0x02;
+pub const CAN_LINE_BITRATE: u32 = 500_000;

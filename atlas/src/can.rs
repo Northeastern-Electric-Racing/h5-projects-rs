@@ -11,8 +11,19 @@ use ner_can::{NerCan, StdFilter};
 use crate::commands::*;
 use crate::config::TX_TIMEOUT_MS;
 
-// Peripheral, pins, registers, and interrupt bindings follow the selected ECU.
-include!(concat!(env!("OUT_DIR"), "/ecu_can_hardware.rs"));
+use embassy_stm32::pac::FDCAN2 as CAN_REGS;
+use embassy_stm32::peripherals::FDCAN2 as CanPeripheral;
+#[cfg(any(ecu = "vcu", ecu = "msb_front", ecu = "msb_back"))]
+use embassy_stm32::peripherals::{PB5 as CanRxPin, PB6 as CanTxPin};
+#[cfg(ecu = "lightning")]
+use embassy_stm32::peripherals::{PB12 as CanRxPin, PB13 as CanTxPin};
+#[cfg(ecu = "bms")]
+use embassy_stm32::peripherals::{PB13 as CanTxPin, PD9 as CanRxPin};
+
+bind_interrupts!(struct Irqs {
+    FDCAN2_IT0 => IT0InterruptHandler<CanPeripheral>;
+    FDCAN2_IT1 => IT1InterruptHandler<CanPeripheral>;
+});
 
 /// Own the CAN controller through receive, transmit, and application handoff.
 pub struct CanHandler<'d> {

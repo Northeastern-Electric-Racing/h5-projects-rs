@@ -71,7 +71,8 @@ async fn main(spawner: Spawner) -> ! {
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");
-    spawner.spawn(can::receive(can, bootloader).expect("Failed to spawn CAN receiver"));
+    spawner.spawn(can::receive(can).expect("Failed to spawn CAN receiver"));
+    spawner.spawn(can::can_rx_processer(bootloader).expect("Failed to spawn CAN processor"));
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();

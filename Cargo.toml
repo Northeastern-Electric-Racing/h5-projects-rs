@@ -58,6 +58,9 @@ embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "c
 embassy-ptp-driver = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
 embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb" }
 
+[profile.dev]
+opt-level = 1
+
 [profile.release]
 opt-level = 3
 lto = "fat"
