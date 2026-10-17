@@ -25,13 +25,14 @@ pub enum State {
 
 static STATE: AtomicU8 = AtomicU8::new(State::Open as u8);
 
+/// The current precharge state.
 pub fn state() -> State {
     State::from_repr(STATE.load(Ordering::Relaxed)).unwrap_or(State::Open)
 }
 
-pub struct Action {
-    pub relay_closed: bool,
-    pub state: State,
+/// Whether the HV relay should be energized.
+pub(in crate::hv_plate) fn relay_should_be_closed() -> bool {
+    matches!(state(), State::Closed)
 }
 
 pub struct Precharge {
@@ -57,11 +58,9 @@ impl Precharge {
         }
     }
 
-    /// Ticks the precharge supervisor.
-    ///
-    /// Determine current state of precharge routine then send [`Action`] back to hv plate task to perform.
-    pub fn tick(&mut self, now: Instant) -> Action {
-        let detected = self.classify();
+    /// Ticks the precharge logic
+    pub fn tick(&mut self, now: Instant, readings: Option<task::Inputs>) -> State {
+        let detected = self.classify(readings);
 
         if self.to_closed.poll(detected == State::Closed, TOGGLE_TIME, now) {
             self.relay_state = State::Closed;
@@ -81,29 +80,15 @@ impl Precharge {
             self.relay_state = State::Open;
         }
 
-        STATE.store(self.relay_state as u8, Ordering::Relaxed);
-
-        Action {
-            relay_closed: self.relay_state == State::Closed,
-            state: self.relay_state,
-        }
+        self.relay_state
     }
 
-    /// Port of `get_precharge_state`
-    fn classify(&mut self) -> State {
+    fn classify(&mut self, readings: Option<task::Inputs>) -> State {
         use uom::si::electric_current::ampere;
 
-        // Any reading missing resolves to `Open` for safety.
-        // u_TODO - right now the routine pulls from analyzer kind of silently in the hv plate task loop.
-        // For now this function will just do a `analyzer::analyzer()` call,
-        // but we should change later once we get TS sense working properly
-        let (Some(analyzer), Some(batt_nice)) = (crate::pack::analyzer::analyzer(), cache().get_current_voltage().nice().try_get()) else {
+        let Some(task::Inputs { ts, batt, current }) = readings else {
             return State::Open;
         };
-        let (Some(ts), Some(current)) = (analyzer.data.ts_voltage, analyzer.data.pack_current) else {
-            return State::Open;
-        };
-        let batt = batt_nice.data().batt_voltage;
 
         self.ts.push(ts);
         self.batt.push(batt);
@@ -126,8 +111,7 @@ impl Precharge {
     }
 }
 
-/// Level-triggered, not edge-triggered: once held for `period` it reports true on every
-/// subsequent call.
+/// Level-triggered, not edge-triggered: once held for `period` it reports true on every subsequent call.
 struct Debouncer {
     armed_at: Option<Instant>,
 }
@@ -153,8 +137,6 @@ impl Debouncer {
 }
 
 /// Fixed-depth moving average, in volts.
-///
-/// One push per tick against data that refreshes every tick.
 struct VoltageAverager {
     samples: [f32; NUM_SAMPLES],
     index: usize,
@@ -187,3 +169,59 @@ impl VoltageAverager {
         Some(Voltage::new::<volt>(sum / self.len as f32))
     }
 }
+
+pub mod task {
+    use super::*;
+    use crate::helpers::deadline::Deadline;
+    use core::sync::atomic::Ordering;
+    use embassy_time::{Duration, Instant, Ticker};
+
+    #[derive(Copy, Clone)]
+    pub struct Inputs {
+        pub ts: Voltage,
+        pub batt: Voltage,
+        pub current: crate::units::Current,
+    }
+
+    impl Inputs {
+        fn read(batt: &cache::current_voltage::Nice) -> Option<Self> {
+            let analyzer = crate::pack::analyzer::analyzer()?;
+
+            Some(Self {
+                ts: analyzer.data.ts_voltage?,
+                batt: batt.data().batt_voltage,
+                current: analyzer.data.pack_current?,
+            })
+        }
+    }
+
+    const PERIOD: Duration = Duration::from_millis(100);
+    const DIAGNOSTIC_PERIOD: Duration = Duration::from_secs(1);
+
+    #[embassy_executor::task]
+    pub async fn precharge_task() {
+        let batt = cache().get_current_voltage().nice().ready().await;
+
+        let mut precharge = Precharge::new();
+        let mut ticker = Ticker::every(PERIOD);
+        let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
+
+        loop {
+            ticker.next().await;
+
+            let now = Instant::now();
+            let readings = Inputs::read(&batt.get());
+
+            let state = precharge.tick(now, readings);
+            STATE.store(state as u8, Ordering::Relaxed);
+            defmt::trace!("HvPlate: precharge: {}", state);
+
+            if diagnostic_deadline.past() {
+                diagnostic_deadline = Deadline::expire_in(DIAGNOSTIC_PERIOD);
+                defmt_monitor::monitor!("HvPlate/Precharge/State", desc = "Precharge supervisor state: 0 Open, 1 Floating, 2 Closed.", "{}", state);
+            }
+        }
+    }
+}
+
+pub use task::precharge_task;

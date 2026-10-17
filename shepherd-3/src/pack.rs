@@ -224,13 +224,9 @@ pub mod analyzer {
         /// When the last OCV snapshot was taken
         pub last_settled_at: Option<Instant>,
 
-        /// State of Charge (SoC) of the pack.
-        /// Pack current for this cycle, from whichever source was authoritative when it ran.
-        /// Positive is discharge. C's `hv_plate->pack_current`.
         pub pack_current: Option<Current>,
-        /// Tractive-system voltage for this cycle. C's `hv_plate->ts_volts`.
         pub ts_voltage: Option<Voltage>,
-        pub soc: Ratio,
+        pub soc: Option<Ratio>,
 
         /// Deadline after which `open_cell_voltage` can be updated.
         ocv_timer: Option<Deadline>,
@@ -319,7 +315,7 @@ pub mod analyzer {
 
                 pack_current: None,
                 ts_voltage: None,
-                soc: Ratio::new::<ratio>(0.0_f32),
+                soc: None,
                 last_settled_at: None,
             }
         }
@@ -558,7 +554,11 @@ pub mod analyzer {
             let mut pack_current = data.data().pack_current;
             let mut update_ocv = false;
 
-            let ocv_update_allowed: bool = { pack_current.abs() < OCV_CURR_THRESH };
+            let ocv_update_allowed: bool = {
+                pack_current.abs() < OCV_CURR_THRESH
+                // u_TODO: && crate::state_machine::charger_output_disabled()
+                // u_TODO: && crate::state_machine::balancing_active()
+            };
 
             if self.ocv_is_first_reading {
                 let last_cell: Voltage = self.chip_data[ChipId::last()].cell_voltages[CellId::last()];
@@ -591,8 +591,7 @@ pub mod analyzer {
                     }
                 }
 
-                // The rest timer has just expired, so this is the moment the pack is provably
-                // settled -- which is what an OCV describes, and what `soc` seeds against.
+                // The rest timer has just expired, so this is the moment the pack is settled
                 self.last_settled_at = Some(Instant::now());
             }
         }
@@ -638,10 +637,11 @@ pub mod analyzer {
             let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new(chip_data));
             analyzer.chip_data = chip_data;
 
-            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or_else(crate::hv_plate::shunt_current);
+            let soc_data = crate::hv_plate::soc_data();
+            // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly
+            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.shunt_current);
             analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get());
-            // Zero until an open-circuit voltage seeds the count.
-            analyzer.soc = crate::hv_plate::state_of_charge().unwrap_or(Ratio::new::<ratio>(0.0_f32));
+            analyzer.soc = soc_data.state_of_charge;
 
             // this whole section is supposed to look pretty similar to the C code just so
             // we make sure we bring everything over correctly.
@@ -769,19 +769,13 @@ pub mod analyzer {
                 }
             }
 
-            can::send(
-                PackSocStatus {
-                    pack_soc: analyzer.soc.get::<ratio>(),
-                    pack_soc_drift: crate::hv_plate::soc_drift(),
-                }
-                .as_frame(),
-            )
-            .await;
+            let pack_soc = analyzer.soc.map_or(0.0_f32, |soc| soc.get::<ratio>());
+            can::send(PackSocStatus { pack_soc, pack_soc_drift: soc_data.drift }.as_frame()).await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
-                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge. This is a ratio/percentage from 0.0 to 1.0", "{=f32}", analyzer.soc.get::<ratio>());
-                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Gap the last OCV seed found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", crate::hv_plate::soc_drift());
+                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge, 0.0 to 1.0. NaN until an open-circuit voltage has seeded the count, so a gap in the trace means no estimate rather than an empty pack.", "{=f32}", analyzer.soc.map_or(f32::NAN, |soc| soc.get::<ratio>()));
+                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Gap the last OCV seed found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", soc_data.drift);
             }
 
             #[cfg(defmt_monitor)]

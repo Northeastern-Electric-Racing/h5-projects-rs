@@ -37,11 +37,16 @@ const fn volts(microvolts: i32) -> f32 {
     microvolts as f32 * 1.0e-6_f32
 }
 
+/// Re-signs a reading so that **positive means discharge**.
+pub(super) const fn discharge_positive(raw_shunt_microvolts: i32) -> i32 {
+    -raw_shunt_microvolts
+}
+
 /// Pack current, from the shunt voltage the I1ADC measured (`Current1::as_microvolts()`).
 pub fn pack_current(shunt_microvolts: i32) -> Current {
     use uom::si::electric_current::ampere;
 
-    let shunt_volts = volts(shunt_microvolts);
+    let shunt_volts = volts(discharge_positive(shunt_microvolts));
     Current::new::<ampere>(shunt_volts / SHUNT_RESISTANCE_OHMS)
 }
 

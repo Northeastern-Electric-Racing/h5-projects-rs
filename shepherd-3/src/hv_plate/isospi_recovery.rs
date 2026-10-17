@@ -25,12 +25,12 @@ pub(super) enum State {
 }
 
 /// Work [`Service::evaluate`] could not do itself, because it needs the wire.
-pub enum Action {
+pub(super) enum Action {
     None,
     Restart,
 }
 
-pub struct Service {
+pub(super) struct Service {
     state: State,
     /// Lifetime PEC-failure count at the last reset. The driver never clears its tally, so
     /// "reset" means re-baselining against it.
@@ -45,7 +45,7 @@ pub struct Service {
 }
 
 impl Service {
-    pub fn new(now: Instant) -> Self {
+    pub(super) fn new(now: Instant) -> Self {
         Self {
             state: State::Normal,
             pec_baseline: 0,
@@ -59,16 +59,17 @@ impl Service {
     }
 
     /// Keeps the chip configured and the isoSPI link on a working port.
-    pub async fn run<F>(&mut self, api: &mut alias::Api, mut on_startup: F) -> bool
+    /// Returns true on restarted
+    pub(super) async fn run<F>(&mut self, api: &mut alias::Api, startup_fn: F) -> bool
     where
-        F: AsyncFnMut(&mut alias::Api) -> Result<(), Error<alias::SpiError>>,
+        F: AsyncFn(&mut alias::Api) -> Result<(), Error<alias::SpiError>>,
     {
         let mut restarted = false;
 
         if self.needs_startup(api) {
             restarted = true;
 
-            match on_startup(api).await {
+            match startup_fn(api).await {
                 Ok(()) => self.mark_started(),
                 Err(err) => {
                     defmt::error!("HvPlate: isoSPI: startup failed, will retry next cycle. Error: {}", err);
@@ -80,7 +81,7 @@ impl Service {
         if let Action::Restart = self.evaluate(api, Instant::now()) {
             restarted = true;
 
-            if let Err(err) = on_startup(api).await {
+            if let Err(err) = startup_fn(api).await {
                 defmt::error!("HvPlate: isoSPI: restart after line switch failed. Error: {}", err);
             }
         }
@@ -90,9 +91,6 @@ impl Service {
 
     /// Whether the chip needs configuring: either it never has been, or it reset and threw
     /// the configuration away.
-    ///
-    /// The command counter only returns to 0 via `RSTCC` or `SRST`. It stays stale for the
-    /// rest of the cycle startup ran in; the read jobs run right after, so it settles then.
     fn needs_startup(&self, api: &alias::Api) -> bool {
         if !self.started {
             return true;

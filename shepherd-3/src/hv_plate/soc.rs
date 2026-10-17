@@ -1,5 +1,4 @@
-use crate::hv_plate::board;
-use crate::hv_plate::cache;
+use crate::hv_plate;
 use crate::units::{Current, Voltage};
 use adbms2950::chip::registers::config_a::types::AccumulatorDepth;
 use adbms2950::chip::registers::measurement::accumulation_count;
@@ -7,24 +6,23 @@ use embassy_time::{Duration, Instant};
 use uom::si::electric_current::ampere;
 
 const I1CNTPHA_MODULUS: u32 = 1 << 13;
-const PHASE_PER_CONVERSION: u64 = 4;
+const PHASE_PER_CONVERSION: u32 = 4;
+const NANOS_PER_MICRO: u32 = 1_000;
+
 /// Accumulation depth, written into ConfigA's `ACCI` by `HvPlate::startup`.
 pub(super) const ACCUMULATOR_DEPTH: AccumulatorDepth = AccumulatorDepth::Samples32;
-/// `ACCN`: samples per accumulator window, `4 * (ACCI + 1)`.
 const ACCN: u16 = accumulation_count(ACCUMULATOR_DEPTH as u8);
 
-const NOMINAL_CONVERSION_NANOS: u64 = adbms2950::line::conversion_times::IXADC_CONVERSION_MS as u64 * 1_000_000;
-const CONVERSION_STARTUP_MASK: Duration = Duration::from_micros(adbms2950::line::conversion_times::IXADC_INIT_MAX_MS as u64 * 1_000 + NOMINAL_CONVERSION_NANOS * ACCN as u64 / 1_000);
+const NOMINAL_CONVERSION_NANOS: u32 = adbms2950::line::conversion_times::IXADC_CONVERSION_MS as u32 * 1_000_000;
+const CONVERSION_STARTUP_MASK: Duration = Duration::from_micros(adbms2950::line::conversion_times::IXADC_INIT_MAX_MS as u64 * 1_000 + NOMINAL_CONVERSION_NANOS as u64 * ACCN as u64 / 1_000);
+/// How long to watch `I1CNTPHA` before trusting a new `t_CONV`.
+const MEASUREMENT_WINDOW: Duration = Duration::from_millis(500);
 
 const CAPACITY_MICROCOULOMBS: i64 = 5 * 3600 * 1_000_000;
 const CURRENT_HYSTERESIS_MICROAMPS: i64 = 10_000;
-/// `I * R * ACCN`, so 16 uV. On the sum, where half a code is still visible.
-/// Accumulator sum one amp produces: `R * ACCN`, so 1600 uV.
-const SUM_MICROVOLTS_PER_AMP: i64 = board::SHUNT_MICROOHMS * ACCN as i64;
-const NOISE_FLOOR_MICROVOLTS: i32 = (CURRENT_HYSTERESIS_MICROAMPS * SUM_MICROVOLTS_PER_AMP / 1_000_000) as i32;
 
-/// How long to watch `I1CNTPHA` before trusting a new `t_CONV`.
-const MEASUREMENT_WINDOW: Duration = Duration::from_millis(500);
+const SUM_MICROVOLTS_PER_AMP: i64 = hv_plate::board::SHUNT_MICROOHMS * ACCN as i64;
+const NOISE_FLOOR_MICROVOLTS: i32 = (CURRENT_HYSTERESIS_MICROAMPS * SUM_MICROVOLTS_PER_AMP / 1_000_000) as i32;
 
 fn soc_from_ocv(ocv: Voltage) -> Option<f32> {
     use uom::si::electric_potential::volt;
@@ -38,15 +36,35 @@ fn soc_from_ocv(ocv: Voltage) -> Option<f32> {
     Some(soc.clamp(0.0, 1.0))
 }
 
+/// One accumulator window: FLAG and IVB1ACC
 #[derive(Copy, Clone)]
-pub struct Sample {
+struct AccWindow {
+    i1cnt: u16,
+    i1cntpha: u16,
+    sum_microvolts: i32,
+    read_at: Instant,
+}
+
+impl AccWindow {
+    fn read(flag: &hv_plate::cache::flag::Nice, accumulated: &hv_plate::cache::accumulated::Nice) -> Self {
+        Self {
+            i1cnt: flag.data().i1cnt,
+            i1cntpha: flag.data().i1cntpha,
+            sum_microvolts: hv_plate::board::discharge_positive(accumulated.data().current_sum_microvolts),
+            read_at: accumulated.oldest_read(),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct Sample {
     /// Mean current across the window. Positive is discharge.
-    pub average_current: Current,
-    pub charge_microcoulombs: i64,
+    average_current: Current,
+    charge_microcoulombs: i64,
     /// How many windows were overwritten unread, anything > 1 is bad.
-    pub windows_elapsed: u16,
+    windows_elapsed: u16,
     /// The conversion time this window's charge was integrated at (`t_CONV` / `ACCN`)
-    pub conversion_nanos: u32,
+    conversion_nanos: u32,
 }
 
 /// Tuple of `soc` measurement which was measured at `microcoulombs` counted.
@@ -64,7 +82,7 @@ impl SocReference {
 }
 
 #[derive(Copy, Clone)]
-pub struct Estimator {
+struct Estimator {
     /// Readings before this are rejected.
     conversion_startup_deadline: Option<Instant>,
 
@@ -87,7 +105,7 @@ pub struct Estimator {
 }
 
 impl Estimator {
-    pub fn new(now: Instant) -> Self {
+    fn new(now: Instant) -> Self {
         let mut tracker = Self {
             conversion_startup_deadline: None,
             n: 0,
@@ -108,34 +126,22 @@ impl Estimator {
 
     /// Re-baselines after an `ADI1`, which zeroes `I1CNT`. Leaves the estimate and the running
     /// total alone
-    pub fn restart(&mut self, now: Instant) {
+    fn restart(&mut self, now: Instant) {
         self.n = 0;
         self.i1cnt_old = 0;
         self.measurement_base = None;
         self.conversion_startup_deadline = Some(now + CONVERSION_STARTUP_MASK);
     }
 
-    /// Folds this cycle's reading into the count.
-    pub fn accumulate(&mut self) {
-        // Read data from cache
-        let (Some(flag_nice), Some(accumulated_nice)) = (cache().get_flag().nice().try_get(), cache().get_accumulated().nice().try_get()) else { return };
-        let flag = flag_nice.data();
-        let accumulated = accumulated_nice.data();
-        let read_at = accumulated_nice.oldest_read();
-
-        let (i1cnt, i1cntpha) = (flag.i1cnt, flag.i1cntpha);
-        // Matches sign for `api::pack_current`
-        let sum_microvolts = -accumulated.current_sum_microvolts;
-
+    /// Folds one accumulator window into the count.
+    fn accumulate(&mut self, AccWindow { i1cnt, i1cntpha, sum_microvolts, read_at }: AccWindow) {
         // Check that conversion has actually settled before doing coloumb counting
         if let Some(deadline) = self.conversion_startup_deadline {
             if read_at < deadline {
                 return;
             }
             self.conversion_startup_deadline = None;
-            // The datasheet's `INIT` is `N = 1, I1CNT_OLD = 0` because it starts reading at
-            // t = 0. We mask out the startup window instead, so windows have already gone by --
-            // baseline off the counter or the first sample claims every one of them as missed.
+            // Calculate how many windows have gone by and save into `n`
             self.n = u32::from(i1cnt) / u32::from(ACCN) + 1;
             self.i1cnt_old = i1cnt;
             defmt::info!("HvPlate: soc: counters live at I1CNT {}, accumulating.", i1cnt);
@@ -159,13 +165,9 @@ impl Estimator {
 
         let windows_elapsed = (missed + 1) as u16;
 
-        // `Q = V / R * t`. Microvolt-nanoseconds over microohms is nanocoulombs, hence the final
-        // thousand. [`ACCN`] cancels: a sum times the per-sample period is already the average
-        // times the window.
-        //
-        // u_TODO - the guidance from the datasheet also applies a shunt temp coeff here
-        let conversion_nanos = self.get_conversion_time(i1cntpha, read_at).unwrap_or(NOMINAL_CONVERSION_NANOS as u32);
-        let charge_microcoulombs = if sum_microvolts.abs() >= NOISE_FLOOR_MICROVOLTS { i64::from(sum_microvolts) * i64::from(windows_elapsed) * i64::from(conversion_nanos) / (board::SHUNT_MICROOHMS * 1_000) } else { 0 };
+        let conversion_nanos = self.get_conversion_time(i1cntpha, read_at).unwrap_or(NOMINAL_CONVERSION_NANOS);
+        let window_nanos = u32::from(windows_elapsed) * conversion_nanos;
+        let charge_microcoulombs = if sum_microvolts.abs() >= NOISE_FLOOR_MICROVOLTS { i64::from(sum_microvolts) / (hv_plate::board::SHUNT_MICROOHMS * 1_000) * i64::from(window_nanos) } else { 0 };
         self.cc_microcoulombs += charge_microcoulombs;
 
         // The window's reading, which is both the reported pack current and the diagnostics.
@@ -180,7 +182,7 @@ impl Estimator {
     }
 
     /// Latches a [`Reference`] at the current total, returning whether it was accepted.
-    pub fn seed(&mut self, min_cell_ocv: Voltage, settled_at: Instant) {
+    fn seed(&mut self, min_cell_ocv: Voltage, settled_at: Instant) {
         // Only reseed on new rest data
         if self.seeded_from == Some(settled_at) {
             return;
@@ -209,6 +211,7 @@ impl Estimator {
         };
 
         let elapsed = read_at.saturating_duration_since(base_at);
+        let elapsed_micros = u32::try_from(elapsed.as_micros()).unwrap_or(u32::MAX);
         let ticks = (u32::from(i1cntpha) + I1CNTPHA_MODULUS - u32::from(base_pha)) % I1CNTPHA_MODULUS;
 
         // Only the full-window reading is a formal measurement, so only it re-bases and only it
@@ -218,18 +221,19 @@ impl Estimator {
             self.measurement_base = Some((i1cntpha, read_at));
         }
 
-        if ticks == 0 {
+        const MAX_ELAPSED_MICROS: u32 = u32::MAX / (NANOS_PER_MICRO * PHASE_PER_CONVERSION);
+        if ticks == 0 || elapsed_micros > MAX_ELAPSED_MICROS {
             if measured {
                 self.desyncs = self.desyncs.saturating_add(1);
-                defmt::warn!("HvPlate: soc: counter did not move across a measurement window; conversions may have stopped.");
+                defmt::warn!("HvPlate: soc: no usable conversion time: {} phase ticks across {} us.", ticks, elapsed_micros);
             }
             return None;
         }
 
         // A quarter either way against an oscillator specified at a tenth: past this the reading
         // caught a lapped counter, not drift.
-        let nanos = elapsed.as_micros() * 1_000 * PHASE_PER_CONVERSION / u64::from(ticks);
-        const TOLERANCE: u64 = NOMINAL_CONVERSION_NANOS / 4;
+        let nanos = elapsed_micros * NANOS_PER_MICRO * PHASE_PER_CONVERSION / ticks;
+        const TOLERANCE: u32 = NOMINAL_CONVERSION_NANOS / 4;
         if nanos.abs_diff(NOMINAL_CONVERSION_NANOS) > TOLERANCE {
             if measured {
                 self.desyncs = self.desyncs.saturating_add(1);
@@ -238,7 +242,7 @@ impl Estimator {
             return None;
         }
 
-        Some(nanos as u32)
+        Some(nanos)
     }
 
     /// Re-derives [`Self::state_of_charge`]. Call wherever the reference or the total moves.
@@ -247,41 +251,145 @@ impl Estimator {
     }
 
     /// Net charge since boot. Positive is discharge. Never reset, by a restart or a reseed.
-    pub const fn cc_microcoulombs(&self) -> i64 {
+    const fn cc_microcoulombs(&self) -> i64 {
         self.cc_microcoulombs
     }
 
-    /// C's `soc_drift`. Positive means the coulomb count was reading higher than the OCV.
-    pub const fn soc_drift(&self) -> f32 {
+    /// Positive means the coulomb count was reading higher than the OCV.
+    const fn soc_drift(&self) -> f32 {
         self.drift
     }
 
-    /// State of charge, 0..1. `None` until an OCV has seeded the count.
-    pub const fn state_of_charge(&self) -> Option<f32> {
+    /// `None` until an OCV has seeded the count.
+    const fn state_of_charge(&self) -> Option<f32> {
         self.state_of_charge
     }
 
-    /// Mean pack current over the most recent accumulator window. Positive is discharge.
-    pub fn pack_current(&self) -> Option<Current> {
+    fn pack_current(&self) -> Option<Current> {
         self.last_sample.map(|sample| sample.average_current)
     }
 
-    /// `t_CONV`: the measured accumulator window, `ACCN` conversions. Nominally `ACCN` ms, and
-    /// the figure to watch for oscillator drift. `None` until a window has landed.
-    pub fn t_conv(&self) -> Option<Duration> {
-        self.last_sample.map(|sample| Duration::from_micros(u64::from(sample.conversion_nanos) * u64::from(ACCN) / 1_000))
+    fn t_conv(&self) -> Option<Duration> {
+        self.last_sample.map(|sample| Duration::from_micros(u64::from(sample.conversion_nanos * u32::from(ACCN) / NANOS_PER_MICRO)))
     }
 
-    pub const fn last_sample(&self) -> Option<Sample> {
+    const fn last_sample(&self) -> Option<Sample> {
         self.last_sample
     }
 
     /// Should stay at zero. Non-zero means the task is not keeping up.
-    pub const fn missed_windows(&self) -> u32 {
+    const fn missed_windows(&self) -> u32 {
         self.missed_windows
     }
 
-    pub const fn desyncs(&self) -> u32 {
+    const fn desyncs(&self) -> u32 {
         self.desyncs
     }
 }
+
+/// What the SoC estimator publishes.
+pub(super) mod api {
+    use crate::helpers::snapshot_cell::SnapshotCell;
+    use crate::units::{Current, Ratio};
+
+    #[derive(Copy, Clone)]
+    pub(crate) struct SocData {
+        /// Pack current as the 2950's accumulator measured it. Positive is discharge.
+        pub shunt_current: Option<Current>,
+        /// State of charge, 0..1. `None` until an open-circuit voltage has seeded the count.
+        pub state_of_charge: Option<Ratio>,
+        /// Positive means the coulomb count was reading higher than the OCV.
+        pub drift: f32,
+    }
+
+    impl SocData {
+        const fn new() -> Self {
+            Self { shunt_current: None, state_of_charge: None, drift: 0.0 }
+        }
+    }
+
+    static SOC_DATA: SnapshotCell<SocData> = SnapshotCell::new(SocData::new());
+
+    /// Copies out what the estimator currently knows.
+    pub(crate) fn soc_data() -> SocData {
+        SOC_DATA.take_snapshot()
+    }
+
+    /// Publishes what the estimator currently knows. Called only by [`super::task`].
+    pub(super) fn store(data: SocData) {
+        SOC_DATA.set(data);
+    }
+}
+
+mod task {
+    use embassy_time::{Instant, Duration};
+    use super::{AccWindow, Estimator};
+    use crate::hv_plate;
+
+    const DIAGNOSTIC_PERIOD: Duration = Duration::from_millis(500);
+
+    #[embassy_executor::task]
+    pub async fn soc_task() {
+        use crate::helpers::deadline::Deadline;
+        use crate::hv_plate::core::task::signal::ACC_DATA_SIGNAL;
+
+        let mut estimator = Estimator::new(Instant::now());
+
+        let Some(mut acc_data_recv) = ACC_DATA_SIGNAL.receiver() else {
+            defmt::error!("HvPlate: soc: no acc data receiver left; coulomb counting will not run!");
+            return;
+        };
+
+        let flag = hv_plate::cache().get_flag().nice().ready().await;
+        let accumulated = hv_plate::cache().get_accumulated().nice().ready().await;
+
+        let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
+        loop {
+            // Period of ~25ms (how often we read acc data registers)
+            let acc_data = acc_data_recv.changed().await;
+
+            // Get data from cache and pack analyzer
+            let window = acc_data.fresh.then(|| AccWindow::read(&flag.get(), &accumulated.get()));
+            let ocv_seed = crate::pack::analyzer::analyzer().and_then(|analyzer| analyzer.data.last_settled_at.map(|settled_at| (analyzer.data.min_ocv.value(), settled_at)));
+
+            // Run estimator
+            if let Some(at) = acc_data.restarted_at {
+                estimator.restart(at);
+            }
+
+            if let Some((min_ocv, settled_at)) = ocv_seed {
+                estimator.seed(min_ocv, settled_at);
+            }
+
+            if let Some(window) = window {
+                estimator.accumulate(window);
+            } else {
+                defmt::warn!("HvPlate: soc: invalid data for window; skipping accumulation for this window!");
+            }
+
+            super::api::store(super::api::SocData {
+                shunt_current: estimator.pack_current(),
+                state_of_charge: estimator.state_of_charge().and_then(crate::units::Ratio::from_ratio),
+                drift: estimator.soc_drift(),
+            });
+
+            if diagnostic_deadline.past() {
+                diagnostic_deadline = Deadline::expire_in(DIAGNOSTIC_PERIOD);
+                defmt_monitor::monitor!("HvPlate/Soc/MissedWindows", desc = "Accumulator windows overwritten before the task read them. Should stay at zero; non-zero means the 25 ms budget is blown.", "{=u32}", estimator.missed_windows());
+                defmt_monitor::monitor!("HvPlate/Soc/Desyncs", desc = "Observations rejected because I1CNT could have lapped (a gap over ~2 s).", "{=u32}", estimator.desyncs());
+
+                if let Some(sample) = estimator.last_sample() {
+                    defmt_monitor::monitor!("HvPlate/Soc/AverageCurrent", desc = "Mean shunt current over the most recent accumulator window, in amps. Cross-check against the instantaneous reading from IVB1.", "{=f32}", sample.average_current.get::<uom::si::electric_current::ampere>());
+                    defmt_monitor::monitor!("HvPlate/Soc/StateOfCharge", desc = "State of charge 0..1. NaN until an open-circuit voltage has seeded the count -- the estimate does not exist yet, rather than being zero.", "{=f32}", estimator.state_of_charge().unwrap_or(f32::NAN));
+                    defmt_monitor::monitor!("HvPlate/Soc/SampleCharge", desc = "Charge moved in the most recent accumulator window, in microcoulombs.", "{=i64}", sample.charge_microcoulombs);
+                    defmt_monitor::monitor!("HvPlate/Soc/WindowsElapsed", desc = "Accumulator windows covered by the most recent sample. 1 is clean.", "{=u16}", sample.windows_elapsed);
+                    defmt_monitor::monitor!("HvPlate/Soc/TConvUs", desc = "Measured t_CONV, the accumulator window, in us. 0 until the first window lands. Nominally 32000; drift from that is the internal oscillator, specified at +/-10%.", "{=u64}", estimator.t_conv().map_or(0, |window| window.as_micros()));
+                    defmt_monitor::monitor!("HvPlate/Soc/CC", desc = "The datasheet's CC: net charge moved since boot, in microcoulombs. Positive is discharge. Never reset -- not by a chip restart, not by a reseed.", "{=i64}", estimator.cc_microcoulombs());
+                    defmt_monitor::monitor!("HvPlate/Soc/Drift", desc = "Gap the last accepted OCV found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", estimator.soc_drift());
+                }
+            }
+        }
+    }
+}
+
+pub use task::soc_task;
