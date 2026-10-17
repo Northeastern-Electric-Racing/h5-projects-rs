@@ -1,12 +1,13 @@
 //! CAN bring-up for Cerberus.
 
+use embassy_stm32::can::filter::StandardFilterSlot;
 use embassy_stm32::can::{
     CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,
 };
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use ner_can::NerCan;
+use ner_can::{NerCan, StdFilter};
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -32,7 +33,32 @@ pub struct CanPins {
 pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     let configurator = CanConfigurator::new(pins.can, pins.rx, pins.tx, Irqs);
 
-    let (tx, rx, _props) = NerCan::init(configurator).start();
+    let (tx, rx, _props) = NerCan::init(configurator)
+        .with_standard_filters(&[StdFilter {
+            slot: StandardFilterSlot::_0,
+            id1: crate::BOOT_REQUEST_ID,
+            id2: None,
+        }])
+        .start();
 
     (tx, rx)
+}
+
+// Handle boot requests before forwarding normal application traffic.
+#[embassy_executor::task]
+pub async fn receive(mut rx: CanRx<'static>, mut bootloader: boot_control::Bootloader<'static>) {
+    loop {
+        match rx.read().await {
+            Ok(envelope) => {
+                if bootloader.is_request(&envelope.frame) {
+                    if bootloader.handle_frame(&envelope.frame).is_err() {
+                        defmt::error!("Failed to persist bootloader request");
+                    }
+                } else {
+                    INCOMING.send(envelope.frame).await;
+                }
+            }
+            Err(error) => defmt::warn!("CAN receive error: {}", error),
+        }
+    }
 }

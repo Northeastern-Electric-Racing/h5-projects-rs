@@ -11,8 +11,14 @@ use embassy_stm32::{time::Hertz, wdg};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
+mod can;
+
+// Match this ECU's application boot-entry settings in atlas/ecus.json.
+const BOOT_REQUEST_ID: u16 = 0x01F;
+const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> ! {
     info!("Initializing project...");
 
     let mut config = Config::default();
@@ -59,6 +65,13 @@ async fn main(_spawner: Spawner) -> ! {
     }
 
     let p = embassy_stm32::init(config);
+
+    let can = can::init(p.FDCAN2, p.PB5, p.PB6);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
+    spawner.spawn(can::receive(can, bootloader).expect("Failed to spawn CAN receiver"));
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();

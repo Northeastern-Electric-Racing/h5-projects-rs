@@ -38,7 +38,7 @@ mod api {
 
     /// Initializes CAN and starts up the CAN handler.
     #[embassy_executor::task]
-    pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources) {
+    pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources, bootloader: boot_control::Bootloader<'static>) {
         use embassy_stm32::can::{CanConfigurator};
         use embassy_stm32::can::filter::{StandardFilterSlot};
 
@@ -48,12 +48,12 @@ mod api {
         const DTI_ERPM_STATUS_MESSAGE: u16 = 0x416;
 
         let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
-        let can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None);
+        let can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None).add_standard_filter(StandardFilterSlot::_1, crate::BOOT_REQUEST_ID, None);
 
         let (tx, rx, _props) = can.start();
 
         spawner.spawn(handler::can_tx(tx).expect("Failed to spawn can_handler::can_tx()."));
-        spawner.spawn(handler::can_rx(rx).expect("Failed to spawn can_handler::can_rx()."));
+        spawner.spawn(handler::can_rx(rx, bootloader).expect("Failed to spawn can_handler::can_rx()."));
         spawner.spawn(handler::can_rx_processer().expect("Failed to spawn can_handler::can_rx_processer()."));
 
         #[cfg(defmt_monitor)]
@@ -420,14 +420,20 @@ mod handler {
 
     /// Passes frames received off the bus to the incoming channel.
     #[embassy_executor::task]
-    pub async fn can_rx(mut rx: CanRx<'static>) -> ! {
+    pub async fn can_rx(mut rx: CanRx<'static>, mut bootloader: boot_control::Bootloader<'static>) -> ! {
         let mut rx_count: u32 = 0;
         let mut rx_err_count: u32 = 0;
 
         loop {
             match rx.read().await {
                 Ok(can_recv) => {
-                    super::channels::INCOMING.send(can_recv.frame).await;
+                    if bootloader.is_request(&can_recv.frame) {
+                        if bootloader.handle_frame(&can_recv.frame).is_err() {
+                            defmt::error!("Failed to persist bootloader request");
+                        }
+                    } else {
+                        super::channels::INCOMING.send(can_recv.frame).await;
+                    }
                     rx_count += 1;
                 },
                 Err(err) => {

@@ -44,6 +44,7 @@ pub mod inbox {
     pub async fn populate_queue(
         mut receiver: CanRx<'static>,
         quetex: &'static Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>>,
+        mut bootloader: boot_control::Bootloader<'static>,
     ) -> ! {
         let boot_time: Instant = Instant::now();
         // receiver.read(); // The IMD goes a bit crazy on init, this gets rid of the frame.
@@ -51,6 +52,13 @@ pub mod inbox {
             let latest: Option<FaultframeState> =
                 match receiver.read().with_timeout(CAN_RECV_TIMEOUT).await {
                     Ok(frame) => match frame {
+                        // Handle boot entry independently of the fault-frame grace period.
+                        Ok(envelope) if bootloader.is_request(&envelope.frame) => {
+                            if bootloader.handle_frame(&envelope.frame).is_err() {
+                                defmt::error!("Failed to persist bootloader request");
+                            }
+                            continue;
+                        }
                         Ok(envelope) => match envelope.frame.id() {
                             &IMD_CAN_ID_PROCESSED => {
                                 // Only the 4th and 5th bits mean there is an error on the IMD
