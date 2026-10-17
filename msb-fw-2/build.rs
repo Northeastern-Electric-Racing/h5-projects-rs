@@ -1,13 +1,12 @@
+use std::{env, fs, path::PathBuf};
+
 fn main() {
-    let memory_path = std::env::var("DEP_BOOT_CONTROL_MEMORY_X")
-        .expect("Bootloader application dependency must provide its memory.x path");
+    // Make this application's memory layout available when building from the workspace.
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    fs::write(out.join("memory.x"), include_bytes!("memory.x")).unwrap();
+    println!("cargo:rustc-link-search={}", out.display());
+    println!("cargo:rerun-if-changed=memory.x");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed={}", memory_path);
-    // Link at the application address, leaving Atlas and update storage reserved.
-    println!(
-        "cargo:rustc-link-arg-bins=--remap-inputs=*memory.x={}",
-        memory_path
-    );
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");

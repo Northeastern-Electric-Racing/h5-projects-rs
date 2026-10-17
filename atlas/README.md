@@ -58,7 +58,7 @@ request fails, the bootloader logs an error and stays in update mode.
 
 Add `boot-control.workspace = true` to the application dependencies.
 The workspace aliases the `boot-control-stm32h563` package as `boot-control`.
-The helper and its `memory.x` live in `firmware-rs/boot-control/platforms/stm32h563`. Initialize CAN
+The helper lives in `firmware-rs/boot-control`. Initialize CAN
 as usual and allow the application's boot-request ID through its receive filters.
 Pass the ID and payload explicitly; the helper does not read `ecus.json`.
 
@@ -76,9 +76,9 @@ data frame persists the request and resets; the bootloader answers host commands
 afterward. Flash failures return an error without resetting. Projects that need
 to stop outputs first can check `is_request(&frame)` before calling `handle_frame`.
 
-Applications must link with the helper's `memory.x` at `0x0802E000`.
-Their build scripts read `DEP_BOOT_CONTROL_MEMORY_X` and pass
-`--remap-inputs=*memory.x=<path>` to the linker, avoiding checkout-specific paths.
+Each application owns a `memory.x` with flash starting at `0x0802E000` and length
+`0xD2000`, matching Atlas's active region. Its build script copies the file into
+`OUT_DIR` and adds that directory to the linker search path.
 The application helper does not stage firmware or perform swaps. Flash Atlas for
 the same ECU first, then download the application ELF without a chip erase.
 
