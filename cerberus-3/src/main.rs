@@ -20,6 +20,7 @@ mod bms;
 mod buttons;
 mod can;
 mod efuses;
+mod faults;
 mod pedals;
 mod peripherals;
 mod rtds;
