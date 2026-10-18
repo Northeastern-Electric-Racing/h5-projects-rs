@@ -252,7 +252,7 @@ dependencies = [
 [[package]]
 name = "boot-control-stm32h563"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=add%2Fcan-flash-cli#0a4dd4c5bd90c09eb996ae93f2ff3d7ab05e10b8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=add%2Fcan-flash-cli#494a8d36ba3820d888b7e06e74771e120adde2e1"
 dependencies = [
  "cortex-m",
  "embassy-boot-stm32",
