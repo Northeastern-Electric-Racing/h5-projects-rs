@@ -136,7 +136,7 @@ impl IMU {
                 let raw_accel = self.imu.acceleration_raw_get().await;
                 if f.drdy_xl == 1 && raw_accel.is_ok() {
                     let accel = AccelVec::from_raws(raw_accel.unwrap());
-                    info!("Current acceleration: {}", accel);
+                    // info!("Current acceleration: {}", accel);
                     Some(accel)
                 } else {
                     None
@@ -170,7 +170,7 @@ impl IMU {
                 let raw_rate = self.imu.angular_rate_raw_get().await;
                 if f.drdy_gy == 1 && raw_rate.is_ok() {
                     let vel = AngularVelVec::from_raws(raw_rate.unwrap());
-                    info!("Current angular velocity: {}", vel);
+                    // info!("Current angular velocity: {}", vel);
                     Some(vel)
                 } else {
                     None
@@ -188,7 +188,7 @@ impl IMU {
 
         // Check device ID
         let id = self.imu.device_id_get().await.unwrap();
-        info!("Device ID: {:x}", id);
+        // info!("Device ID: {:x}", id);
         if id != ID {
             error!("Unexpected device ID: {:x}", id);
             return Err(ImuInitError::WrongId);
