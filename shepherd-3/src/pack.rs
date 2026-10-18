@@ -11,7 +11,7 @@ pub mod analyzer {
     use embassy_time::Instant;
     use embassy_sync::blocking_mutex::ThreadModeMutex;
     use core::cell::Cell;
-    use crate::helpers::snapshot_cell::SnapshotCell;
+    use crate::helpers::snapshot_cell::{SnapshotCell, UnwriteableSnapshotCell};
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
     #[derive(Copy, Clone)]
@@ -53,8 +53,8 @@ pub mod analyzer {
     /// Copies out the analyzer data.
     ///
     /// If the analyzer data hasn't been updated yet, this returns `None`.
-    pub fn analyzer() -> Option<AnalyzerHolder> {
-        ANALYZER.take_snapshot()
+    pub fn analyzer() -> &'static UnwriteableSnapshotCell<Option<AnalyzerHolder>> {
+        ANALYZER.to_unwriteable()
     }
 
     /// Publishes a copy of `analyzer` for other tasks to read.

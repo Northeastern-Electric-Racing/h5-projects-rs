@@ -185,7 +185,7 @@ pub mod task {
 
     impl Inputs {
         fn read(batt: &cache::current_voltage::Nice) -> Option<Self> {
-            let analyzer = crate::pack::analyzer::analyzer()?;
+            let analyzer = crate::pack::analyzer::analyzer().read()?;
 
             Some(Self {
                 ts: analyzer.data.ts_voltage?,

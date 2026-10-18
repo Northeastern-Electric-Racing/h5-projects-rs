@@ -312,7 +312,7 @@ pub(super) mod api {
 
     /// Copies out what the estimator currently knows.
     pub(crate) fn soc_data() -> SocData {
-        SOC_DATA.take_snapshot()
+        SOC_DATA.read()
     }
 
     /// Publishes what the estimator currently knows. Called only by [`super::task`].
@@ -350,7 +350,14 @@ mod task {
 
             // Get data from cache and pack analyzer
             let window = acc_data.fresh.then(|| AccWindow::read(&flag.get(), &accumulated.get()));
-            let ocv_seed = crate::pack::analyzer::analyzer().and_then(|analyzer| analyzer.data.last_settled_at.map(|settled_at| (analyzer.data.min_ocv.value(), settled_at)));
+            let ocv_seed = crate::pack::analyzer::analyzer().partial_read(|inner| {
+                match inner {
+                    Some(analyzer) => {
+                        analyzer.data.last_settled_at.map(|settled_at| (analyzer.data.min_ocv.value(), settled_at))
+                    },
+                    None => None,
+                }
+            });
 
             // Run estimator
             if let Some(at) = acc_data.restarted_at {
