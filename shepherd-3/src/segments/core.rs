@@ -418,6 +418,9 @@ pub mod jobs {
             // run as normal.
             self.service.api().command(commands::snapshot::snap()).await.map_err(UpdateError::SnapError)?;
 
+            // Note: even though we typically only use `cell_voltages` when in charging mode,
+            // we still update the cache regardless just in case. other code in this project
+            // relies on that assumption so probably do a big thorough check if anyone ever changes this
             cache::CACHE.update_cell_voltages(self.service.api()).await?;
             cache::CACHE.update_average_cell_voltages(self.service.api()).await?;
             cache::CACHE.update_filtered_cell_voltages(self.service.api()).await?;
