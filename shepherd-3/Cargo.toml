@@ -33,7 +33,7 @@ strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 # u_TODO - probably maybe move this to the workspace Cargo.toml eventually if this is gonna be something we use
 uom = { version = "0.38.0", default-features = false, features = ["si", "f32"] }
 
-adbms6830b = { git = "https://github.com/bjackson312006/firmware-rs.git", branch = "adbms6830b", features = ["defmt"] }
+adbms6830b = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop", features = ["defmt"] }
 adbms2950 = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "810be7e0b5a0c0162be26917e0dbce41af545b79", features = ["defmt"] }
 defmt-monitor = { git = "https://github.com/bjackson312006/defmt-monitor.git", branch = "main" }
 libm = { version = "0.2.16" }
