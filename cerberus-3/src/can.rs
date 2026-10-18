@@ -3,9 +3,9 @@
 use crate::buttons;
 use cangen::Msg;
 use defmt::debug;
-use embassy_stm32::can::filter::{StandardFilter, StandardFilterSlot};
+use embassy_stm32::can::filter::{StandardFilterSlot};
 use embassy_stm32::can::{
-    CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler, frame,
+    CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,
 };
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;

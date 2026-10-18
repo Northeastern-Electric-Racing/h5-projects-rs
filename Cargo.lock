@@ -229,7 +229,7 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
 dependencies = [
  "defmt 1.1.1",
  "embassy-executor",

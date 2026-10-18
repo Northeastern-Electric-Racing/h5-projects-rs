@@ -22,7 +22,6 @@ mod efuses;
 mod rtds;
 mod statemachine;
 
-use crate::buttons::button_task;
 use crate::can::can_inbox_task;
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;

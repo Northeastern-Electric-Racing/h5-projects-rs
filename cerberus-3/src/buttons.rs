@@ -2,7 +2,6 @@ use crate::statemachine;
 use defmt::debug;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::Timer;
 
 const BUTTON_QUEUE_SIZE: usize = 12;
 static PRESSED: Channel<ThreadModeRawMutex, Button, BUTTON_QUEUE_SIZE> = Channel::new();
