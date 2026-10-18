@@ -6,6 +6,7 @@
 use embassy_stm32::gpio::Output;
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::Spi;
+use embassy_stm32::spi::mode::Master;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Delay, Duration, Ticker};
@@ -15,7 +16,7 @@ use lis2mdl_ner::{Lis2mdl, MagneticField};
 /// PI2 plus the magnetometer's chip select pin. `ExclusiveDevice` pulls CS low around every
 /// transaction, which the C firmware never did
 /// if this doesn't compile, check the `Spi` type parameters for your embassy-stm32 version
-pub type MagSpi = ExclusiveDevice<Spi<'static, Async>, Output<'static>, Delay>;
+pub type MagSpi = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
  
 /// How often to check for new data. Matches the sensor's 50 Hz output data rate.
 const POLL_PERIOD: Duration = Duration::from_millis(20);
