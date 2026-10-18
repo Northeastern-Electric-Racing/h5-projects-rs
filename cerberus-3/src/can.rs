@@ -3,7 +3,7 @@
 use crate::buttons;
 use cangen::Msg;
 use defmt::debug;
-use embassy_stm32::can::filter::{StandardFilterSlot};
+use embassy_stm32::can::filter::StandardFilterSlot;
 use embassy_stm32::can::{
     CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,
 };
