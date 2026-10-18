@@ -4,6 +4,7 @@
 //! Performance, Efficiency, Faulted) and the NERO dash menu position
 //! (`NeroMenu`), and arbitrates transitions between them.
 
+use crate::rtds;
 use cangen::ToCanFrame;
 use defmt::{bitflags, debug, info, warn};
 use embassy_futures::select::{Either3, select3};
@@ -148,7 +149,7 @@ fn stop_reverse_sound() {}
 // END TEMP functions
 // ---------------------------------------------------------------------------
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, defmt::Format)]
 struct CerberusState {
     home_mode: bool,
     state: FuncState,
@@ -219,7 +220,7 @@ impl CerberusState {
 
                 if new_state == FuncState::Reverse {
                     start_reverse_sound();
-                } else if crate::rtds::sound_rtds().is_err() {
+                } else if rtds::sound_rtds().is_err() {
                     warn!("Failed to start Ready to Drive Sound")
                 }
 
@@ -303,6 +304,10 @@ impl CerberusState {
             TransitionCommands::DECREMENT => self.transition_nero_state(self.nero_menu.prev()),
             TransitionCommands::SELECT => self.select(),
             TransitionCommands::HOME => {
+                if get_mph() > 0.1f32 {
+                    return Err(());
+                }
+
                 if self.state.is_active() {
                     self.transition_functional_state(FuncState::Ready)?;
                 }
@@ -375,7 +380,7 @@ pub(crate) async fn set_fault_state() {
 }
 
 #[embassy_executor::task]
-pub async fn statemachine_task() {
+pub async fn statemachine_task() -> ! {
     let mut state = CerberusState::INIT;
 
     loop {
@@ -389,6 +394,8 @@ pub async fn statemachine_task() {
             Either3::First(command) => {
                 if state.handle_command(command).is_err() {
                     debug!("Error handling NERO command");
+                } else {
+                    debug!("Now state: {}", state);
                 }
             }
             Either3::Second(_) => {
