@@ -16,12 +16,20 @@ embassy-stm32 = { workspace = true }
 embassy-sync.workspace = true
 embassy-time.workspace = true
 embassy-futures.workspace = true
+embedded-hal-bus.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 static_cell.workspace = true
 hdc2021-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "hdc2021-ner" }
+lis2mdl-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "lis2mdl-ner" }
+
+
+
+
    
 
 
 [lints]
 workspace = true
+
+
