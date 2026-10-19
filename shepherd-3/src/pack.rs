@@ -154,9 +154,20 @@ pub mod analyzer {
             let status_b = *cache.get_status_b().nice().ready().await.get().data();
             let status_c = *cache.get_status_c().nice().ready().await.get().data();
             let s_voltages = *cache.get_s_voltages().nice().ready().await.get().data();
-            let s_voltages_ow_even_on = *cache.get_s_voltages_ow_even_on().nice().ready().await.get().data();
-            let s_voltages_ow_odd_on = *cache.get_s_voltages_ow_odd_on().nice().ready().await.get().data();
             let pwm = *cache.get_pwm().nice().ready().await.get().data();
+
+            let s_voltages_ow_even_on;
+            let s_voltages_ow_odd_on;
+            #[cfg(not(feature = "hil"))]
+            {
+                s_voltages_ow_even_on = *cache.get_s_voltages_ow_even_on().nice().ready().await.get().data();
+                s_voltages_ow_odd_on = *cache.get_s_voltages_ow_odd_on().nice().ready().await.get().data();
+            }
+            #[cfg(feature = "hil")]
+            {
+                s_voltages_ow_even_on = IndexByChip::from_fn(|i| IndexByCell::from_value(Voltage::from_volts(0.)));
+                s_voltages_ow_odd_on = IndexByChip::from_fn(|i| IndexByCell::from_value(Voltage::from_volts(0.)));
+            }
 
             // Get cell voltagse, either from `cell_voltages` or `filtered_cell_voltages` depending on if we're charging or not
             let cell_voltages = match state_machine::bms_state() {
@@ -654,6 +665,7 @@ pub mod analyzer {
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
 
+            #[cfg(not(feature = "hil"))]
             if segments_openwire_subscription.has_been_signaled() {
                 analyzer.detect_cell_open_wire().await;
             }

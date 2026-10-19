@@ -96,6 +96,7 @@ impl Service {
             return true;
         }
 
+        #[cfg(not(feature = "hil"))]
         if api.device().suspected_reset() {
             defmt::warn!("HvPlate: isoSPI: chip reported command counter 0 while we expected {}; reconfiguring.", api.device().expected_command_counter());
             return true;
