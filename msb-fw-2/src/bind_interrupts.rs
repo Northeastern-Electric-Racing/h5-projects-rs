@@ -1,4 +1,3 @@
-use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use embassy_stm32::{bind_interrupts, can, dma, i2c, peripherals};
 
 bind_interrupts!(pub struct Irqs {

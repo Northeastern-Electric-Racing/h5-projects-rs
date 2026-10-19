@@ -61,10 +61,6 @@ pub struct ShockPots;
 
 impl AnalogSensor<NUM_SHOCK_POTS> for ShockPots {
     const POLL_PERIOD: Duration = Duration::from_millis(20);
-<<<<<<< Updated upstream
-    const SOURCES: [MuxSource; NUM_SHOCK_POTS] = [ShockPot::Right.source(), ShockPot::Left.source()];
-=======
->>>>>>> Stashed changes
     const SOURCES: [MuxSource; NUM_SHOCK_POTS] =
         [ShockPot::Right.source(), ShockPot::Left.source()];
     const NAMES: [&'static str; NUM_SHOCK_POTS] = [ShockPot::Right.name(), ShockPot::Left.name()];
@@ -85,22 +81,6 @@ impl AnalogSensor<NUM_SHOCK_POTS> for ShockPots {
     }
 
     fn log(name: &'static str, r: &ShockPotReading) {
-<<<<<<< Updated upstream
-        defmt::info!("Shock pot {=str}: raw={=u16} volts={=f32} in={=f32}", name, r.raw, r.volts, r.inch_travel);
-        let inch_travel =
-            (CALIBRATED_V[i] - position) * (SHOCK_POT_LENGTH_IN / MAX_VOLTS) - TRAVEL_TRIM_IN[i];
-
-        ShockPotReading {
-            raw,
-            volts,
-            position,
-            inch_travel,
-        }
-    }
-
-    fn log(name: &'static str, r: &ShockPotReading) {
-=======
->>>>>>> Stashed changes
         defmt::info!(
             "Shock pot {=str}: raw={=u16} volts={=f32} in={=f32}",
             name,

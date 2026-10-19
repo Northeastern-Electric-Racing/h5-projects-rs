@@ -285,8 +285,6 @@ version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
 dependencies = [
  "bitfield-struct 0.13.0",
- "cangen-macro",
- "bitfield-struct",
  "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af)",
  "embedded-can",
 ]
@@ -296,7 +294,7 @@ name = "cangen"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=45c9c098e9f729812cfbe101cc7d9747759f0a2e#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
 dependencies = [
- "bitfield-struct",
+ "bitfield-struct 0.13.0",
  "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=45c9c098e9f729812cfbe101cc7d9747759f0a2e)",
  "embedded-can",
 ]
@@ -342,7 +340,6 @@ name = "cerberus"
 version = "0.1.0"
 dependencies = [
  "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2)",
- "cangen",
  "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af)",
  "cortex-m",
  "cortex-m-rt",

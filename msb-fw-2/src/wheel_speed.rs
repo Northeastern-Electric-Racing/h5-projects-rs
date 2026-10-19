@@ -110,10 +110,6 @@ impl<'d, T: GeneralInstance2Channel> PulseCounter<'d, T> {
         timer.reset();
         timer.start();
 
-<<<<<<< Updated upstream
-        Self { timer, _pin: pin, previous: 0 }
-=======
->>>>>>> Stashed changes
         Self {
             timer,
             _pin: pin,
@@ -178,10 +174,6 @@ struct WheelState {
 
 impl WheelState {
     fn new(now: Instant) -> Self {
-<<<<<<< Updated upstream
-        Self { window: PulseWindow::EMPTY, last_pulse: now, reading: WheelSpeedReading::default() }
-=======
->>>>>>> Stashed changes
         Self {
             window: PulseWindow::EMPTY,
             last_pulse: now,
@@ -207,19 +199,6 @@ impl WheelState {
             };
         }
 
-<<<<<<< Updated upstream
-        if now - self.last_pulse >= ZERO_TIMEOUT && (self.reading.rpm > 0.0 || self.window.total_pulses > 0) {
-            let frequency_hz =
-                self.window.total_pulses as f32 * 1000.0 / self.window.total_time_ms as f32;
-            let rpm = frequency_hz * 60.0 / PULSES_PER_ROTATION;
-            self.reading = WheelSpeedReading {
-                rpm,
-                mph: rpm * WHEEL_CIRCUMFERENCE_M * RPM_TO_MPH,
-            };
-        }
-
-=======
->>>>>>> Stashed changes
         if now - self.last_pulse >= ZERO_TIMEOUT
             && (self.reading.rpm > 0.0 || self.window.total_pulses > 0)
         {
@@ -237,10 +216,6 @@ pub async fn wheel_speed_task(r: WheelSpeedResources) {
 
     let sender = WHEEL_SPEED_DATA.sender();
     let mut previous_sample = Instant::now();
-<<<<<<< Updated upstream
-    let mut wheels = [WheelState::new(previous_sample), WheelState::new(previous_sample)];
-=======
->>>>>>> Stashed changes
     let mut wheels = [
         WheelState::new(previous_sample),
         WheelState::new(previous_sample),
@@ -262,10 +237,6 @@ pub async fn wheel_speed_task(r: WheelSpeedResources) {
         let readings = Wheel::ALL.map(|wheel| wheels[wheel as usize].reading);
         for wheel in Wheel::ALL {
             let r = readings[wheel as usize];
-<<<<<<< Updated upstream
-            defmt::info!("Wheel speed {=str}: rpm={=f32} mph={=f32}", wheel.name(), r.rpm, r.mph);
-=======
->>>>>>> Stashed changes
             defmt::info!(
                 "Wheel speed {=str}: rpm={=f32} mph={=f32}",
                 wheel.name(),
