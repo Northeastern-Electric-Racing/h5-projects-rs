@@ -132,7 +132,9 @@ impl HvPlate {
                 let deadline = Instant::now() + Duration::from_millis(adbms2950::line::conversion_times::IXADC_INIT_MAX_MS as u64);
 
                 loop {
-                    if let Ok(status) = api.read::<Status>().await && status.i1cal() == InitializationStatus::Complete {
+                    if let Ok(status) = api.read::<Status>().await
+                        && status.i1cal() == InitializationStatus::Complete
+                    {
                         break;
                     }
 
@@ -278,7 +280,6 @@ pub mod task {
         /// Only the things that live on the `Api` and so are not reachable from the cache: the
         /// command counter, PEC tallies, and which line is in use. The measured values are
         /// emitted by `crate::debug::hv_plate_debug`
-        #[cfg(not(feature = "hil"))]
         fn log_diagnostics(&self) {
             let api = &self.api;
             let device = api.device();
@@ -289,8 +290,11 @@ pub mod task {
             defmt_monitor::monitor!("HvPlate/Device/LineBErrorCount", desc = "Transactions that have failed on isoSPI line B since boot.", "{=u32}", api.line_error_count(adbms2950::api::LineId::B));
             defmt_monitor::monitor!("HvPlate/Device/PecSuccessCount", desc = "Reads whose data PEC verified, since boot.", "{=u32}", device.pec_success_count());
             defmt_monitor::monitor!("HvPlate/Device/PecFailedCount", desc = "Reads whose data PEC did not verify, since boot.", "{=u32}", device.pec_failed_count());
-            defmt_monitor::monitor!("HvPlate/Device/ExpectedCommandCounter", desc = "Command counter we expect the chip to report next.", "{=u8}", device.expected_command_counter());
-            defmt_monitor::monitor!("HvPlate/Device/ReportedCommandCounter", desc = "Command counter the chip reported on the most recent read. 255 if it has never been read.", "{=u8}", device.reported_command_counter().unwrap_or(u8::MAX));
+            #[cfg(not(feature = "hil"))]
+            {
+                defmt_monitor::monitor!("HvPlate/Device/ExpectedCommandCounter", desc = "Command counter we expect the chip to report next.", "{=u8}", device.expected_command_counter());
+                defmt_monitor::monitor!("HvPlate/Device/ReportedCommandCounter", desc = "Command counter the chip reported on the most recent read. 255 if it has never been read.", "{=u8}", device.reported_command_counter().unwrap_or(u8::MAX));
+            }
             defmt_monitor::monitor!("HvPlate/Device/SuspectedReset", desc = "True if the chip reported counter 0 unexpectedly, meaning it rebooted and lost its configuration.", "{=bool}", device.suspected_reset());
         }
     }
@@ -353,7 +357,6 @@ pub mod task {
                         defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_status_registers()` failed. Error: {}", err);
                     }
 
-                    #[cfg(not(feature = "hil"))]
                     hv_plate.log_diagnostics();
                 }
             }

@@ -475,6 +475,7 @@ pub mod jobs {
         ///
         /// Also, this basically takes the place of `segment_run_cell_open_wire_test()`, except for the fact that it
         /// doesn't read the normal S ADC voltages beforehand (since those are already read by the snap job).
+        #[cfg(not(feature = "hil"))]
         pub async fn job_update_open_wire(&mut self) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands::{
                 self,
@@ -492,7 +493,6 @@ pub mod jobs {
             self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOnOddOff, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
             cache::CACHE.update_s_voltages_ow_even_on(self.service.api()).await?;
             self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOffOddOn, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
-
             cache::CACHE.update_s_voltages_ow_odd_on(self.service.api()).await?;
 
             // Unless we are not charging, restart continuous redundant conversions (since that is what we
@@ -584,6 +584,7 @@ pub mod task {
 
         // When the open wire test should run next. We set this to `Deadline::expire_now()` so it runs at startup (but thereafter will run
         // at the frequency configured above).
+        #[cfg_attr(feature = "hil", allow(unused_mut, unused_variables))]
         let mut open_wire_deadline = Deadline::expire_now();
 
         loop {

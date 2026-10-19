@@ -165,8 +165,8 @@ pub mod analyzer {
             }
             #[cfg(feature = "hil")]
             {
-                s_voltages_ow_even_on = IndexByChip::from_fn(|i| IndexByCell::from_value(Voltage::from_volts(0.)));
-                s_voltages_ow_odd_on = IndexByChip::from_fn(|i| IndexByCell::from_value(Voltage::from_volts(0.)));
+                s_voltages_ow_even_on = IndexByChip::from_fn(|_| IndexByCell::from_value(Voltage::from_volts(0.)));
+                s_voltages_ow_odd_on = IndexByChip::from_fn(|_| IndexByCell::from_value(Voltage::from_volts(0.)));
             }
 
             // Get cell voltagse, either from `cell_voltages` or `filtered_cell_voltages` depending on if we're charging or not
@@ -623,6 +623,7 @@ pub mod analyzer {
 
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
+        #[cfg_attr(feature = "hil", allow(unused_mut, unused_variables))]
         let mut segments_openwire_subscription = SEGMENTS_OPENWIRE_RAN_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
 
         // This is the "working"/persistent analyzer that this task mutates

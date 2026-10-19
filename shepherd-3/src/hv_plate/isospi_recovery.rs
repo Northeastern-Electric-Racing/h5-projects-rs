@@ -91,11 +91,13 @@ impl Service {
 
     /// Whether the chip needs configuring: either it never has been, or it reset and threw
     /// the configuration away.
+    #[cfg_attr(feature = "hil", allow(unused_variables))]
     fn needs_startup(&self, api: &alias::Api) -> bool {
         if !self.started {
             return true;
         }
 
+        // HIL doesn't do command counter
         #[cfg(not(feature = "hil"))]
         if api.device().suspected_reset() {
             defmt::warn!("HvPlate: isoSPI: chip reported command counter 0 while we expected {}; reconfiguring.", api.device().expected_command_counter());
