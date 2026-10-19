@@ -27,7 +27,10 @@ pub enum StrainGauge {
 }
 
 impl StrainGauge {
+<<<<<<< Updated upstream
     pub const ALL: [StrainGauge; NUM_STRAIN_GAUGES] = [StrainGauge::Sg1, StrainGauge::Sg2, StrainGauge::Sg3, StrainGauge::Sg4];
+=======
+>>>>>>> Stashed changes
     pub const ALL: [StrainGauge; NUM_STRAIN_GAUGES] = [
         StrainGauge::Sg1,
         StrainGauge::Sg2,
@@ -74,8 +77,11 @@ impl AnalogSensor<NUM_STRAIN_GAUGES> for StrainGauges {
         StrainGauge::Sg3.source(),
         StrainGauge::Sg4.source(),
     ];
+<<<<<<< Updated upstream
     const NAMES: [&'static str; NUM_STRAIN_GAUGES] =
         [StrainGauge::Sg1.name(), StrainGauge::Sg2.name(), StrainGauge::Sg3.name(), StrainGauge::Sg4.name()];
+=======
+>>>>>>> Stashed changes
     const NAMES: [&'static str; NUM_STRAIN_GAUGES] = [
         StrainGauge::Sg1.name(),
         StrainGauge::Sg2.name(),
@@ -92,7 +98,10 @@ impl AnalogSensor<NUM_STRAIN_GAUGES> for StrainGauges {
     }
 
     fn log(name: &'static str, r: &StrainGaugeReading) {
+<<<<<<< Updated upstream
         defmt::info!("Strain gauge {=str}: raw={=u16} volts={=f32} strain={=f32}", name, r.raw, r.volts, r.strain);
+=======
+>>>>>>> Stashed changes
         defmt::info!(
             "Strain gauge {=str}: raw={=u16} volts={=f32} strain={=f32}",
             name,

@@ -9,14 +9,16 @@ use embassy_executor::Spawner;
 use embassy_stm32::Config;
 
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::i2c::{self, I2c};
+use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::{time::Hertz, wdg};
 use embassy_time::{Delay, Timer};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
+use msb_fw_2::bind_interrupts::Irqs;
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
+<<<<<<< Updated upstream
 use msb_fw_2::bind_interrupts::Irqs;
 use msb_fw_2::{shock_pot, steering_angle, load_cell, strain_guage, thermocouple, magnetometer}; //, ,magnetometer, , hdc2021, imu}; 
 // TODO: needed again when the magnetometer / IMU are re-enabled.
@@ -33,6 +35,9 @@ use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
 use msb_fw_2::{hdc2021, load_cell, shock_pot, steering_angle, strain_guage, thermocouple}; //, ,magnetometer, , imu}; 
+=======
+use msb_fw_2::{load_cell, magnetometer, shock_pot, steering_angle, strain_guage, thermocouple}; //, ,magnetometer, , hdc2021, imu}; 
+>>>>>>> Stashed changes
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -86,10 +91,6 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     let p = embassy_stm32::init(config);
- 
-   
-
-
 
     let mux_resources = MuxResources {
         adc1: p.ADC1,
@@ -121,20 +122,29 @@ async fn main(spawner: Spawner) -> ! {
     // spawner.spawn(load_cell::load_cell_task().expect("Failed to spawn load_cell::load_cell_task()."));
     // spawner.spawn(thermocouple::thermocouple_task().expect("Failed to spawn thermocouple::thermocouple_task()."));
 
-
-
     /// magnetometer on SPI2 -> need to chk this too
-    /// 
+    ///
     let mut spi2_config = spi::Config::default();
     spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
     spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
 
-    let spi2 = Spi::new(p.SPI2, p.PA12, p.PG1, p.PB14, p.GPDMA1_CH2, p.GPDMA1_CH3, Irqs, spi2_config);
+    let spi2 = Spi::new(
+        p.SPI2,
+        p.PA12,
+        p.PG1,
+        p.PB14,
+        p.GPDMA1_CH2,
+        p.GPDMA1_CH3,
+        Irqs,
+        spi2_config,
+    );
     let mag_cs = Output::new(p.PA11, Level::High, Speed::VeryHigh);
-    let mag_spi = ExclusiveDevice::new(spi2, mag_cs, Delay).expect("Failed to create SPI device for magnetometer");
-    spawner.spawn(magnetometer::magnetometer_task(mag_spi).expect("Failed to spawn magnetometer::magnetometer_task()."));
-
-
+    let mag_spi = ExclusiveDevice::new(spi2, mag_cs, Delay)
+        .expect("Failed to create SPI device for magnetometer");
+    spawner.spawn(
+        magnetometer::magnetometer_task(mag_spi)
+            .expect("Failed to spawn magnetometer::magnetometer_task()."),
+    );
 
     // its driver is still WIP
     // // imu on SPI1
@@ -145,25 +155,15 @@ async fn main(spawner: Spawner) -> ! {
     // let imu_cs = Output::new(p.PA4, Level::High, Speed::VeryHigh);
     // let imu_spi = ExclusiveDevice::new(spi1, imu_cs, Delay).expect("Failed to create SPI device for IMU");
     // spawner.spawn(imu::imu_task(imu_spi).expect("Failed to spawn imu::imu_task()."));
-    
-
-
 
     // // HDC2021 on I2C1 -> [ERROR] HDC2021: ID read failed (cant read the id)
     // let mut i2c1_config = i2c::Config::default();
     // i2c1_config.frequency = Hertz::khz(100); // 100 kHz
-    // i2c1_config.sda_pullup = true;   // 
-    // i2c1_config.scl_pullup = true;   // 
+    // i2c1_config.sda_pullup = true;   //
+    // i2c1_config.scl_pullup = true;   //
     // let i2c1 = I2c::new(p.I2C1, p.PB8, p.PB9, p.GPDMA1_CH6, p.GPDMA1_CH7, Irqs, i2c1_config);
 
     // spawner.spawn(hdc2021::hdc2021_task(i2c1).expect("Failed to spawn hdc2021::hdc2021_task()."));
-
-
-    
-
-
-
-
 
     // let wheel_speed_resources = WheelSpeedResources {
     //     left_timer: p.TIM1,
@@ -277,8 +277,8 @@ async fn main(spawner: Spawner) -> ! {
         debug!("Status: Alive");
         Timer::after_millis(500).await;
         watchdog.pet();
-     }
- }
+    }
+}
 
 #[exception]
 unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {

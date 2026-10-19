@@ -24,7 +24,10 @@ const FAULT_MARGIN_V: f32 = 0.1;
 pub const NUM_STEERING_ANGLES: usize = 1;
 
 /// Latest steering angle reading.
+<<<<<<< Updated upstream
 pub static STEERING_ANGLE_DATA: SensorData<SteeringAngleReading, NUM_STEERING_ANGLES> = Watch::new();
+=======
+>>>>>>> Stashed changes
 pub static STEERING_ANGLE_DATA: SensorData<SteeringAngleReading, NUM_STEERING_ANGLES> =
     Watch::new();
 
@@ -60,12 +63,23 @@ impl AnalogSensor<NUM_STEERING_ANGLES> for SteeringAngle {
             -ANGLE_LEFT_MAX * (v - V_STRAIGHT) / (V_MAX - V_STRAIGHT)
         };
 
-        SteeringAngleReading { raw, volts, angle_deg, in_range }
+        SteeringAngleReading {
+            raw,
+            volts,
+            angle_deg,
+            in_range,
+        }
     }
 
     fn log(_name: &'static str, r: &SteeringAngleReading) {
-        defmt::info!("Steering angle: raw={=u16} volts={=f32} angle={=f32}deg", r.raw, r.volts, r.angle_deg);
+        defmt::info!(
+            "Steering angle: raw={=u16} volts={=f32} angle={=f32}deg",
+            r.raw,
+            r.volts,
+            r.angle_deg
+        );
         if !r.in_range {
+<<<<<<< Updated upstream
             defmt::warn!("Steering angle sensor out of range ({=f32} V); check wiring.", r.volts);
         SteeringAngleReading {
             raw,
@@ -83,6 +97,8 @@ impl AnalogSensor<NUM_STEERING_ANGLES> for SteeringAngle {
             r.angle_deg
         );
         if !r.in_range {
+=======
+>>>>>>> Stashed changes
             defmt::warn!(
                 "Steering angle sensor out of range ({=f32} V); check wiring.",
                 r.volts

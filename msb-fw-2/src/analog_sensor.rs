@@ -55,7 +55,10 @@ pub trait AnalogSensor<const N: usize> {
 /// Polls sensor `S` forever: every [`AnalogSensor::POLL_PERIOD`], takes the latest mux snapshot,
 /// converts and logs each input, and publishes the readings.
 pub async fn run<S: AnalogSensor<N>, const N: usize>() -> ! {
+<<<<<<< Updated upstream
     let mut rx = MUX_SNAPSHOT.receiver().expect("Too many MUX_SNAPSHOT receivers.");
+=======
+>>>>>>> Stashed changes
     let mut rx = MUX_SNAPSHOT
         .receiver()
         .expect("Too many MUX_SNAPSHOT receivers.");
