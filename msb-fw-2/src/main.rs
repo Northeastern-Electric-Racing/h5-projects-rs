@@ -11,7 +11,7 @@ use embassy_stm32::Config;
 // TODO: needed again when the magnetometer / IMU are re-enabled.
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{self, Spi};
-use embassy_stm32::i2c::{self, I2c};
+// use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::{time::Hertz, wdg};
 use embassy_time::Delay;
 use embassy_time::Timer;
@@ -22,7 +22,7 @@ use msb_fw_2::bind_interrupts::Irqs;
 use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
-use msb_fw_2::{hdc2021, load_cell, shock_pot, steering_angle, strain_guage, thermocouple, magnetometer}; //, ,magnetometer, , imu}; 
+use msb_fw_2::{load_cell, shock_pot, steering_angle, strain_guage, thermocouple, magnetometer}; //,hdc2021,magnetometer, , imu}; 
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -121,8 +121,8 @@ async fn main(spawner: Spawner) -> ! {
             .expect("Failed to spawn thermocouple::thermocouple_task()."),
     );
 
-    /// magnetometer on SPI2 
-    ///
+    // magnetometer on SPI2 
+  
     let mut spi2_config = spi::Config::default();
     spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
     spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
