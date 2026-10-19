@@ -4,6 +4,8 @@ name = "msb-fw-2"
 version = "0.1.0"
 
 [dependencies]
+can-handler.workspace = true
+cangen.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true
@@ -24,6 +26,7 @@ lis2mdl-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-
 
 
 
+   
 
 
 [lints]

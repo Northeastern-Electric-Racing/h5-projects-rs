@@ -111,6 +111,11 @@ impl<'d, T: GeneralInstance2Channel> PulseCounter<'d, T> {
         timer.start();
 
         Self { timer, _pin: pin, previous: 0 }
+        Self {
+            timer,
+            _pin: pin,
+            previous: 0,
+        }
     }
 
     /// Pulses counted since the last call. The 16-bit counter wraps, so subtract with wrap-around.
@@ -171,6 +176,11 @@ struct WheelState {
 impl WheelState {
     fn new(now: Instant) -> Self {
         Self { window: PulseWindow::EMPTY, last_pulse: now, reading: WheelSpeedReading::default() }
+        Self {
+            window: PulseWindow::EMPTY,
+            last_pulse: now,
+            reading: WheelSpeedReading::default(),
+        }
     }
 
     /// Port of the C `process_wheel_sample`.
@@ -188,6 +198,18 @@ impl WheelState {
         }
 
         if now - self.last_pulse >= ZERO_TIMEOUT && (self.reading.rpm > 0.0 || self.window.total_pulses > 0) {
+            let frequency_hz =
+                self.window.total_pulses as f32 * 1000.0 / self.window.total_time_ms as f32;
+            let rpm = frequency_hz * 60.0 / PULSES_PER_ROTATION;
+            self.reading = WheelSpeedReading {
+                rpm,
+                mph: rpm * WHEEL_CIRCUMFERENCE_M * RPM_TO_MPH,
+            };
+        }
+
+        if now - self.last_pulse >= ZERO_TIMEOUT
+            && (self.reading.rpm > 0.0 || self.window.total_pulses > 0)
+        {
             self.reading = WheelSpeedReading::default();
             // Discard old samples before the wheel starts again.
             self.window = PulseWindow::EMPTY;
@@ -203,6 +225,10 @@ pub async fn wheel_speed_task(r: WheelSpeedResources) {
     let sender = WHEEL_SPEED_DATA.sender();
     let mut previous_sample = Instant::now();
     let mut wheels = [WheelState::new(previous_sample), WheelState::new(previous_sample)];
+    let mut wheels = [
+        WheelState::new(previous_sample),
+        WheelState::new(previous_sample),
+    ];
     let mut ticker = Ticker::every(SAMPLE_PERIOD);
 
     loop {
@@ -221,6 +247,12 @@ pub async fn wheel_speed_task(r: WheelSpeedResources) {
         for wheel in Wheel::ALL {
             let r = readings[wheel as usize];
             defmt::info!("Wheel speed {=str}: rpm={=f32} mph={=f32}", wheel.name(), r.rpm, r.mph);
+            defmt::info!(
+                "Wheel speed {=str}: rpm={=f32} mph={=f32}",
+                wheel.name(),
+                r.rpm,
+                r.mph
+            );
         }
         sender.send(readings);
     }

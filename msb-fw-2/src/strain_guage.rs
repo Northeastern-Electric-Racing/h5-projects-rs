@@ -28,6 +28,12 @@ pub enum StrainGauge {
 
 impl StrainGauge {
     pub const ALL: [StrainGauge; NUM_STRAIN_GAUGES] = [StrainGauge::Sg1, StrainGauge::Sg2, StrainGauge::Sg3, StrainGauge::Sg4];
+    pub const ALL: [StrainGauge; NUM_STRAIN_GAUGES] = [
+        StrainGauge::Sg1,
+        StrainGauge::Sg2,
+        StrainGauge::Sg3,
+        StrainGauge::Sg4,
+    ];
 
     const fn name(self) -> &'static str {
         match self {
@@ -70,6 +76,12 @@ impl AnalogSensor<NUM_STRAIN_GAUGES> for StrainGauges {
     ];
     const NAMES: [&'static str; NUM_STRAIN_GAUGES] =
         [StrainGauge::Sg1.name(), StrainGauge::Sg2.name(), StrainGauge::Sg3.name(), StrainGauge::Sg4.name()];
+    const NAMES: [&'static str; NUM_STRAIN_GAUGES] = [
+        StrainGauge::Sg1.name(),
+        StrainGauge::Sg2.name(),
+        StrainGauge::Sg3.name(),
+        StrainGauge::Sg4.name(),
+    ];
 
     type Reading = StrainGaugeReading;
 
@@ -81,6 +93,13 @@ impl AnalogSensor<NUM_STRAIN_GAUGES> for StrainGauges {
 
     fn log(name: &'static str, r: &StrainGaugeReading) {
         defmt::info!("Strain gauge {=str}: raw={=u16} volts={=f32} strain={=f32}", name, r.raw, r.volts, r.strain);
+        defmt::info!(
+            "Strain gauge {=str}: raw={=u16} volts={=f32} strain={=f32}",
+            name,
+            r.raw,
+            r.volts,
+            r.strain
+        );
     }
 
     fn data() -> &'static SensorData<StrainGaugeReading, NUM_STRAIN_GAUGES> {

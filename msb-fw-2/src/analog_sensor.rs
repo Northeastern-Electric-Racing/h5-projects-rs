@@ -56,6 +56,9 @@ pub trait AnalogSensor<const N: usize> {
 /// converts and logs each input, and publishes the readings.
 pub async fn run<S: AnalogSensor<N>, const N: usize>() -> ! {
     let mut rx = MUX_SNAPSHOT.receiver().expect("Too many MUX_SNAPSHOT receivers.");
+    let mut rx = MUX_SNAPSHOT
+        .receiver()
+        .expect("Too many MUX_SNAPSHOT receivers.");
     let sender = S::data().sender();
     let mut ticker = Ticker::every(S::POLL_PERIOD);
 

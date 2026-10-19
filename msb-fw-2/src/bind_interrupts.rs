@@ -1,4 +1,5 @@
 use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
+use embassy_stm32::{bind_interrupts, can, dma, i2c, peripherals};
 
 bind_interrupts!(pub struct Irqs {
     // Mux scan (multiplexor_handler)
@@ -16,4 +17,7 @@ bind_interrupts!(pub struct Irqs {
     // I2C1 interrupts
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    // CAN (can)
+    FDCAN2_IT0 => can::IT0InterruptHandler<peripherals::FDCAN2>;
+    FDCAN2_IT1 => can::IT1InterruptHandler<peripherals::FDCAN2>;
 });

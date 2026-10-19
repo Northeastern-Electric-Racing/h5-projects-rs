@@ -17,6 +17,7 @@ use lis2mdl_ner::{Lis2mdl, MagneticField};
 /// transaction, which the C firmware never did
 /// if this doesn't compile, check the `Spi` type parameters for your embassy-stm32 version
 pub type MagSpi = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
+pub type MagSpi = ExclusiveDevice<Spi<'static, Async>, Output<'static>, Delay>;
  
 /// How often to check for new data. Matches the sensor's 50 Hz output data rate.
 const POLL_PERIOD: Duration = Duration::from_millis(20);
