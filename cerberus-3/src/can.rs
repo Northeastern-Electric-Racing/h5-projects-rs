@@ -1,7 +1,7 @@
 //! CAN bring-up for Cerberus.
 
 use crate::buttons;
-use cangen::Msg;
+use cangen::{CanMessage, Msg};
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
 use embassy_stm32::can::{
@@ -38,73 +38,73 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
 
     const SLOT_1: StdFilter = StdFilter {
         slot: StandardFilterSlot::_1,
-        id1: 0x84,        // Cell Temps
-        id2: Some(0xAAE), // Lightning Pulse
+        id1: cangen::CellTemperatures::ID,
+        id2: Some(cangen::LightningPulseMessage::ID),
     };
 
     const SLOT_2: StdFilter = StdFilter {
         slot: StandardFilterSlot::_2,
-        id1: 0x631,       // Front Wheel RPM
-        id2: Some(0x456), // Temp Fault
+        id1: cangen::FrontWheelRpm::ID,
+        id2: Some(cangen::TempsFaultCodeStatus::ID),
     };
 
     const SLOT_3: StdFilter = StdFilter {
         slot: StandardFilterSlot::_3,
-        id1: 0x416,       // ERPM duty
-        id2: Some(0x436), // Current Status
+        id1: cangen::ErpmDutyInputVoltageStatus::ID,
+        id2: Some(cangen::CurrentsStatus::ID),
     };
 
     const SLOT_4: StdFilter = StdFilter {
         slot: StandardFilterSlot::_4,
-        id1: 0x601,       // Precharge Status
-        id2: Some(0x680), // Wheel buttons
+        id1: cangen::PrechargeStatus::ID,
+        id2: Some(cangen::WheelButtons::ID)
     };
 
     const SLOT_5: StdFilter = StdFilter {
         slot: StandardFilterSlot::_5,
-        id1: 0x095, // Shutdown
+        id1: cangen::ShutdownAsReadByBms::ID,
         id2: None,
     };
 
     const SLOT_1E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_1,
-        id1: 0xDB1, // RTDS command
+        id1: cangen::RtdsCommandMessage::ID,
         id2: None,
     };
 
     const SLOT_2E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_2,
-        id1: 0xCAEF0,       // Dashboard
-        id2: Some(0xCAEF1), // Brake
+        id1: cangen::DashboardEfuseState::ID,
+        id2: Some(cangen::BrakeEfuseState::ID),
     };
 
     const SLOT_3E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_3,
-        id1: 0xCAEF2,       // Shutdown
-        id2: Some(0xCAEF3), // Lv
+        id1: cangen::ShutdownEfuseState::ID,
+        id2: Some(cangen::LvEfuseState::ID),
     };
 
     const SLOT_4E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_4,
-        id1: 0xCAEF4,       // Rad Fan
-        id2: Some(0xCAEF5), // Fan Batt
+        id1: cangen::RadfanEfuseState::ID,
+        id2: Some(cangen::FanbattEfuseState::ID),
     };
 
     const SLOT_5E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_5,
-        id1: 0xCAEF6,       // Pump One
-        id2: Some(0xCAEF7), // Batt Two
+        id1: cangen::PumponeEfuseState::ID,
+        id2: Some(cangen::PumptwoEfuseState::ID),
     };
 
     const SLOT_6E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_6,
-        id1: 0xCAEF8,       // Batt Box
-        id2: Some(0xCAEF9), // MC
+        id1: cangen::BattboxEfuseState::ID,
+        id2: Some(cangen::McEfuseState::ID),
     };
 
     const SLOT_7E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_4,
-        id1: 0xCAEF6, // Spare
+        id1: cangen::SpareEfuseState::ID,
         id2: None,
     };
 
@@ -122,7 +122,6 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
 pub async fn can_inbox_task() -> ! {
     loop {
         let frame = INCOMING.receive().await;
-        debug!("frame: {}", frame);
         match Msg::decode(&frame) {
             Some(Msg::CellTemperatures(_)) => {}
             Some(Msg::LightningPulseMessage(_)) => {}
