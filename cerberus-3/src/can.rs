@@ -57,7 +57,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_4: StdFilter = StdFilter {
         slot: StandardFilterSlot::_4,
         id1: cangen::PrechargeStatus::ID,
-        id2: Some(cangen::WheelButtons::ID)
+        id2: Some(cangen::WheelButtons::ID),
     };
 
     const SLOT_5: StdFilter = StdFilter {
@@ -146,6 +146,7 @@ pub async fn can_inbox_task() -> ! {
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
             Some(Msg::ShutdownAsReadByBms(m)) => debug!("shutdown: {}", m.shutdown_state()),
+            Some(_) => debug!("Unknown message"),
             _ => {
                 debug!("failed to parse id")
             }
