@@ -25,7 +25,7 @@ embassy-net.workspace = true
 rust-mqtt.workspace = true
 sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", version = "0.1.0" }
 ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs", rev = "a5c78e4789234791af12a108a3942613e6910c81" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "bf885a6a749ae8640c3b6ea0ad90766a9dc4bdca" }
+cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "2607099295223485762bdac9572e29f6695d3a4a" }
 variant_count = "1.2.1"
 
 [lints.clippy]
