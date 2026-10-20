@@ -16,11 +16,14 @@ use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 mod adc;
+mod buttons;
 mod can;
 mod efuses;
 mod pedals;
 mod rtds;
+mod statemachine;
 
+use crate::can::can_inbox_task;
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
@@ -88,7 +91,7 @@ async fn main(spawner: Spawner) -> ! {
         tx: p.PB6,
     });
     spawner.spawn(
-        can_tx(
+        ner_can::can_tx(
             can_tx_half,
             can::OUTGOING.dyn_receiver(),
             can::OUTGOING.dyn_sender(),
@@ -96,9 +99,10 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn ner_can::can_tx()."),
     );
     spawner.spawn(
-        can_rx(can_rx_half, can::INCOMING.dyn_sender())
+        ner_can::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
+    spawner.spawn(can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
 
     // ADC1 + analog mux
     spawner.spawn(
@@ -167,8 +171,16 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn efuses::efuse_task()."),
     );
 
+    // Statemachine
+    spawner.spawn(
+        statemachine::statemachine_task()
+            .expect("Failed to spawn statemachine::statemachine_task()."),
+    );
+
+    // Buttons
+    spawner.spawn(buttons::button_task().expect("Failed to spawn buttons::button_task()."));
+
     // RTDS
-    // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
     spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
 

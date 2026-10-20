@@ -18,6 +18,7 @@ heapless.workspace = true
 panic-probe.workspace = true
 embedded-can.workspace = true
 #static_cell.workspace = true
+can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev="45c9c098e9f729812cfbe101cc7d9747759f0a2e"}
 
 [lints]
 workspace = true
