@@ -1,11 +1,14 @@
 #![no_std]
 #![no_main]
 
-mod can;
 mod hardware;
+mod inbox;
 mod state;
-
 use crate::hardware::Leds;
+use crate::inbox::FaultframeState;
+use crate::inbox::inbox::{BMS_CAN_ID, IMD_CAN_ID, LATCHING_CAN_ID};
+use can_handler::NerCan;
+use can_handler::{ExtFilter, StdFilter};
 use core::fmt::Write;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
@@ -14,12 +17,20 @@ use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::Uart;
-use embassy_stm32::{Config, dma, peripherals, usart};
+use embassy_stm32::{Config, can, dma, peripherals, usart};
 use embassy_stm32::{bind_interrupts, wdg::IndependentWatchdog};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker, Timer};
 use heapless::String;
+use heapless::mpmc::Queue;
 
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct IrqsCan {
+    FDCAN2_IT0 => can::IT0InterruptHandler<peripherals::FDCAN2>;
+    FDCAN2_IT1 => can::IT1InterruptHandler<peripherals::FDCAN2>;
+});
 
 bind_interrupts!(struct IrqsUsart {
     LPUART1 => usart::InterruptHandler<peripherals::LPUART1>;
@@ -28,7 +39,7 @@ bind_interrupts!(struct IrqsUsart {
 });
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) -> ! {
+async fn main(_spawner: Spawner) -> ! {
     info!("Initializing wheel...");
 
     let mut config = Config::default();
@@ -75,6 +86,25 @@ async fn main(spawner: Spawner) -> ! {
     // initialize the project, ensure we can debug during sleep
     let p = embassy_stm32::init(config);
 
+    let ner_can = NerCan::init(can::CanConfigurator::new(p.FDCAN2, p.PB12, p.PB13, IrqsCan))
+        .with_standard_filters(&[
+            StdFilter {
+                slot: can::filter::StandardFilterSlot::_0,
+                id1: LATCHING_CAN_ID,
+                id2: None,
+            },
+            StdFilter {
+                slot: can::filter::StandardFilterSlot::_1,
+                id1: IMD_CAN_ID,
+                id2: None,
+            },
+        ])
+        .with_extended_filters(&[ExtFilter {
+            slot: can::filter::ExtendedFilterSlot::_2,
+            id1: BMS_CAN_ID,
+            id2: None,
+        }]);
+
     // There used to be some configuration here, but I removed it s.t I wouldn't step on NerCan's toes
     let mut usart_config = usart::Config::default();
     usart_config.swap_rx_tx = true;
@@ -89,24 +119,15 @@ async fn main(spawner: Spawner) -> ! {
     )
     .unwrap();
 
-    let (can_tx_half, can_rx_half) = can::init(can::CanPins {
-        can: p.FDCAN2,
-        rx: p.PB5,
-        tx: p.PB6,
-    });
-    spawner.spawn(
-        ner_can::can_tx(
-            can_tx_half,
-            can::OUTGOING.dyn_receiver(),
-            can::OUTGOING.dyn_sender(),
-        )
-        .expect("Failed to spawn ner_can::can_tx()."),
-    );
-    spawner.spawn(
-        ner_can::can_rx(can_rx_half, can::INCOMING.dyn_sender())
-            .expect("Failed to spawn ner_can::can_rx()."),
-    );
-    spawner.spawn(can::can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
+    // Not actualy deprecated. Just not thread safe, which is fine
+    #[expect(deprecated)]
+    static FFS_QUEUE: Queue<Option<FaultframeState>, 32> = Queue::new();
+    // A mutex that isn't a mutex. Contains a mpmc queue that is neither multi producer nor multi
+    // consumer
+    static QUEUTEX: Mutex<ThreadModeRawMutex, &'static Queue<Option<FaultframeState>, 32>> =
+        Mutex::new(&FFS_QUEUE);
+
+    let (_can_tx, can_rx, _can_props) = ner_can.start();
 
     let mut s: String<128> = String::new();
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();
@@ -116,9 +137,15 @@ async fn main(spawner: Spawner) -> ! {
     watchdog.unleash();
     let mut ticker = Ticker::every(Duration::from_millis(500));
 
+    _spawner.spawn(
+        inbox::inbox::populate_queue(can_rx, &QUEUTEX)
+            .expect("Failed to spawn inbox queue populator"),
+    );
+
     let leds: Leds = Leds::new(p.PE4, p.PE5);
-    spawner
-        .spawn(state::state_machine::state_machine(leds).expect("Failed to spawn state machine"));
+    _spawner.spawn(
+        state::state_machine::state_machine(&QUEUTEX, leds).expect("Failed to spawn state machine"),
+    );
     loop {
         debug!("I'm not dead yet");
         Timer::after_millis(500).await;
