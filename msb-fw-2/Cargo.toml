@@ -4,6 +4,8 @@ name = "msb-fw-2"
 version = "0.1.0"
 
 [dependencies]
+can-handler.workspace = true
+cangen.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true
@@ -17,6 +19,9 @@ embassy-futures.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 static_cell.workspace = true
+hdc2021-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "hdc2021-ner" }
+   
+
 
 [lints]
 workspace = true
