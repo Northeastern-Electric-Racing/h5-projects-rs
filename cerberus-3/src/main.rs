@@ -16,7 +16,7 @@ use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 mod adc;
-pub mod buttons;
+mod buttons;
 mod can;
 mod efuses;
 mod rtds;
