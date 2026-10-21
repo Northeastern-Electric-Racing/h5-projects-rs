@@ -216,16 +216,17 @@ mod shunt {
     /// the `i32` of summed microvolts floors the estimate and collecting longer buys nothing at
     /// all. Worth 0.02% of pack, costs ~2.6 s of AIRs-open time instead of ~1.0 s.
     const CALIBRATION_WINDOWS: u32 = 32;
+
     /// Table 2, conversion noise at a ACC32 conversion time: 0.283 uV RMS.
     /// When we sum over 32 conversions individually we get 0.283 x 32 uV = 9.05 uV RMS.
     const WINDOW_NOISE_SUM_MICROVOLTS: i32 = 9;
     /// The expected spread of [`CALIBRATION_WINDOWS`] samples is ~4 sigma, so 9 will cover that in both directions.
     const CALIBRATION_MAX_SPREAD_SUM_MICROVOLTS: i32 = 9 * WINDOW_NOISE_SUM_MICROVOLTS;
-    /// Table 2, offset voltage: +/-1 uV max per conversion, so +/-32 uV across a summed window.
-    const ADC_OFFSET_SUM_MICROVOLTS: i32 = 1 * ACCN as i32;
-    /// Loose to account for any offset in the external sense circuitry
-    /// u_TODO: tighten once a bench run shows the actual total on `HvPlate/Soc/ShuntOffset`.
-    const CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS: i32 = 5 * ADC_OFFSET_SUM_MICROVOLTS;
+
+    // u_TODO: tighten once a bench run shows the actual total on `HvPlate/Soc/ShuntOffset`.
+    const CALIBRATION_MAX_OFFSET_MILLIAMPS: i64 = 500;
+    const CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS: i32 = (CALIBRATION_MAX_OFFSET_MILLIAMPS * SUM_NANOVOLTS_PER_AMP / 1_000_000) as i32;
+    const CALIBRATION_MAX_REFERENCE_AMPS: f32 = 0.15;
 
     /// One window, corrected and in physical units. What every estimator consumes.
     #[derive(Copy, Clone)]
@@ -269,7 +270,9 @@ mod shunt {
         }
 
         /// Offers a window to the calibration routine. `zero_current` is essentially only when the AIR's are open.
-        pub fn observe(&mut self, window: &accumulator::Window, zero_current: bool, temp: Temperature) {
+        pub fn observe(&mut self, window: &accumulator::Window, contacts_open: bool, reference_current: Option<Current>, temp: Temperature) {
+            let zero_current = contacts_open && reference_current.is_some_and(|current| current.get::<ampere>().abs() < CALIBRATION_MAX_REFERENCE_AMPS);
+
             if !zero_current {
                 self.abort();
                 return;
@@ -518,12 +521,16 @@ mod task {
             // Period of ~25ms (how often we read acc data registers)
             let acc_window_status = acc_data_recv.changed().await;
 
-            // Read data
+            // Read registers
             let acc_registers = acc_window_status.fresh.then(|| Registers::read(&flag.get(), &accumulated.get()));
-            let ocv_seed = crate::pack::analyzer::analyzer().and_then(|analyzer| analyzer.data.last_settled_at.map(|settled_at| (analyzer.data.min_ocv.value(), settled_at)));
-            // Open AIRs mean we can do calibration
-            let zero_current = !hv_plate::precharge::relay_should_be_closed();
             let shunt_temp = voltages.get().data().shunt_temperature;
+
+            // u_TODO - once Blake's PR lands these can be grouped I think
+            let ocv_seed = crate::pack::analyzer::analyzer().and_then(|analyzer| analyzer.data.last_settled_at.map(|settled_at| (analyzer.data.min_ocv.value(), settled_at)));
+            let reference_current = crate::pack::analyzer::analyzer().and_then(|analyzer| analyzer.data.pack_current);
+
+            // Open AIRs mean we can do calibration, cross-checked against the reported current
+            let contacts_open = !hv_plate::precharge::relay_should_be_closed();
 
             // Reset state in acc register reader and shunt calibrator
             if let Some(at) = acc_window_status.chip_restarted_at {
@@ -541,7 +548,7 @@ mod task {
 
             // Step the estimator
             if let Some(window) = window {
-                shunt_calibrator.observe(&window, zero_current, shunt_temp);
+                shunt_calibrator.observe(&window, contacts_open, reference_current, shunt_temp);
 
                 let measurement = shunt_calibrator.correct(&window);
 
