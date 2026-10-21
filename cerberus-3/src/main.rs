@@ -27,7 +27,7 @@ use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
 
-// Match this ECU's application boot-entry settings in atlas/ecus.json.
+// Match this ECU's boot-entry ID and payload in ecus.json.
 const BOOT_REQUEST_ID: u16 = 0x017;
 const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
 

@@ -25,7 +25,7 @@ use msb_fw_2::{hdc2021, load_cell, shock_pot, steering_angle, strain_guage, ther
 
 use {defmt_rtt as _, panic_probe as _};
 
-// Match this ECU's application boot-entry settings in atlas/ecus.json.
+// Match this ECU's boot-entry ID and payload in ecus.json.
 const BOOT_REQUEST_ID: u16 = 0x01F;
 const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
 

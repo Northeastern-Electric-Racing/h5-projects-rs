@@ -8,7 +8,6 @@ are not supported.
 ## Layout
 
 - `src/`: bootloader firmware.
-- `ecus.json`: flashing-host settings; not read by the firmware build.
 - `memory.x`: fixed flash/RAM regions and runtime bounds exported as linker symbols.
 - `build.rs`: ECU selection and linker setup.
 
@@ -35,7 +34,8 @@ ECU builds, add `--target-dir ../target/<ecu>-can-bootloader` when running from
 
 The build script sets `cfg(ecu)` from `BOOTLOADER_ECU`. CAN IDs and bitrate live
 in `src/commands.rs`; pins and controller bindings live in `src/main.rs` and
-`src/can.rs`. Keep `ecus.json` consistent with those settings for the flashing host.
+`src/can.rs`. Keep the flashing host’s `ecus.json` consistent with those settings.
+The firmware build does not read it.
 Memory regions are defined directly in `memory.x`; runtime address checks use its
 linker symbols.
 
@@ -62,7 +62,8 @@ Add `boot-control.workspace = true` to the application dependencies.
 The workspace aliases the `boot-control-stm32h563` package as `boot-control`.
 The helper lives in `firmware-rs/boot-control`. Initialize CAN
 as usual and allow the application's boot-request ID through its receive filters.
-Pass the ID and payload explicitly; the helper does not read `ecus.json`.
+Pass the ID and payload explicitly, matching the flashing host’s `ecus.json`.
+The helper does not read that file.
 
 ```rust
 let mut bootloader = boot_control::Bootloader::new(p.FLASH, 0x013, &[0xB0, 0x07, 0x10, 0xAD]);
@@ -88,4 +89,3 @@ the same ECU first, then download the application ELF without a chip erase.
 
 Add the name to `build.rs`, the CAN IDs to `src/commands.rs`, and the pin mappings
 to `src/main.rs` and `src/can.rs`. Update the host settings in `ecus.json` too.
-Add the name to `ATLAS_ECUS` in `.github/workflows/rust-ci.yml`.

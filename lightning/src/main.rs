@@ -38,7 +38,7 @@ bind_interrupts!(struct IrqsUsart {
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
 
-// Match this ECU's application boot-entry settings in atlas/ecus.json.
+// Match this ECU's boot-entry ID and payload in ecus.json.
 const BOOT_REQUEST_ID: u16 = 0x01B;
 const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
 
