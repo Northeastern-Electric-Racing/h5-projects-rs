@@ -11,7 +11,7 @@ pub mod analyzer {
     use embassy_time::Instant;
     use embassy_sync::blocking_mutex::ThreadModeMutex;
     use core::cell::Cell;
-    use crate::helpers::snapshot_cell::{SnapshotCell, UnwriteableSnapshotCell};
+    use crate::helpers::startup_cell::{StartupCell, UnwriteableStartupCell};
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
     #[derive(Copy, Clone)]
@@ -23,7 +23,7 @@ pub mod analyzer {
     }
 
     /// The most recently published analyzer data.
-    static ANALYZER: SnapshotCell<Option<AnalyzerHolder>> = SnapshotCell::new(None);
+    static ANALYZER: StartupCell<AnalyzerHolder> = StartupCell::new();
 
     /// What other nodes report about the pack over CAN.
     struct ReportedOverCan {
@@ -50,16 +50,16 @@ pub mod analyzer {
         REPORTED_DATA.lock(|reported| reported.ts_voltage.set(Some(voltage)));
     }
 
-    /// Copies out the analyzer data.
+    /// Gets a handle to the most recently published analyzer data.
     ///
-    /// If the analyzer data hasn't been updated yet, this returns `None`.
-    pub fn analyzer() -> &'static UnwriteableSnapshotCell<Option<AnalyzerHolder>> {
+    /// The cell stays empty until the analyzer task publishes for the first time.
+    pub fn analyzer() -> &'static UnwriteableStartupCell<AnalyzerHolder> {
         ANALYZER.to_unwriteable()
     }
 
     /// Publishes a copy of `analyzer` for other tasks to read.
     fn update(analyzer: Analyzer) {
-        ANALYZER.set(Some(AnalyzerHolder { data: analyzer, last_updated: Instant::now() }))
+        ANALYZER.set(AnalyzerHolder { data: analyzer, last_updated: Instant::now() })
     }
 
     #[derive(Copy, Clone)]
