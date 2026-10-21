@@ -15,8 +15,6 @@ Each folder is a project corresponding to ONE binary.
 
 ## Commands
 
-For building Atlas, see the [Atlas README](atlas/README.md#build-and-flash).
-
 - To enter a project: `cd ./project-name`
 - To build: `cargo build`
 - To deploy onto an embedded chip locally connected, run `cargo run --release`.
