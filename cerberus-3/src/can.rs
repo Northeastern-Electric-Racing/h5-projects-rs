@@ -10,6 +10,7 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use embedded_can::{Id, StandardId};
 use ner_can::{ExtFilter, NerCan, StdFilter};
 
 bind_interrupts!(struct Irqs {
@@ -112,7 +113,9 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
         .with_standard_filters(&[
             StdFilter {
                 slot: StandardFilterSlot::_0,
-                id1: crate::BOOT_REQUEST_ID,
+                id1: Id::Standard(
+                    StandardId::new(crate::BOOT_REQUEST_ID).expect("Invalid boot request ID"),
+                ),
                 id2: None,
             },
             SLOT_1,

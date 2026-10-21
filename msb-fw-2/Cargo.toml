@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [dependencies]
 boot-control.workspace = true
+embedded-can.workspace = true
 
 can-handler.workspace = true
 cangen.workspace = true

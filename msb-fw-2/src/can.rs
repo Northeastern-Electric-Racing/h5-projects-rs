@@ -34,6 +34,7 @@ use embassy_stm32::can::{CanConfigurator, Frame};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use embedded_can::{Id, StandardId};
 
 /// Frames waiting for a free FDCAN TX buffer.
 const OUTGOING_CAPACITY: usize = 32;
@@ -59,7 +60,7 @@ pub fn start(
     let (tx, rx, _properties) = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs))
         .with_standard_filters(&[StdFilter {
             slot: StandardFilterSlot::_0,
-            id1: request_id,
+            id1: Id::Standard(StandardId::new(request_id).expect("Invalid boot request ID")),
             id2: None,
         }])
         .start();
