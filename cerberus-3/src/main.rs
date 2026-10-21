@@ -16,14 +16,16 @@ use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 mod adc;
+mod buttons;
 mod can;
 mod efuses;
 mod rtds;
+mod statemachine;
 
+use crate::can::can_inbox_task;
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
-use ner_can::can_tx;
 
 // Match this ECU's application boot-entry settings in atlas/ecus.json.
 const BOOT_REQUEST_ID: u16 = 0x017;
@@ -95,15 +97,18 @@ async fn main(spawner: Spawner) -> ! {
         .confirm_boot()
         .expect("Failed to confirm application startup");
     spawner.spawn(
-        can_tx(
+        ner_can::can_tx(
             can_tx_half,
             can::OUTGOING.dyn_receiver(),
             can::OUTGOING.dyn_sender(),
         )
         .expect("Failed to spawn ner_can::can_tx()."),
     );
-    spawner.spawn(can::receive(can_rx_half).expect("Failed to spawn can::receive()."));
-    spawner.spawn(can::can_rx_processer(bootloader).expect("Failed to spawn CAN processor"));
+    spawner.spawn(
+        ner_can::can_rx(can_rx_half, can::INCOMING.dyn_sender())
+            .expect("Failed to spawn ner_can::can_rx()."),
+    );
+    spawner.spawn(can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
 
     // ADC1 + analog mux
     spawner.spawn(
@@ -167,6 +172,13 @@ async fn main(spawner: Spawner) -> ! {
         })
         .expect("Failed to spawn efuses::efuse_task()."),
     );
+
+    spawner.spawn(
+        statemachine::statemachine_task()
+            .expect("Failed to spawn statemachine::statemachine_task()."),
+    );
+
+    spawner.spawn(buttons::button_task().expect("Failed to spawn buttons::button_task()."));
 
     // RTDS
     // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now

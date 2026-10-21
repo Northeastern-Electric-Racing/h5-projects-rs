@@ -87,7 +87,12 @@ impl Rtds {
             return;
         }
 
-        self.pin.set_high();
+        // only enable on --release builds
+        if cfg!(not(debug_assertions)) {
+            self.pin.set_high();
+        } else {
+            debug!("beeeeeeeeeeeeeeeeeeeeeeeeeeeeep");
+        }
         PIN_ON.store(true, Ordering::Relaxed);
         debug!("Turned on RTDS pin.");
     }

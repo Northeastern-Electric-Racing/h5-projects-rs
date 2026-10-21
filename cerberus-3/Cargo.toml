@@ -1,10 +1,13 @@
 [package]
 edition = "2024"
-name = "cerberus"
+name = "cerberus-3"
 version = "0.1.0"
 
 [package.metadata.can-flash]
 ecu = "vcu"
+
+[features]
+disable_reverse = []
 
 [dependencies]
 boot-control.workspace = true
@@ -25,8 +28,8 @@ static_cell.workspace = true
 embassy-net.workspace = true
 rust-mqtt.workspace = true
 sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", version = "0.1.0" }
-ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs", branch = "can-handler-v2" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "2226d9a858cc40f3be02ec79a9a070f300b390af" }
+ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
+cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 variant_count = "1.2.1"
 
 [lints.clippy]
