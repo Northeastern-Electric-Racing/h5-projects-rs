@@ -350,14 +350,9 @@ mod task {
 
             // Get data from cache and pack analyzer
             let window = acc_data.fresh.then(|| AccWindow::read(&flag.get(), &accumulated.get()));
-            let ocv_seed = crate::pack::analyzer::analyzer().partial_read(|inner| {
-                match inner {
-                    Some(analyzer) => {
-                        analyzer.data.last_settled_at.map(|settled_at| (analyzer.data.min_ocv.value(), settled_at))
-                    },
-                    None => None,
-                }
-            });
+            let ocv_seed = crate::pack::analyzer::analyzer().try_partial_get(|inner| {
+                inner.data.last_settled_at.map(|settled_at| (inner.data.min_ocv.value(), settled_at))
+            }).flatten();
 
             // Run estimator
             if let Some(at) = acc_data.restarted_at {
