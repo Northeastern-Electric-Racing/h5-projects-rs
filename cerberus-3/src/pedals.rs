@@ -15,17 +15,9 @@ use uom::si::electric_current::ampere;
 use uom::si::electric_potential::volt;
 use uom::si::f32::{ElectricCurrent, ElectricPotential, Pressure, Ratio};
 use uom::si::pressure::psi;
-use uom::si::ratio::{percent, ratio};
+use uom::si::ratio::ratio;
 use variant_count::VariantCount;
 
-bind_interrupts!(struct Irqs {
-    ADC2 => embassy_stm32::adc::InterruptHandler<peripherals::ADC2>;
-    GPDMA1_CHANNEL4 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH4>;
-});
-
-const PEDALS_TASK_PERIOD: Duration = Duration::from_millis(100);
-const BRAKE_FAULT_DEBOUNCE: Duration = Duration::from_millis(300);
-const PEDAL_FAULT_DEBOUNCE: Duration = Duration::from_millis(95);
 
 /// Build a uom quantity in a const context. Plain values are in SI base units.
 macro_rules! q {
@@ -44,6 +36,14 @@ macro_rules! q {
         }
     };
 }
+bind_interrupts!(struct Irqs {
+    ADC2 => embassy_stm32::adc::InterruptHandler<peripherals::ADC2>;
+    GPDMA1_CHANNEL4 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH4>;
+});
+
+const PEDALS_TASK_PERIOD: Duration = Duration::from_millis(100);
+const BRAKE_FAULT_DEBOUNCE: Duration = Duration::from_millis(300);
+const PEDAL_FAULT_DEBOUNCE: Duration = Duration::from_millis(95);
 
 const BRAKE_SENSOR_IRREGULAR_HIGH: ElectricPotential = q!(ElectricPotential, 4.5);
 const BRAKE_SENSOR_IRREGULAR_LOW: ElectricPotential = q!(ElectricPotential, 0.5);
@@ -224,7 +224,7 @@ impl DriveLocksState {
         dc_current: ElectricCurrent,
     ) {
         if brake_percentage > PEDAL_HARD_BRAKE_THRESH
-            && (accel_percentage > Ratio::new::<percent>(0.25)
+            && (accel_percentage > Ratio::new::<ratio>(0.25)
                 || dc_current > ElectricCurrent::new::<ampere>(0.1))
         {
             self.motor_disabled = true;
@@ -234,7 +234,7 @@ impl DriveLocksState {
         }
 
         if self.motor_disabled
-            && accel_percentage < Ratio::new::<percent>(0.05)
+            && accel_percentage < Ratio::new::<ratio>(0.05)
             && brake_percentage < PEDAL_HARD_BRAKE_THRESH
         {
             self.motor_disabled = false;
@@ -260,50 +260,24 @@ pub async fn pedals_task() {
         accel2_v: ElectricPotential::new::<volt>(0.0),
         brake1_v: ElectricPotential::new::<volt>(0.0),
         brake2_v: ElectricPotential::new::<volt>(0.0),
-        accel_r: Ratio::new::<percent>(0.0),
-        brake_r: Ratio::new::<percent>(0.0),
+        accel1_r: Ratio::new::<ratio>(0.0),
+        accel2_r: Ratio::new::<ratio>(0.0),
+        accel_r: Ratio::new::<ratio>(0.0),
+        brake_r: Ratio::new::<ratio>(0.0),
         brake1_p: Default::default(),
         brake2_p: Default::default(),
     };
 
     loop {
-        let raw_pedal_data: RawPedalData = get_raw_pedal_data().await;
-
-        pedal_data.accel1_v = voltage_from_raw(raw_pedal_data.accel1);
-        pedal_data.accel2_v = voltage_from_raw(raw_pedal_data.accel2);
-        pedal_data.brake1_v = voltage_from_raw(raw_pedal_data.brake1);
-        pedal_data.brake2_v = voltage_from_raw(raw_pedal_data.brake2);
-
-        let accel_1_p =
-            fraction_from_voltage(pedal_data.accel1_v, MIN_APPS1_VOLTS, MAX_APPS1_VOLTS);
-        let accel_2_p =
-            fraction_from_voltage(pedal_data.accel2_v, MIN_APPS2_VOLTS, MAX_APPS2_VOLTS);
+        let pedal_data: PedalData = get_raw_pedal_data().await.into();
 
         drive_lock.calculate_accel_fault(
             pedal_data.accel1_v,
             pedal_data.accel2_v,
-            accel_1_p,
-            accel_2_p,
+            pedal_data.accel1_r,
+            pedal_data.accel2_r,
         );
-
-        pedal_data.accel_r = (accel_1_p + accel_2_p) / 2.0f32;
-
         drive_lock.calculate_brake_fault(pedal_data.brake1_v, pedal_data.brake2_v);
-
-        let brake_1_p = fraction_from_voltage(
-            pedal_data.brake1_v,
-            ElectricPotential::new::<volt>(0.0),
-            MAX_VOLTS_UNSCALED,
-        );
-        let brake_2_p = fraction_from_voltage(
-            pedal_data.brake2_v,
-            ElectricPotential::new::<volt>(0.0),
-            MAX_VOLTS_UNSCALED,
-        );
-        pedal_data.brake_r = (brake_1_p + brake_2_p) / 2.0f32;
-
-        pedal_data.brake1_p = pressure_from_voltage(pedal_data.brake1_v);
-        pedal_data.brake2_p = pressure_from_voltage(pedal_data.brake2_v);
 
         if pedal_data.brake_r > PEDAL_BRAKE_THRESH {
             drive_lock.brake_pressed = true;
@@ -311,7 +285,7 @@ pub async fn pedals_task() {
             drive_lock.brake_pressed = false;
         }
 
-        drive_lock.accel_pressed = pedal_data.accel_r > Ratio::new::<percent>(0.05);
+        drive_lock.accel_pressed = pedal_data.accel_r > Ratio::new::<ratio>(0.05);
 
         drive_lock.calculate_bspd_fault(
             pedal_data.accel_r,
@@ -396,7 +370,7 @@ pub async fn adc_pedals_task(r: AdcPedalsResources) {
 
         mux.update(&buffer);
 
-        Timer::after_millis(PEDAL_ADC_SETTLE).await;
+        Timer::after(PEDAL_ADC_SETTLE).await;
     }
 }
 
@@ -442,11 +416,14 @@ struct RawPedalData {
     brake2: u16,
 }
 
+
 struct PedalData {
     accel1_v: ElectricPotential,
     accel2_v: ElectricPotential,
     brake1_v: ElectricPotential,
     brake2_v: ElectricPotential,
+    accel1_r: Ratio,
+    accel2_r: Ratio,
     accel_r: Ratio,
     brake_r: Ratio,
     brake1_p: Pressure,
@@ -468,6 +445,36 @@ impl PedalData {
             .with_brake_norm(self.brake_r.get::<ratio>())
             .with_brake_psi_brake1(self.brake1_p.get::<psi>())
             .with_brake_psi_brake2(self.brake2_p.get::<psi>())
+    }
+}
+
+
+impl From<RawPedalData> for PedalData {
+    fn from(raw: RawPedalData) -> Self {
+        let accel1_v = voltage_from_raw(raw.accel1);
+        let accel2_v = voltage_from_raw(raw.accel2);
+        let brake1_v = voltage_from_raw(raw.brake1);
+        let brake2_v = voltage_from_raw(raw.brake2);
+
+        let accel1_r = fraction_from_voltage(accel1_v, MIN_APPS1_VOLTS, MAX_APPS1_VOLTS);
+        let accel2_r = fraction_from_voltage(accel2_v, MIN_APPS2_VOLTS, MAX_APPS2_VOLTS);
+
+        let zero = ElectricPotential::new::<volt>(0.0);
+        let brake1_r = fraction_from_voltage(brake1_v, zero, MAX_VOLTS_UNSCALED);
+        let brake2_r = fraction_from_voltage(brake2_v, zero, MAX_VOLTS_UNSCALED);
+
+        Self {
+            accel1_v,
+            accel2_v,
+            brake1_v,
+            brake2_v,
+            accel1_r,
+            accel2_r,
+            accel_r: (accel1_r + accel2_r) / 2.0f32,
+            brake_r: (brake1_r + brake2_r) / 2.0f32,
+            brake1_p: pressure_from_voltage(brake1_v),
+            brake2_p: pressure_from_voltage(brake2_v),
+        }
     }
 }
 
