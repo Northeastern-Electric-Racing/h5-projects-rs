@@ -12,6 +12,7 @@ pub async fn segments_debug() {
     use segments::{SEGMENTS_FRESH_DATA_SIGNAL, ChipId, ChipKind, CellId};
     use crate::units::{degree_celsius, volt};
     use crate::can;
+    use crate::pack;
 
     // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
     let mut subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
@@ -23,6 +24,9 @@ pub async fn segments_debug() {
     let status_c_ready = segments::cache().get_status_c().nice().ready().await;
     let s_voltages_ready = segments::cache().get_s_voltages().nice().ready().await;
     let _fault_counts = segments::cache().get_fault_counts();
+
+    // Wait until the analyzer has been written to at least once.
+    let analyzer = pack::analyzer::analyzer().ready().await;
 
     loop {
         // Run one loop of this task every time new Segments data arrives.
@@ -36,6 +40,8 @@ pub async fn segments_debug() {
         let pwm = pwm_ready.get();
         let status_c = status_c_ready.get();
         let _s_voltages = s_voltages_ready.get();
+
+        let ow = analyzer.partial_get(|inner| inner.data.ow_fault);
 
         // Iterate through every chip and send data over CAN.
         #[cfg(true)]
@@ -59,14 +65,14 @@ pub async fn segments_debug() {
                                     cell_a: cell_a.as_u8(),
                                     discharging_a: pwm.cell(cell_a).is_balancing(),
                                     cvs_a: cvs.cell(cell_a).is_set(),
-                                    ow_a: false,
+                                    ow_a: ow[chip][cell_a],
 
                                     // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
                                     voltage_b: cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
                                     cell_b: cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
                                     discharging_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
                                     cvs_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
-                                    ow_b: false,
+                                    ow_b: cell_b.map(|cell_b| ow[chip][cell_b]).unwrap_or(false),
                                 }
                                 .as_frame(),
                             ) {
@@ -88,14 +94,14 @@ pub async fn segments_debug() {
                                     cell_a: cell_a.as_u8(),
                                     discharging_a: pwm.cell(cell_a).is_balancing(),
                                     cvs_a: cvs.cell(cell_a).is_set(),
-                                    ow_a: false,
+                                    ow_a: ow[chip][cell_a],
 
                                     // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
                                     voltage_b: cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
                                     cell_b: cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
                                     discharging_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
                                     cvs_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
-                                    ow_b: false,
+                                    ow_b: cell_b.map(|cell_b| ow[chip][cell_b]).unwrap_or(false),
                                 }
                                 .as_frame(),
                             ) {
