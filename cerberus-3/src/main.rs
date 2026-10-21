@@ -24,11 +24,11 @@ mod rtds;
 mod statemachine;
 
 use crate::can::can_inbox_task;
-use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
+use adc::{Adc1Resources, adc1_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
-use ner_can::{can_rx, can_tx};
 use pedals::pedals_task;
+use pedals::{AdcPedalsResources, adc_pedals_task};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -126,9 +126,11 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn adc::adc1_task()."),
     );
 
-    // ADC2 (pedals)
+    // pedals
+    spawner.spawn(pedals_task().expect("Failed to spawn pedals::pedals_task"));
     spawner.spawn(
-        adc2_task(Adc2Resources {
+        // pedals ADC
+        adc_pedals_task(AdcPedalsResources {
             adc: p.ADC2,
             dma: p.GPDMA1_CH4,
             apps1: p.PC2,
@@ -138,9 +140,6 @@ async fn main(spawner: Spawner) -> ! {
         })
         .expect("Failed to spawn adc2_task()."),
     );
-
-    // pedals
-    spawner.spawn(pedals_task().expect("Failed to spawn pedals::pedals_task"));
 
     // eFuses
     spawner.spawn(

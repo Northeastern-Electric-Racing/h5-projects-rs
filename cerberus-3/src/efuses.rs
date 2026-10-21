@@ -9,6 +9,7 @@ use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
 use embassy_time::{Duration, Timer};
+use uom::si::ratio::percent;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
@@ -199,14 +200,15 @@ impl Efuse {
                 EfuseControlState::EfuseAuto,
                 Some(AutoPredicate {
                     value1: || 0.0, /* pedals brake percentage */
-                    value2: || crate::pedals::PEDAL_BRAKE_THRESH,
+                    value2: || crate::pedals::PEDAL_BRAKE_THRESH.get::<percent>(),
                     operation: PredicateOperation::GREATER,
                 }),
                 Some(AutoPredicate {
                     value1: || 0.0, /* pedals brake threshold */
                     value2: || {
-                        crate::pedals::PEDAL_BRAKE_THRESH
-                            - crate::pedals::PEDAL_BRAKE_TURNOFF_THRESH
+                        (crate::pedals::PEDAL_BRAKE_THRESH
+                            - crate::pedals::PEDAL_BRAKE_TURNOFF_THRESH)
+                            .get::<percent>()
                     },
                     operation: PredicateOperation::LESS,
                 }),

@@ -27,6 +27,11 @@ sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs
 ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 variant_count = "1.2.1"
+uom = {
+    version = "0.38",
+    default-features = false,
+    features = ["si", "f32", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "autoconvert"]
+}
 
 [lints.clippy]
 enum_variant_names = "allow"
