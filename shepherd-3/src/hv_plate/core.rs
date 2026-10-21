@@ -267,10 +267,9 @@ pub mod task {
         const HV_PLATE_FRESH_DATA_MAX_WAITERS: usize = 10;
         pub static HV_PLATE_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, HV_PLATE_FRESH_DATA_MAX_WAITERS> = Broadcast::new();
 
-        /// What the cached accumulator registers are worth this cycle.
         #[derive(Copy, Clone)]
         pub struct AccWindowStatus {
-            pub restarted_at: Option<Instant>,
+            pub chip_restarted_at: Option<Instant>,
             pub fresh: bool,
         }
         const ACC_DATA_RECEIVERS: usize = 1;
@@ -329,7 +328,7 @@ pub mod task {
                     false
                 },
             };
-            signal::ACC_WINDOW_SIGNAL.sender().send(signal::AccWindowStatus { restarted_at, fresh: snap_ok });
+            signal::ACC_WINDOW_SIGNAL.sender().send(signal::AccWindowStatus { chip_restarted_at: restarted_at, fresh: snap_ok });
 
             let voltage_ok = match hv_plate.job_update_voltage_registers().await {
                 Ok(()) => true,

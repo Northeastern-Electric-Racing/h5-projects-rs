@@ -3,7 +3,7 @@ use adbms2950::chip::registers::config_a::types::AccumulatorDepth;
 use adbms2950::chip::registers::measurement::accumulation_count;
 
 /// Accumulation depth, written into ConfigA's `ACCI` by `HvPlate::startup`.
-pub(super) const ACCUMULATOR_DEPTH: AccumulatorDepth = AccumulatorDepth::Samples32;
+pub(in crate::hv_plate) const ACCUMULATOR_DEPTH: AccumulatorDepth = AccumulatorDepth::Samples32;
 const ACCN: u16 = accumulation_count(ACCUMULATOR_DEPTH as u8);
 
 const NANOS_PER_MICRO: u32 = 1_000;
@@ -61,7 +61,6 @@ mod accumulator {
         pub windows_elapsed: u16,
         /// Measured time for a single conversion; `t_CONV` is this times [`ACCN`].
         pub conversion_nanos: u32,
-        pub read_at: Instant,
     }
 
     impl Window {
@@ -71,7 +70,7 @@ mod accumulator {
         }
     }
 
-    pub struct Accumulator {
+    pub struct WindowReader {
         /// Readings before this are rejected.
         startup_deadline: Option<Instant>,
         /// Windows consumed so far.
@@ -85,7 +84,7 @@ mod accumulator {
         desyncs: u32,
     }
 
-    impl Accumulator {
+    impl WindowReader {
         pub fn new(now: Instant) -> Self {
             let mut accumulator = Self {
                 startup_deadline: None,
@@ -110,7 +109,7 @@ mod accumulator {
         }
 
         /// `None` while the conversion is still settling, or when the window has not advanced.
-        pub fn update(&mut self, Registers { i1cnt, i1cntpha, current_sum_microvolts, batt_sum_microvolts, read_at }: Registers) -> Option<Window> {
+        pub fn convert(&mut self, Registers { i1cnt, i1cntpha, current_sum_microvolts, batt_sum_microvolts, read_at }: Registers) -> Option<Window> {
             if let Some(deadline) = self.startup_deadline {
                 if read_at < deadline {
                     return None;
@@ -137,19 +136,16 @@ mod accumulator {
                 defmt::warn!("HvPlate: soc: {} window(s) overwritten before the task read them; their charge is approximated from this window's average.", missed);
             }
 
-            let conversion_nanos = self.conversion_time(i1cntpha, read_at).unwrap_or(NOMINAL_CONVERSION_NANOS);
-
             Some(Window {
                 current_sum_microvolts,
                 batt_sum_microvolts,
                 windows_elapsed: (missed + 1) as u16,
-                conversion_nanos,
-                read_at,
+                conversion_nanos: self.measure_conversion_time(i1cntpha, read_at).unwrap_or(NOMINAL_CONVERSION_NANOS),
             })
         }
 
         /// `t_CONV` measured against the host clock: `t / dI1CNTPHA * 4`, divided by [`ACCN`].
-        fn conversion_time(&mut self, i1cntpha: u16, read_at: Instant) -> Option<u32> {
+        fn measure_conversion_time(&mut self, i1cntpha: u16, read_at: Instant) -> Option<u32> {
             let Some((base_pha, base_at)) = self.measurement_base else {
                 // We have to init the base measurement to something and skip this cycle
                 self.measurement_base = Some((i1cntpha, read_at));
@@ -175,15 +171,15 @@ mod accumulator {
 
             // Bounded by MAX_ELAPSED above, so neither the narrowing nor the product can overflow.
             let elapsed_micros = elapsed.as_micros() as u32;
-            let nanos = (elapsed_micros * NANOS_PER_MICRO * PHA_PER_CNT) / mesaured_cntpha;
-            if nanos.abs_diff(NOMINAL_CONVERSION_NANOS) > CONVERSION_TOLERANCE_NANOS {
+            let conversion_nanos = (elapsed_micros * NANOS_PER_MICRO * PHA_PER_CNT) / mesaured_cntpha;
+            if conversion_nanos.abs_diff(NOMINAL_CONVERSION_NANOS) > CONVERSION_TOLERANCE_NANOS {
                 self.desyncs = self.desyncs.saturating_add(1);
-                defmt::warn!("HvPlate: soc: measured a conversion time of {} ns, too far from nominal to believe.", nanos);
+                defmt::warn!("HvPlate: soc: measured a conversion time of {} ns, too far from nominal to believe.", conversion_nanos);
                 return self.measured_conversion_nanos;
             }
 
-            self.measured_conversion_nanos = Some(nanos);
-            Some(nanos)
+            self.measured_conversion_nanos = Some(conversion_nanos);
+            Some(conversion_nanos)
         }
 
         /// Should stay at zero. Non-zero means the task is not keeping up.
@@ -202,44 +198,40 @@ mod accumulator {
 /// Everything downstream sees amps, volts and coulombs, so no estimator needs to know the shunt
 /// has an offset or that its resistance moves with temperature.
 mod shunt {
-    use super::accumulator::Window;
+    use super::accumulator;
     use super::{ACCN, NANOS_PER_MICRO, hv_plate};
     use crate::units::{Current, Temperature, Voltage};
     use uom::si::electric_current::ampere;
-    use embassy_time::{Duration, Instant};
 
     /// u_TODO: worth replacing with a bench measurement of the installed part,
-    /// we also have can do stuff to get temp coeff but it is tricky with MANGANIN resistor as
+    /// we also can do stuff to get temp coeff but it is tricky with MANGANIN resistor as
     /// the coeff doesn't apply linearly across delta in temp.
     const NOMINAL_NANOOHMS: i64 = hv_plate::board::SHUNT_MICROOHMS * 1_000;
     const SUM_NANOVOLTS_PER_AMP: i64 = ACCN as i64 * NOMINAL_NANOOHMS;
 
-    /// A second is ~31 windows, averaging the ~9 uV RMS window noise down to ~1 mA. A constant
-    /// offset only has time to show as drift across a long idle, and 1 mA there is 0.05% of pack
-    /// over 8 hours -- below every other term in the budget.
+    /// 32 averages the ~9 uV RMS window noise (32 x 0.283 uV avg noise with ACC32) down to 1.00 mA, over ~1.0 s.
+    /// A constant offset only has time to show as drift across a long idle, and 1 mA there is 0.05% of pack over 8 hours.
     ///
-    /// 2.62 s (~82 windows) is the other defensible value: it reaches the 1 uV storage quantum,
-    /// 0.625 mA, past which the `i32` of summed microvolts floors the estimate and collecting
-    /// longer buys nothing at all. Worth 0.02% of pack, costs a longer AIRs-open window.
-    ///
-    /// Retuning this means retuning [`CALIBRATION_MIN_WINDOWS`] with it.
-    const CALIBRATION_DURATION: Duration = Duration::from_secs(1);
-    const CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS: i32 = 160;
-    /// Conversion noise is 1.6 uV RMS per conversion, so ~9 uV RMS on a summed window. A run that
-    /// spreads wider than this saw something other than a settled zero.
-    const CALIBRATION_MAX_SPREAD_SUM_MICROVOLTS: i32 = 200;
-    const CALIBRATION_MIN_WINDOWS: u32 = 25;
-
-    /// Deadband on the corrected sum. Zero-mean conversion noise integrates away on its own, so
-    /// this exists only to swallow whatever offset calibration has not removed.
-    const DEADBAND_MICROAMPS: i64 = 10_000;
-    const DEADBAND_SUM_MICROVOLTS: i32 = (DEADBAND_MICROAMPS * NOMINAL_NANOOHMS * ACCN as i64 / 1_000_000_000) as i32;
+    /// 82 is the other defensible value: it reaches the 1 uV storage quantum, 0.625 mA, past which
+    /// the `i32` of summed microvolts floors the estimate and collecting longer buys nothing at
+    /// all. Worth 0.02% of pack, costs ~2.6 s of AIRs-open time instead of ~1.0 s.
+    const CALIBRATION_WINDOWS: u32 = 32;
+    /// Table 2, conversion noise at a ACC32 conversion time: 0.283 uV RMS.
+    /// When we sum over 32 conversions individually we get 0.283 x 32 uV = 9.05 uV RMS.
+    const WINDOW_NOISE_SUM_MICROVOLTS: i32 = 9;
+    /// The expected spread of [`CALIBRATION_WINDOWS`] samples is ~4 sigma, so 9 will cover that in both directions.
+    const CALIBRATION_MAX_SPREAD_SUM_MICROVOLTS: i32 = 9 * WINDOW_NOISE_SUM_MICROVOLTS;
+    /// Table 2, offset voltage: +/-1 uV max per conversion, so +/-32 uV across a summed window.
+    const ADC_OFFSET_SUM_MICROVOLTS: i32 = 1 * ACCN as i32;
+    /// Loose to account for any offset in the external sense circuitry
+    /// u_TODO: tighten once a bench run shows the actual total on `HvPlate/Soc/ShuntOffset`.
+    const CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS: i32 = 5 * ADC_OFFSET_SUM_MICROVOLTS;
 
     /// One window, corrected and in physical units. What every estimator consumes.
     #[derive(Copy, Clone)]
     pub struct Measurement {
         /// Mean current across the window. Positive is discharge.
-        pub current: Current,
+        pub shunt_current: Current,
         /// Mean pack voltage across the same window, off the BATT divider.
         pub pack_voltage: Voltage,
         pub charge_microcoulombs: i64,
@@ -250,14 +242,13 @@ mod shunt {
 
     /// A calibration measurement in progress.
     struct Run {
-        started_at: Instant,
         sum: i64,
         windows: u32,
         min: i32,
         max: i32,
     }
 
-    pub struct Shunt {
+    pub struct Calibrator {
         /// Subtracted from every window's sum. Zero until a run is accepted.
         offset_sum_microvolts: i32,
         offset_taken_at: Option<Temperature>,
@@ -266,7 +257,7 @@ mod shunt {
         runs_rejected: u32,
     }
 
-    impl Shunt {
+    impl Calibrator {
         pub const fn new() -> Self {
             Self {
                 offset_sum_microvolts: 0,
@@ -278,30 +269,24 @@ mod shunt {
         }
 
         /// Offers a window to the calibration routine. `zero_current` is essentially only when the AIR's are open.
-        pub fn observe(&mut self, window: &Window, zero_current: bool, temp: Temperature) {
+        pub fn observe(&mut self, window: &accumulator::Window, zero_current: bool, temp: Temperature) {
             if !zero_current {
                 self.abort();
                 return;
             }
 
-            let (started_at, sum, windows, min, max) = {
-                let run = self.run.get_or_insert(Run {
-                    started_at: window.read_at,
-                    sum: 0,
-                    windows: 0,
-                    min: i32::MAX,
-                    max: i32::MIN,
-                });
+            let (sum, windows, min, max) = {
+                let run = self.run.get_or_insert(Run { sum: 0, windows: 0, min: i32::MAX, max: i32::MIN });
 
                 run.sum += i64::from(window.current_sum_microvolts);
                 run.windows += 1;
                 run.min = run.min.min(window.current_sum_microvolts);
                 run.max = run.max.max(window.current_sum_microvolts);
 
-                (run.started_at, run.sum, run.windows, run.min, run.max)
+                (run.sum, run.windows, run.min, run.max)
             };
 
-            if window.read_at.saturating_duration_since(started_at) < CALIBRATION_DURATION {
+            if windows < CALIBRATION_WINDOWS {
                 return;
             }
 
@@ -309,7 +294,7 @@ mod shunt {
             let offset = (sum / i64::from(windows)) as i32;
             let spread = max - min;
 
-            if windows < CALIBRATION_MIN_WINDOWS || offset.abs() > CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS || spread > CALIBRATION_MAX_SPREAD_SUM_MICROVOLTS {
+            if offset.abs() > CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS || spread > CALIBRATION_MAX_SPREAD_SUM_MICROVOLTS {
                 self.runs_rejected = self.runs_rejected.saturating_add(1);
                 defmt::warn!("HvPlate: soc: rejected a shunt calibration: offset {} uV, spread {} uV over {} windows.", offset, spread, windows);
                 return;
@@ -326,19 +311,23 @@ mod shunt {
             self.run = None;
         }
 
-        pub fn correct(&self, window: &Window) -> Measurement {
+        pub fn correct(&self, window: &accumulator::Window) -> Measurement {
             let corrected = window.current_sum_microvolts - self.offset_sum_microvolts;
-            let integrated = if corrected.abs() >= DEADBAND_SUM_MICROVOLTS { corrected } else { 0_i32 };
-
             let duration_nanos = window.duration_nanos();
 
             Measurement {
-                current: Current::new::<ampere>(corrected as f32 * NANOS_PER_MICRO as f32 / SUM_NANOVOLTS_PER_AMP as f32),
+                shunt_current: Current::new::<ampere>(corrected as f32 * NANOS_PER_MICRO as f32 / SUM_NANOVOLTS_PER_AMP as f32),
                 pack_voltage: hv_plate::board::batt_voltage(window.batt_sum_microvolts / i32::from(ACCN)),
-                charge_microcoulombs: i64::from(integrated) * duration_nanos as i64 / SUM_NANOVOLTS_PER_AMP,
+                charge_microcoulombs: i64::from(corrected) * duration_nanos as i64 / SUM_NANOVOLTS_PER_AMP,
                 duration_nanos,
                 windows_elapsed: window.windows_elapsed,
             }
+        }
+
+        /// Whether a calibration run has been accepted.
+        /// Until it has, `correct` doesn't actually correct.
+        pub const fn is_calibrated(&self) -> bool {
+            self.offset_taken_at.is_some()
         }
 
         pub const fn offset_sum_microvolts(&self) -> i32 {
@@ -429,8 +418,7 @@ mod soc_estimation {
                 return;
             };
 
-            // `drift = coulomb_counting - from_ocv`, so positive means the count is reading higher
-            // than the pack really is.
+            // `drift = coulomb_counting - from_ocv`, so positive means the count is reading higher than the pack really is.
             self.drift = self.state_of_charge.map_or(0.0, |reported| reported - soc);
             self.seeded_from = Some(settled_at);
             self.reference = Some(Reference { soc, microcoulombs: self.cc_microcoulombs });
@@ -496,9 +484,9 @@ pub(super) mod api {
 }
 
 mod task {
-    use super::accumulator::{Accumulator, Registers};
+    use super::accumulator::{WindowReader, Registers};
     use super::soc_estimation;
-    use super::shunt::{Measurement, Shunt};
+    use super::shunt::{Measurement, Calibrator};
     use crate::hv_plate;
     use crate::units::{degree_celsius, volt};
     use uom::si::electric_current::ampere;
@@ -511,8 +499,8 @@ mod task {
         use crate::helpers::deadline::Deadline;
         use crate::hv_plate::core::task::signal::ACC_WINDOW_SIGNAL;
 
-        let mut accumulator = Accumulator::new(Instant::now());
-        let mut shunt = Shunt::new();
+        let mut acc_reader = WindowReader::new(Instant::now());
+        let mut shunt_calibrator = Calibrator::new();
         let mut cc_estimator = soc_estimation::CoulombCounter::new();
         let mut latest_measurement: Option<Measurement> = None;
 
@@ -528,21 +516,23 @@ mod task {
         let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
         loop {
             // Period of ~25ms (how often we read acc data registers)
-            let acc_data = acc_data_recv.changed().await;
+            let acc_window_status = acc_data_recv.changed().await;
 
             // Read data
-            let acc_registers = acc_data.fresh.then(|| Registers::read(&flag.get(), &accumulated.get()));
+            let acc_registers = acc_window_status.fresh.then(|| Registers::read(&flag.get(), &accumulated.get()));
             let ocv_seed = crate::pack::analyzer::analyzer().and_then(|analyzer| analyzer.data.last_settled_at.map(|settled_at| (analyzer.data.min_ocv.value(), settled_at)));
             // Open AIRs mean we can do calibration
             let zero_current = !hv_plate::precharge::relay_should_be_closed();
             let shunt_temp = voltages.get().data().shunt_temperature;
 
-            // Reset state in acc data reader and shunt calibrator
-            if let Some(at) = acc_data.restarted_at {
-                accumulator.restart(at);
-                shunt.abort();
+            // Reset state in acc register reader and shunt calibrator
+            if let Some(at) = acc_window_status.chip_restarted_at {
+                acc_reader.restart(at);
+                shunt_calibrator.abort();
             }
-            let window = acc_registers.and_then(|regs| accumulator.update(regs));
+
+            // Accumulate acc_registers
+            let window = acc_registers.and_then(|regs| acc_reader.convert(regs));
 
             // Seed estimator with OCV values if available
             if let Some((min_ocv, settled_at)) = ocv_seed {
@@ -551,32 +541,37 @@ mod task {
 
             // Step the estimator
             if let Some(window) = window {
-                shunt.observe(&window, zero_current, shunt_temp);
+                shunt_calibrator.observe(&window, zero_current, shunt_temp);
 
-                let measurement = shunt.correct(&window);
-                cc_estimator.accumulate(&measurement);
+                let measurement = shunt_calibrator.correct(&window);
+
+                // Estimators wait for an accepted calibration
+                if shunt_calibrator.is_calibrated() {
+                    cc_estimator.accumulate(&measurement);
+                }
+
                 latest_measurement = Some(measurement);
             }
 
             // Store
             super::api::store(super::api::SocData {
-                shunt_current: latest_measurement.map(|measurement| measurement.current),
+                shunt_current: latest_measurement.map(|measurement| measurement.shunt_current),
                 state_of_charge: cc_estimator.state_of_charge().and_then(crate::units::Ratio::from_ratio),
                 drift: cc_estimator.drift(),
             });
 
             if diagnostic_deadline.past() {
                 diagnostic_deadline = Deadline::expire_in(DIAGNOSTIC_PERIOD);
-                defmt_monitor::monitor!("HvPlate/Soc/MissedWindows", desc = "Accumulator windows overwritten before the task read them. Should stay at zero; non-zero means the 25 ms budget is blown.", "{=u32}", accumulator.missed_windows());
-                defmt_monitor::monitor!("HvPlate/Soc/Desyncs", desc = "Observations rejected because I1CNT could have lapped (a gap over ~2 s).", "{=u32}", accumulator.desyncs());
-                defmt_monitor::monitor!("HvPlate/Soc/ShuntOffset", desc = "Calibrated zero-current offset on the summed window, in microvolts. Datasheet bound is +/-32 uV across ACCN=32.", "{=i32}", shunt.offset_sum_microvolts());
-                defmt_monitor::monitor!("HvPlate/Soc/ShuntOffsetTemp", desc = "Shunt temperature when the offset was taken, in celsius. NaN until a calibration run is accepted.", "{=f32}", shunt.offset_taken_at().map_or(f32::NAN, |temp| temp.get::<degree_celsius>()));
-                defmt_monitor::monitor!("HvPlate/Soc/CalibrationsAccepted", desc = "Shunt calibration runs that passed the offset and spread checks.", "{=u32}", shunt.runs_accepted());
-                defmt_monitor::monitor!("HvPlate/Soc/CalibrationsRejected", desc = "Shunt calibration runs thrown out. Persistent rejections with the AIRs commanded open suggest real current, i.e. a welded contactor.", "{=u32}", shunt.runs_rejected());
+                defmt_monitor::monitor!("HvPlate/Soc/MissedWindows", desc = "Accumulator windows overwritten before the task read them. Should stay at zero; non-zero means the 25 ms budget is blown.", "{=u32}", acc_reader.missed_windows());
+                defmt_monitor::monitor!("HvPlate/Soc/Desyncs", desc = "Observations rejected because I1CNT could have lapped (a gap over ~2 s).", "{=u32}", acc_reader.desyncs());
+                defmt_monitor::monitor!("HvPlate/Soc/ShuntOffset", desc = "Calibrated zero-current offset on the summed window, in microvolts. Datasheet bound is +/-32 uV across ACCN=32.", "{=i32}", shunt_calibrator.offset_sum_microvolts());
+                defmt_monitor::monitor!("HvPlate/Soc/ShuntOffsetTemp", desc = "Shunt temperature when the offset was taken, in celsius. NaN until a calibration run is accepted.", "{=f32}", shunt_calibrator.offset_taken_at().map_or(f32::NAN, |temp| temp.get::<degree_celsius>()));
+                defmt_monitor::monitor!("HvPlate/Soc/CalibrationsAccepted", desc = "Shunt calibration runs that passed the offset and spread checks.", "{=u32}", shunt_calibrator.runs_accepted());
+                defmt_monitor::monitor!("HvPlate/Soc/CalibrationsRejected", desc = "Shunt calibration runs thrown out. Persistent rejections with the AIRs commanded open suggest real current, i.e. a welded contactor.", "{=u32}", shunt_calibrator.runs_rejected());
 
                 if let Some(measurement) = latest_measurement {
                     defmt_monitor::monitor!("HvPlate/Soc/BattVolts", desc = "Mean pack voltage over the window, off the BATT divider. Compare against analyzer.pack_voltage: that one sums the cells and is the more accurate figure, so the gap here is this divider's tolerance.", "{=f32}", measurement.pack_voltage.get::<volt>());
-                    defmt_monitor::monitor!("HvPlate/Soc/AverageCurrent", desc = "Mean shunt current over the most recent accumulator window, in amps. Cross-check against the instantaneous reading from IVB1.", "{=f32}", measurement.current.get::<ampere>());
+                    defmt_monitor::monitor!("HvPlate/Soc/AverageCurrent", desc = "Mean shunt current over the most recent accumulator window, in amps. Cross-check against the instantaneous reading from IVB1.", "{=f32}", measurement.shunt_current.get::<ampere>());
                     defmt_monitor::monitor!("HvPlate/Soc/StateOfCharge", desc = "State of charge 0..1. NaN until an open-circuit voltage has seeded the count -- the estimate does not exist yet, rather than being zero.", "{=f32}", cc_estimator.state_of_charge().unwrap_or(f32::NAN));
                     defmt_monitor::monitor!("HvPlate/Soc/SampleCharge", desc = "Charge moved in the most recent accumulator window, in microcoulombs.", "{=i64}", measurement.charge_microcoulombs);
                     defmt_monitor::monitor!("HvPlate/Soc/WindowsElapsed", desc = "Accumulator windows covered by the most recent sample. 1 is clean.", "{=u16}", measurement.windows_elapsed);
