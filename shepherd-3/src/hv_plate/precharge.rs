@@ -1,5 +1,5 @@
-use super::cache;
-use crate::units::{Voltage, volt};
+use crate::units::{Current, Voltage, volt};
+use uom::si::electric_current::ampere;
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_time::{Duration, Instant};
 use strum::FromRepr;
@@ -25,79 +25,76 @@ pub enum State {
 
 static STATE: AtomicU8 = AtomicU8::new(State::Open as u8);
 
-/// The current precharge state.
-pub fn state() -> State {
-    State::from_repr(STATE.load(Ordering::Relaxed)).unwrap_or(State::Open)
-}
-
 /// Whether the HV relay should be energized.
 pub(in crate::hv_plate) fn relay_should_be_closed() -> bool {
-    matches!(state(), State::Closed)
+    matches!(State::from_repr(STATE.load(Ordering::Relaxed)).unwrap_or(State::Open), State::Closed)
 }
 
 pub struct Precharge {
     relay_state: State,
-    ts: VoltageAverager,
-    batt: VoltageAverager,
+    ts: Averager,
+    batt: Averager,
     to_closed: Debouncer,
     to_open: Debouncer,
     floating: Debouncer,
-    closed_lost: Debouncer,
 }
 
 impl Precharge {
     pub const fn new() -> Self {
         Self {
             relay_state: State::Open,
-            ts: VoltageAverager::new(),
-            batt: VoltageAverager::new(),
+            ts: Averager::new(),
+            batt: Averager::new(),
             to_closed: Debouncer::new(),
             to_open: Debouncer::new(),
             floating: Debouncer::new(),
-            closed_lost: Debouncer::new(),
         }
     }
 
-    /// Ticks the precharge logic
-    pub fn tick(&mut self, now: Instant, readings: Option<task::Inputs>) -> State {
-        let detected = self.classify(readings);
+    /// Ticks the precharge logic.
+    pub fn tick(&mut self, now: Instant, inputs: Option<task::Inputs>, hv_permitted: bool) -> State {
+        // Unpack and evaluate inputs
+        let detected_state = match inputs {
+            Some(inputs) => {
+                self.ts.push(inputs.ts.get::<volt>());
+                self.batt.push(inputs.batt.get::<volt>());
+                Self::evaluate(Voltage::from_volts(self.ts.average()), Voltage::from_volts(self.batt.average()), inputs.current.get::<ampere>())
+            },
+            // Default to open if we can't read inputs (gets debounced anyway)
+            None => State::Open,
+        };
 
-        if self.to_closed.poll(detected == State::Closed, TOGGLE_TIME, now) {
-            self.relay_state = State::Closed;
+        // Latch on closed relay state and only open if HV is not permitted
+        if self.relay_state == State::Closed {
+            if !hv_permitted {
+                self.transition_to(State::Open);
+            }
+            return self.relay_state;
         }
 
-        if self.to_open.poll(detected == State::Open, TOGGLE_TIME, now) {
-            self.relay_state = State::Open;
+        if !hv_permitted {
+            self.transition_to(State::Open);
+            return self.relay_state;
         }
 
-        let drifting = matches!(self.relay_state, State::Open | State::Floating) && detected == State::Floating;
+        if self.to_closed.poll(detected_state == State::Closed, TOGGLE_TIME, now) {
+            self.transition_to(State::Closed);
+        }
+        if self.to_open.poll(detected_state == State::Open, TOGGLE_TIME, now) {
+            self.transition_to(State::Open);
+        }
+
+        // A bus that sits partly charged without ever reaching the ratio has failed to
+        // precharge. `FLOATING_TIME` is a precharge timeout, not a debounce.
+        let drifting = matches!(self.relay_state, State::Open | State::Floating) && detected_state == State::Floating;
         if self.floating.poll(drifting, FLOATING_TIME, now) {
-            self.relay_state = State::Floating;
-        }
-
-        let lost = self.relay_state == State::Closed && matches!(detected, State::Floating | State::Open);
-        if self.closed_lost.poll(lost, TOGGLE_TIME, now) {
-            self.relay_state = State::Open;
+            self.transition_to(State::Floating);
         }
 
         self.relay_state
     }
 
-    fn classify(&mut self, readings: Option<task::Inputs>) -> State {
-        use uom::si::electric_current::ampere;
-
-        let Some(task::Inputs { ts, batt, current }) = readings else {
-            return State::Open;
-        };
-
-        self.ts.push(ts);
-        self.batt.push(batt);
-
-        let (Some(ts), Some(batt)) = (self.ts.average(), self.batt.average()) else {
-            return State::Open;
-        };
-        let amps = current.get::<ampere>();
-
+    fn evaluate(ts: Voltage, batt: Voltage, amps: f32) -> State {
         if batt < MINIMUM_PACK_VOLTAGE - BATT_VOLT_BUFFER {
             State::Open
         } else if ts >= batt * TRIGGER_RATIO {
@@ -108,6 +105,28 @@ impl Precharge {
         } else {
             State::Open
         }
+    }
+
+    /// Moves to `next`, clearing every debouncer, so transitions can only happen in [`TOGGLE_TIME`].
+    fn transition_to(&mut self, next: State) {
+        if self.relay_state == next {
+            return;
+        }
+
+        self.relay_state = next;
+        self.to_closed = Debouncer::new();
+        self.to_open = Debouncer::new();
+        self.floating = Debouncer::new();
+    }
+
+    /// Averaged TS voltage, in volts.
+    pub const fn ts_average(&self) -> f32 {
+        self.ts.average()
+    }
+
+    /// Averaged pack voltage, in volts.
+    pub const fn batt_average(&self) -> f32 {
+        self.batt.average()
     }
 }
 
@@ -136,37 +155,41 @@ impl Debouncer {
     }
 }
 
-/// Fixed-depth moving average, in volts.
-struct VoltageAverager {
+/// Fixed-depth averager [`NUM_SAMPLES`]
+struct Averager {
     samples: [f32; NUM_SAMPLES],
     index: usize,
-    len: usize,
+    average: f32,
+    seeded: bool,
 }
 
-impl VoltageAverager {
+impl Averager {
     const fn new() -> Self {
-        Self { samples: [0.0; NUM_SAMPLES], index: 0, len: 0 }
+        Self { samples: [0.0; NUM_SAMPLES], index: 0, average: 0.0, seeded: false }
     }
 
-    fn push(&mut self, sample: Voltage) {
-        self.samples[self.index] = sample.get::<volt>();
+    /// Refills the entire window with `value`, so the average is `value` immediately.
+    const fn reset(&mut self, value: f32) {
+        self.samples = [value; NUM_SAMPLES];
+        self.index = 0;
+        self.average = value;
+        self.seeded = true;
+    }
+
+    fn push(&mut self, sample: f32) {
+        if !self.seeded {
+            self.reset(sample);
+            return;
+        }
+
+        self.samples[self.index] = sample;
         self.index = (self.index + 1) % NUM_SAMPLES;
-        if self.len < NUM_SAMPLES {
-            self.len += 1;
-        }
+
+        self.average = self.samples.iter().sum::<f32>() / NUM_SAMPLES as f32;
     }
 
-    /// `None` until at least one sample has landed.
-    ///
-    /// `len` is tracked rather than averaging the whole array, so the zero-filled tail cannot
-    /// drag the mean down before the window fills.
-    fn average(&self) -> Option<Voltage> {
-        if self.len == 0 {
-            return None;
-        }
-
-        let sum: f32 = self.samples[..self.len].iter().sum();
-        Some(Voltage::new::<volt>(sum / self.len as f32))
+    const fn average(&self) -> f32 {
+        self.average
     }
 }
 
@@ -176,32 +199,32 @@ pub mod task {
     use core::sync::atomic::Ordering;
     use embassy_time::{Duration, Instant, Ticker};
 
+    /// What a tick needs to see of the bus.
     #[derive(Copy, Clone)]
     pub struct Inputs {
         pub ts: Voltage,
         pub batt: Voltage,
-        pub current: crate::units::Current,
+        pub current: Current,
     }
 
     impl Inputs {
-        fn read(batt: &cache::current_voltage::Nice) -> Option<Self> {
+        fn read() -> Option<Self> {
             let analyzer = crate::pack::analyzer::analyzer()?;
 
             Some(Self {
                 ts: analyzer.data.ts_voltage?,
-                batt: batt.data().batt_voltage,
+                batt: analyzer.data.pack_voltage,
                 current: analyzer.data.pack_current?,
             })
         }
     }
 
-    const PERIOD: Duration = Duration::from_millis(100);
+    const PERIOD: Duration = Duration::from_millis(20);
+
     const DIAGNOSTIC_PERIOD: Duration = Duration::from_secs(1);
 
     #[embassy_executor::task]
     pub async fn precharge_task() {
-        let batt = cache().get_current_voltage().nice().ready().await;
-
         let mut precharge = Precharge::new();
         let mut ticker = Ticker::every(PERIOD);
         let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
@@ -210,18 +233,25 @@ pub mod task {
             ticker.next().await;
 
             let now = Instant::now();
-            let readings = Inputs::read(&batt.get());
+            let inputs = Inputs::read();
+            // u_TODO - should read from the shutdown loop to decide whether HV is permitted or not.
+            let hv_permitted = true;
 
-            let state = precharge.tick(now, readings);
+            let state = precharge.tick(now, inputs, hv_permitted);
             STATE.store(state as u8, Ordering::Relaxed);
             defmt::trace!("HvPlate: precharge: {}", state);
 
             if diagnostic_deadline.past() {
                 diagnostic_deadline = Deadline::expire_in(DIAGNOSTIC_PERIOD);
-                defmt_monitor::monitor!("HvPlate/Precharge/State", desc = "Precharge supervisor state: 0 Open, 1 Floating, 2 Closed.", "{}", state);
+
+                let (ts, batt) = (precharge.ts_average(), precharge.batt_average());
+                defmt_monitor::monitor!("HvPlate/Precharge/State", desc = "Precharge supervisor state", "{}", state);
+                defmt_monitor::monitor!("HvPlate/Precharge/TsVolts", desc = "Averaged TS Voltage.", "{=f32}", ts);
+                defmt_monitor::monitor!("HvPlate/Precharge/BattVolts", desc = "Averaged pack Voltage.", "{=f32}", batt);
+                defmt_monitor::monitor!("HvPlate/Precharge/Amps", desc = "Pack current, in amps.", "{}", inputs.map(|inputs| inputs.current.get::<ampere>()));
+                defmt_monitor::monitor!("HvPlate/Precharge/Ratio", desc = "Averaged TS voltage as a fraction of averaged pack voltage.", "{=f32}", if batt > 0.0 { ts / batt } else { f32::NAN });
             }
         }
     }
 }
-
 pub use task::precharge_task;

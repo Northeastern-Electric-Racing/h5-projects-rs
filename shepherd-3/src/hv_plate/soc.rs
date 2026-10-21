@@ -18,7 +18,7 @@ const CONVERSION_STARTUP_MASK: Duration = Duration::from_micros(adbms2950::line:
 /// How long to watch `I1CNTPHA` before trusting a new `t_CONV`.
 const MEASUREMENT_WINDOW: Duration = Duration::from_millis(500);
 
-/// 5Ah/cell * 3600 sec/hour * 1e6 (microamps/amps) * 3 (cells/group) 
+/// 5Ah/cell * 3600 sec/hour * 1e6 (microamps/amps) * 3 (cells/group)
 const CAPACITY_MICROCOULOMBS: i64 = 5 * 3600 * 1_000_000 * 3;
 
 const CURRENT_HYSTERESIS_MICROAMPS: i64 = 10_000;
