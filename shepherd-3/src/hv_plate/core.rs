@@ -112,6 +112,9 @@ impl HvPlate {
                     .with_vs2(VoltageReferenceWide::Vref1p25)
                     .with_vs7(VoltageReference::Sgnd)
                     .with_acci(soc::ACCUMULATOR_DEPTH)
+                    // Enables the HV sense dividers, so TS and BATT read anything at all
+                    .with_gpo2c(GpoOutputState::Driven)
+                    .with_gpo2od(GpoDriveMode::PushPull)
                     // HV control relay, open drain and active low. Starts released.
                     .with_gpo4c(GpoOutputState::Driven)
                     .with_gpo4od(GpoDriveMode::OpenDrain)
