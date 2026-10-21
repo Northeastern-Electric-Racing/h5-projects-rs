@@ -18,6 +18,7 @@ pub use core::task::{
     segments_task,
     signal::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL},
     OPEN_WIRE_FREQUENCY,
+    duration_to_open_wire_cycles, duration_to_segments_task_cycles
 };
 pub use chips::{
     ChipId, IndexByChip, ChipKind,

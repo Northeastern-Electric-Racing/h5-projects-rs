@@ -12,6 +12,8 @@ pub mod analyzer {
     use embassy_sync::blocking_mutex::ThreadModeMutex;
     use core::cell::Cell;
     use crate::helpers::startup_cell::{StartupCell, UnwriteableStartupCell};
+    use crate::faults;
+    use crate::faults::{FaultCommand, PassFailAction};
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
     #[derive(Copy, Clone)]
@@ -336,7 +338,7 @@ pub mod analyzer {
         ///
         /// ### WARNING
         /// This should be called after `open_cell_voltage` has been initialized with actual stuff.
-        pub fn calc_pack_voltage_stats(&mut self) {
+        pub async fn calc_pack_voltage_stats(&mut self) {
             // Reset the last cycle's critical values.
             self.max_voltage = CriticalCellValue {
                 value: Voltage::new::<volt>(f32::MIN),
@@ -405,6 +407,31 @@ pub mod analyzer {
             self.avg_ocv = total_ocv / (NUM_CELLS_TOTAL as f32);
             self.pack_ocv = total_ocv;
             self.delta_ocv = self.max_ocv.value() - self.min_ocv.value();
+
+            // Update cell voltage too low fault
+            if !self.ocv_is_first_reading {
+                if self.min_ocv.value() < Voltage::from_volts(2.5) {
+                    faults::queue(FaultCommand::CellVoltageTooLow(PassFailAction::NotifyBad)).await;
+                } else {
+                    faults::queue(FaultCommand::CellVoltageTooLow(PassFailAction::NotifyOkay)).await;
+                }
+
+                // Update cell voltage too high fault 
+                // (note: the separate CellChargeVoltageTooHigh fault from TSECU-Shepherd is combined with CellVoltageTooHigh now, they just check different values depending on state)
+                let max = if crate::state_machine::bms_state().is_charging() { Voltage::from_volts(4.193) } else { Voltage::from_volts(4.2) };
+                if self.max_ocv.value() > max {
+                    faults::queue(FaultCommand::CellVoltageTooHigh(PassFailAction::NotifyBad)).await;
+                } else {
+                    faults::queue(FaultCommand::CellVoltageTooHigh(PassFailAction::NotifyOkay)).await;
+                }
+            }
+
+            // Update chip temp fault
+            if self.max_chiptemp.value() > Temperature::from_celsius(60.0) {
+                faults::queue(FaultCommand::DieTempMaximumFault(PassFailAction::NotifyBad)).await;
+            } else {
+                faults::queue(FaultCommand::DieTempMaximumFault(PassFailAction::NotifyOkay)).await;
+            }
         }
 
         pub async fn detect_cell_open_wire(&mut self, s_voltages_ow_even_on: &IndexByChip<IndexByCell<Voltage>>, s_voltages_ow_odd_on: &IndexByChip<IndexByCell<Voltage>>) {
@@ -446,9 +473,6 @@ pub mod analyzer {
                     }
                 }
             }
-
-            use crate::faults;
-            use crate::faults::{FaultCommand, PassFailAction};
 
             if open_wire_fault_active {
                 faults::queue(FaultCommand::CellOpenWireFault(PassFailAction::NotifyBad)).await;
@@ -589,7 +613,7 @@ pub mod analyzer {
             analyzer.calc_pack_temps(&cell_temps, &die_temps);
             analyzer.calc_cell_voltages(&cell_voltages);
             analyzer.calc_open_cell_voltage();
-            analyzer.calc_pack_voltage_stats();
+            analyzer.calc_pack_voltage_stats().await;
 
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
