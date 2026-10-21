@@ -71,7 +71,7 @@ pub async fn segments_debug() {
                                     voltage_b: cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
                                     cell_b: cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
                                     discharging_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
-                                    cvs_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
+                                    cvs_b: cell_b.map(|cell_b| cvs.cell(cell_b).is_set()).unwrap_or(false),
                                     ow_b: cell_b.map(|cell_b| ow[chip][cell_b]).unwrap_or(false),
                                 }
                                 .as_frame(),
@@ -100,7 +100,7 @@ pub async fn segments_debug() {
                                     voltage_b: cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
                                     cell_b: cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
                                     discharging_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
-                                    cvs_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
+                                    cvs_b: cell_b.map(|cell_b| cvs.cell(cell_b).is_set()).unwrap_or(false),
                                     ow_b: cell_b.map(|cell_b| ow[chip][cell_b]).unwrap_or(false),
                                 }
                                 .as_frame(),
