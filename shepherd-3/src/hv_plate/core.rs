@@ -112,6 +112,9 @@ impl HvPlate {
                     .with_vs2(VoltageReferenceWide::Vref1p25)
                     .with_vs7(VoltageReference::Sgnd)
                     .with_acci(soc::ACCUMULATOR_DEPTH)
+                    // Enables HV sense dividers, so TS and BATT can be read
+                    .with_gpo2c(GpoOutputState::Driven)
+                    .with_gpo2od(GpoDriveMode::PushPull)
                     // HV control relay, open drain and active low. Starts released.
                     .with_gpo4c(GpoOutputState::Driven)
                     .with_gpo4od(GpoDriveMode::OpenDrain)
@@ -159,6 +162,7 @@ impl HvPlate {
     async fn set_hv_relay(&mut self, energized: bool) -> Result<(), Error<alias::SpiError>> {
         use adbms2950::chip::registers::config_a::types::GpoOutputState;
 
+        // u_TODO - make sure relay control is wired to gpo4 on 27A HV Plate
         let state = if energized { GpoOutputState::PulledLow } else { GpoOutputState::Driven };
         self.api.modify_configa(|cfg| cfg.with_gpo4c(state)).await
     }

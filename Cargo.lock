@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "adbms-register-macros"
 version = "0.1.0"
-source = "git+https://github.com/suryatho/firmware-rs.git?branch=adbms2950#5766a3114f754410c9ffd600e629478d02fd1f38"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79#810be7e0b5a0c0162be26917e0dbce41af545b79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -15,7 +15,7 @@ dependencies = [
 [[package]]
 name = "adbms2950"
 version = "0.1.0"
-source = "git+https://github.com/suryatho/firmware-rs.git?branch=adbms2950#5766a3114f754410c9ffd600e629478d02fd1f38"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79#810be7e0b5a0c0162be26917e0dbce41af545b79"
 dependencies = [
  "adbms-register-macros",
  "bitfield-struct",
