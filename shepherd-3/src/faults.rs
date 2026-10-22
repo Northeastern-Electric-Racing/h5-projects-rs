@@ -264,8 +264,9 @@ mod system {
         HvPlateCommsFault              => Critical, Automatic { timeout: Duration::from_secs(5) },
         SegmentCommsFault              => Critical, Automatic { timeout: Duration::from_secs(5) },
         CellOpenWireFault              => Critical, PassFail  { consecutive_bads: 1, consecutive_okays: 0 },
-        FakeFault1                     => Critical, Automatic { timeout: Duration::from_millis(1000) },
-        FakeFault2                     => Critical, Automatic { timeout: Duration::from_millis(2500) },
+        ContactorWeldedFault           => Critical, PassFail  { consecutive_bads: 0, consecutive_okays: 0 },
+        FakeFault1                     => NonCritical, Automatic { timeout: Duration::from_millis(1000) },
+        FakeFault2                     => NonCritical, Automatic { timeout: Duration::from_millis(2500) },
     }
 }
 pub use system::*;
