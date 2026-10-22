@@ -252,6 +252,7 @@ dependencies = [
 [[package]]
 name = "boot-control-stm32h563"
 version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=c07383461cfe55eea4977ab77caa1c2714c3a0d4#c07383461cfe55eea4977ab77caa1c2714c3a0d4"
 dependencies = [
  "cortex-m",
  "embassy-boot-stm32",
@@ -313,6 +314,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=c07383461cfe55eea4977ab77caa1c2714c3a0d4#c07383461cfe55eea4977ab77caa1c2714c3a0d4"
 dependencies = [
  "bitfield-struct",
  "cangen-macro",
@@ -322,6 +324,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=c07383461cfe55eea4977ab77caa1c2714c3a0d4#c07383461cfe55eea4977ab77caa1c2714c3a0d4"
 dependencies = [
  "definition-rs",
  "heck",
@@ -531,6 +534,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=c07383461cfe55eea4977ab77caa1c2714c3a0d4#c07383461cfe55eea4977ab77caa1c2714c3a0d4"
 dependencies = [
  "proc-macro2",
  "quote",
