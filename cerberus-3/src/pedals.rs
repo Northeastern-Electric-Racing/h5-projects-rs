@@ -18,7 +18,6 @@ use uom::si::pressure::psi;
 use uom::si::ratio::ratio;
 use variant_count::VariantCount;
 
-
 /// Build a uom quantity in a const context. Plain values are in SI base units.
 macro_rules! q {
     (Ratio, $v:expr, percent) => {
@@ -402,7 +401,6 @@ struct RawPedalData {
     brake2: u16,
 }
 
-
 struct PedalData {
     accel1_v: ElectricPotential,
     accel2_v: ElectricPotential,
@@ -433,7 +431,6 @@ impl PedalData {
             .with_brake_psi_brake2(self.brake2_p.get::<psi>())
     }
 }
-
 
 impl From<RawPedalData> for PedalData {
     fn from(raw: RawPedalData) -> Self {

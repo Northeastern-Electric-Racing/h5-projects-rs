@@ -1,6 +1,7 @@
 //! CAN bring-up for Cerberus.
 
 use crate::buttons;
+use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
@@ -10,7 +11,6 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use can_handler::{ExtFilter, NerCan, StdFilter};
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
