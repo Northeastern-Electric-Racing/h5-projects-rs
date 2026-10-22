@@ -229,7 +229,7 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
@@ -259,7 +259,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "bitfield-struct",
  "cangen-macro",
@@ -269,7 +269,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "definition-rs",
  "heck",
@@ -452,7 +452,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1627,7 +1627,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "sht3x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "defmt 1.2.0",
  "embedded-hal-async",

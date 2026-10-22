@@ -1,8 +1,8 @@
 use heapless::{Vec, index_set::FnvIndexSet};
-
+#[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Fault {
-    CAN_OUTGOING_FAULT = 1,
+    CAN_OUTGOING_FAULT = 0,
     CAN_INCOMING_FAULT,
     BMS_CAN_MONITOR_FAULT,
     LIGHTNING_CAN_MONITOR_FAULT,
@@ -35,9 +35,7 @@ impl Fault {
         }
     }
     fn as_bitmap_component(&self) -> u32 {
-        let two: u32 = 2; // This is the worst line of code I have ever written
-        two.pow(self.clone() as u32) // Assuming a correct ordering of enums, this converts an enum to a bit
-        // in a guaranteed unique position
+        1 << (self.clone() as u32)
     }
 }
 
