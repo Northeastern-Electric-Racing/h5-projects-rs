@@ -19,6 +19,7 @@ mod adc;
 mod buttons;
 mod can;
 mod efuses;
+mod faults;
 mod rtds;
 mod statemachine;
 
