@@ -254,20 +254,6 @@ pub async fn get_accel_state() -> bool {
 #[embassy_executor::task]
 pub async fn pedals_task() {
     let mut drive_lock: DriveLocksState = DriveLocksState::INIT;
-
-    let mut pedal_data: PedalData = PedalData {
-        accel1_v: ElectricPotential::new::<volt>(0.0),
-        accel2_v: ElectricPotential::new::<volt>(0.0),
-        brake1_v: ElectricPotential::new::<volt>(0.0),
-        brake2_v: ElectricPotential::new::<volt>(0.0),
-        accel1_r: Ratio::new::<ratio>(0.0),
-        accel2_r: Ratio::new::<ratio>(0.0),
-        accel_r: Ratio::new::<ratio>(0.0),
-        brake_r: Ratio::new::<ratio>(0.0),
-        brake1_p: Default::default(),
-        brake2_p: Default::default(),
-    };
-
     loop {
         let pedal_data: PedalData = get_raw_pedal_data().await.into();
 
