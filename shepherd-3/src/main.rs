@@ -23,6 +23,7 @@ pub mod state_machine;
 pub mod faults;
 pub mod pack;
 pub mod helpers;
+pub mod shutdown;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
@@ -36,6 +37,14 @@ assign_resources! {
         can: FDCAN2,
         can_tx: PB13,
         can_rx: PD9,
+    }
+    /// Resources for the shutdown circuit.
+    shutdown: ShutdownResources {
+        fault: PG15,
+        ts_minus_sense: PC0,
+        ts_plus_sense: PC3,
+        acc_sense: PB0,
+        tsip_sense: PB1,
     }
     /// Resources for segment IsoSPI Line A.
     segment_isospi_linea: SegmentIsoSpiLineAResources {
@@ -92,6 +101,14 @@ assign_resources! {
         can_tx: PB13,
         can_rx: PD9,
     }
+    /// Resources for the shutdown circuit.
+    shutdown: ShutdownResources {
+        fault: PG15,
+        ts_minus_sense: PC0,
+        ts_plus_sense: PC3,
+        acc_sense: PB0,
+        tsip_sense: PB1,
+    }
     /// HIL battery emulator connection.
     segment_isospi_linea: SegmentIsoSpiLineAResources {
         uart: UART9,
@@ -126,6 +143,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
     spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
+    spawner.spawn(shutdown::shutdown_task(r.shutdown).expect("Failed to spawn shutdown::shutdown_task()."));
     spawner.spawn(faults::task::faults_task().expect("Failed to spawn faults task."));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
     spawner.spawn(debug::faults_debug(spawner).expect("Failed to spawn faults debug task."));
