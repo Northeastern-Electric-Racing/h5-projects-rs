@@ -19,11 +19,11 @@ pub const REQUEST_ID: u16 = 0x010;
 #[cfg(ecu = "vcu")]
 pub const REQUEST_ID: u16 = 0x014;
 #[cfg(ecu = "lightning")]
-pub const REQUEST_ID: u16 = 0x018;
+pub const REQUEST_ID: u16 = 0x040;
 #[cfg(ecu = "msb_front")]
-pub const REQUEST_ID: u16 = 0x01C;
+pub const REQUEST_ID: u16 = 0x044;
 #[cfg(ecu = "msb_back")]
-pub const REQUEST_ID: u16 = 0x020;
+pub const REQUEST_ID: u16 = 0x048;
 
 // Each ECU reserves consecutive request, response, data, and app-entry IDs.
 pub const RESPONSE_ID: u16 = REQUEST_ID + 0x01;

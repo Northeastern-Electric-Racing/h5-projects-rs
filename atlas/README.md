@@ -62,11 +62,13 @@ Add `boot-control.workspace = true` to the application dependencies.
 The workspace aliases the `boot-control-stm32h563` package as `boot-control`.
 The helper lives in `firmware-rs/boot-control`. Initialize CAN
 as usual and allow the application's boot-request ID through its receive filters.
-Pass the ID and payload explicitly, matching the flashing host’s `ecus.json`.
+Pass the CAN ID explicitly, matching the flashing host’s `ecus.json`.
+The helper uses the fixed payload `B0 07 10 AD`.
 The helper does not read that file.
 
 ```rust
-let mut bootloader = boot_control::Bootloader::new(p.FLASH, 0x013, &[0xB0, 0x07, 0x10, 0xAD]);
+let id = embedded_can::Id::Standard(embedded_can::StandardId::new(0x013).unwrap());
+let mut bootloader = boot_control::Bootloader::new(p.FLASH, id);
 // Confirm only after required application initialization and checks succeed.
 bootloader.confirm_boot()?;
 

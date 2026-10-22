@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use cangen::CanMessage;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::debug;
@@ -26,10 +27,6 @@ use crate::can::can_inbox_task;
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
-
-// Match this ECU's boot-entry ID and payload in ecus.json.
-const BOOT_REQUEST_ID: u16 = 0x017;
-const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -91,7 +88,7 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     });
-    let mut bootloader = boot_control::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::VcuBootRequest::ID);
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader
         .confirm_boot()

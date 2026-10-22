@@ -25,7 +25,7 @@ use crate::bind_interrupts::Irqs;
 use crate::shock_pot::{NUM_SHOCK_POTS, SHOCK_POT_DATA, ShockPot, ShockPotReading};
 use crate::strain_guage::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
 use can_handler::{NerCan, StdFilter};
-use cangen::ToCanFrame;
+use cangen::{CanMessage, Msg, ToCanFrame};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::Peri;
@@ -34,7 +34,6 @@ use embassy_stm32::can::{CanConfigurator, Frame};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use embedded_can::{Id, StandardId};
 
 /// Frames waiting for a free FDCAN TX buffer.
 const OUTGOING_CAPACITY: usize = 32;
@@ -51,16 +50,11 @@ pub struct CanResources {
 }
 
 /// Starts FDCAN2 through [`NerCan`] and spawns the CAN tasks.
-pub fn start(
-    spawner: Spawner,
-    r: CanResources,
-    request_id: u16,
-    bootloader: boot_control::Bootloader<'static>,
-) {
+pub fn start(spawner: Spawner, r: CanResources, bootloader: boot_control::Bootloader<'static>) {
     let (tx, rx, _properties) = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs))
         .with_standard_filters(&[StdFilter {
             slot: StandardFilterSlot::_0,
-            id1: Id::Standard(StandardId::new(request_id).expect("Invalid boot request ID")),
+            id1: cangen::MsbFrontBootRequest::ID,
             id2: None,
         }])
         .start();
@@ -139,8 +133,10 @@ fn strain_gauge_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Fra
 async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) {
     loop {
         let frame = INCOMING.receive().await;
-        if bootloader.handle_frame(&frame).is_err() {
-            defmt::error!("Failed to persist bootloader request");
+        if let Some(Msg::MsbFrontBootRequest(_)) = Msg::decode(&frame) {
+            if bootloader.handle_frame(&frame).is_err() {
+                defmt::error!("Failed to persist bootloader request");
+            }
         }
     }
 }

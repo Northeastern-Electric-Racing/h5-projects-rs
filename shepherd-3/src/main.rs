@@ -3,6 +3,7 @@
 #[macro_use]
 extern crate uom;
 
+use cangen::CanMessage;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::wdg::IndependentWatchdog;
@@ -111,10 +112,6 @@ assign_resources! {
     }
 }
 
-// Match this ECU's boot-entry ID and payload in ecus.json.
-const BOOT_REQUEST_ID: u16 = 0x013;
-const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Initializing project...");
@@ -123,7 +120,7 @@ async fn main(spawner: Spawner) {
 
     hardfault::report_last_reset();
 
-    let mut bootloader = boot_control::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::BmsBootRequest::ID);
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader.confirm_boot().expect("Failed to confirm application startup");
     let r = split_resources!(p);

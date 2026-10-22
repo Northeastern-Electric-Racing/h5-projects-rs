@@ -38,9 +38,8 @@ bind_interrupts!(struct IrqsUsart {
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
 
-// Match this ECU's boot-entry ID and payload in ecus.json.
-const BOOT_REQUEST_ID: u16 = 0x01B;
-const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
+// Match this ECU's boot-entry ID in ecus.json.
+const BOOT_REQUEST_ID: u16 = 0x043;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -142,7 +141,10 @@ async fn main(_spawner: Spawner) -> ! {
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();
     unwrap!(usart.write(s.as_bytes()).await);
 
-    let mut bootloader = boot_control::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    let mut bootloader = boot_control::Bootloader::new(
+        p.FLASH,
+        embedded_can::Id::Standard(embedded_can::StandardId::new(BOOT_REQUEST_ID).unwrap()),
+    );
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");
@@ -151,9 +153,8 @@ async fn main(_spawner: Spawner) -> ! {
     watchdog.unleash();
     let mut ticker = Ticker::every(Duration::from_millis(500));
 
-    _spawner.spawn(inbox::inbox::can_rx(can_rx).expect("Failed to spawn CAN receiver"));
     _spawner.spawn(
-        inbox::inbox::populate_queue(&QUEUTEX, bootloader)
+        inbox::inbox::populate_queue(can_rx, &QUEUTEX, bootloader)
             .expect("Failed to spawn inbox queue populator"),
     );
 

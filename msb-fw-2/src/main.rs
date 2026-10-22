@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use cangen::CanMessage;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::debug;
@@ -21,13 +22,9 @@ use msb_fw_2::bind_interrupts::Irqs;
 use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
-use msb_fw_2::{hdc2021, load_cell, shock_pot, steering_angle, strain_guage, thermocouple}; //, ,magnetometer, , imu};
+use msb_fw_2::{hdc2021, load_cell, shock_pot, steering_angle, strain_guage, thermocouple}; //, ,magnetometer, , imu}; 
 
 use {defmt_rtt as _, panic_probe as _};
-
-// Match this ECU's boot-entry ID and payload in ecus.json.
-const BOOT_REQUEST_ID: u16 = 0x01F;
-const BOOT_REQUEST_DATA: &[u8] = &[0xB0, 0x07, 0x10, 0xAD];
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -176,11 +173,11 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     };
-    let mut bootloader = boot_control::Bootloader::new(p.FLASH, BOOT_REQUEST_ID, BOOT_REQUEST_DATA);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::MsbFrontBootRequest::ID);
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");
-    can::start(spawner, can_resources, BOOT_REQUEST_ID, bootloader);
+    can::start(spawner, can_resources, bootloader);
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
