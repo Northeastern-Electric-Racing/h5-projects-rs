@@ -1259,6 +1259,7 @@ pub mod s_voltages {
         ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        #[cfg(not(feature = "hil"))]
         pub(in crate::segments) async fn update_s_voltages_ow_even_on(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             self.s_voltages[kinds::SVoltageKind::OpenWireEvenOn].update(api).await
         }
@@ -1275,6 +1276,7 @@ pub mod s_voltages {
         ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        #[cfg(not(feature = "hil"))]
         pub(in crate::segments) async fn update_s_voltages_ow_odd_on(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             self.s_voltages[kinds::SVoltageKind::OpenWireOddOn].update(api).await
         }

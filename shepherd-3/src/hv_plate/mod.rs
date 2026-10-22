@@ -12,12 +12,22 @@ mod cache;
 mod core;
 #[cfg(feature = "hil")]
 mod hil;
+mod isospi_recovery;
+mod precharge;
+mod soc;
 
+// Tasks
+pub use core::task::hv_plate_task;
+pub use precharge::precharge_task;
+pub use soc::soc_task;
+
+// API
 /// Allows you to read the cache data.
 pub const fn cache() -> &'static CacheData {
     &cache::CACHE
 }
+pub use core::task::signal::HV_PLATE_FRESH_DATA_SIGNAL;
+pub(crate) use soc::api::soc_data;
 
-// Re-exports
-pub use core::task::{hv_plate_task, signal::HV_PLATE_FRESH_DATA_SIGNAL};
-pub use cache::{CacheData, RegisterCacheData, UpdateError, accumulated, aux, current_voltage, flag, status, voltages};
+// Re-export cache types
+pub use cache::CacheData;
