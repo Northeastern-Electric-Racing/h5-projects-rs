@@ -2,16 +2,16 @@
 //! handles all pedals related functions <br>
 //! ie, drive locks, torque and regen calls
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use crate::pedals::constants::{PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH};
 use crate::pedals::locks::{Locks, State};
 use cangen::ToCanFrame;
+use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use uom::si::electric_current::ampere;
 use uom::si::f32::{ElectricCurrent, Ratio};
 use uom::si::ratio::ratio;
-use crate::pedals::constants::{PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH};
 
 pub(crate) mod constants {
     use core::marker::PhantomData;
@@ -20,21 +20,21 @@ pub(crate) mod constants {
 
     /// Build a uom quantity in a const context. Plain values are in SI base units.
     macro_rules! q {
-    (Ratio, $v:expr, percent) => {
-        Ratio {
-            dimension: PhantomData,
-            units: PhantomData,
-            value: $v / 100.0,
-        }
-    };
-    ($t:ident, $v:expr) => {
-        $t {
-            dimension: PhantomData,
-            units: PhantomData,
-            value: $v,
-        }
-    };
-}
+        (Ratio, $v:expr, percent) => {
+            Ratio {
+                dimension: PhantomData,
+                units: PhantomData,
+                value: $v / 100.0,
+            }
+        };
+        ($t:ident, $v:expr) => {
+            $t {
+                dimension: PhantomData,
+                units: PhantomData,
+                value: $v,
+            }
+        };
+    }
     pub(super) const BRAKE_FAULT_DEBOUNCE: Duration = Duration::from_millis(300);
     pub(super) const PEDAL_FAULT_DEBOUNCE: Duration = Duration::from_millis(95);
 
@@ -178,20 +178,12 @@ mod locks {
             let open_circuit_fault = (brake1_voltage
                 > BRAKE_SENSOR_IRREGULAR_HIGH + BRAKE_THRESHOLD_TOLERANCE)
                 || (brake2_voltage > BRAKE_SENSOR_IRREGULAR_HIGH + BRAKE_THRESHOLD_TOLERANCE);
-            self.debounce(
-                Locks::BrakeOc,
-                open_circuit_fault,
-                &BRAKE_FAULT_DEBOUNCE,
-            );
+            self.debounce(Locks::BrakeOc, open_circuit_fault, &BRAKE_FAULT_DEBOUNCE);
 
             let short_circuit_fault = (brake1_voltage
                 < BRAKE_SENSOR_IRREGULAR_LOW - BRAKE_THRESHOLD_TOLERANCE)
                 || (brake2_voltage < BRAKE_SENSOR_IRREGULAR_LOW - BRAKE_THRESHOLD_TOLERANCE);
-            self.debounce(
-                Locks::BrakeSc,
-                short_circuit_fault,
-                &BRAKE_FAULT_DEBOUNCE,
-            );
+            self.debounce(Locks::BrakeSc, short_circuit_fault, &BRAKE_FAULT_DEBOUNCE);
         }
 
         pub(super) fn calculate_accel_fault(
@@ -204,27 +196,15 @@ mod locks {
             let open_circuit_fault = (accel1_voltage
                 > MAX_VOLTS_UNSCALED + APPS_THRESHOLD_TOLERANCE)
                 || (accel2_voltage > MAX_VOLTS_UNSCALED + APPS_THRESHOLD_TOLERANCE);
-            self.debounce(
-                Locks::AccelOc,
-                open_circuit_fault,
-                &PEDAL_FAULT_DEBOUNCE,
-            );
+            self.debounce(Locks::AccelOc, open_circuit_fault, &PEDAL_FAULT_DEBOUNCE);
 
             let short_circuit_fault = (accel1_voltage < MIN_APPS1_VOLTS - APPS_THRESHOLD_TOLERANCE)
                 || (accel2_voltage < MIN_APPS2_VOLTS - APPS_THRESHOLD_TOLERANCE);
-            self.debounce(
-                Locks::AccelSc,
-                short_circuit_fault,
-                &PEDAL_FAULT_DEBOUNCE,
-            );
+            self.debounce(Locks::AccelSc, short_circuit_fault, &PEDAL_FAULT_DEBOUNCE);
 
             let pedal_diff_fault =
                 (accel1_percentage - accel2_percentage).abs() > PEDAL_DIFF_THRESH;
-            self.debounce(
-                Locks::AccelDiff,
-                pedal_diff_fault,
-                &PEDAL_FAULT_DEBOUNCE,
-            );
+            self.debounce(Locks::AccelDiff, pedal_diff_fault, &PEDAL_FAULT_DEBOUNCE);
         }
 
         pub(super) fn calculate_bspd_fault(
@@ -255,6 +235,7 @@ mod locks {
 }
 
 pub(crate) mod analog {
+    use crate::pedals::constants::*;
     use embassy_stm32::adc::{Adc, AdcChannel, Clock, Config, Prescaler, Resolution, SampleTime};
     use embassy_stm32::{Peri, bind_interrupts, peripherals};
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -266,7 +247,6 @@ pub(crate) mod analog {
     use uom::si::pressure::psi;
     use uom::si::ratio::ratio;
     use variant_count::VariantCount;
-    use crate::pedals::constants::*;
 
     const SAMPLE_TIME: SampleTime = SampleTime::Cycles475;
     const PEDAL_ADC_SETTLE: Duration = Duration::from_millis(100);
@@ -406,7 +386,6 @@ pub(crate) mod analog {
         }
     }
 
-
     impl From<PedalBuffer> for PedalData {
         fn from(value: PedalBuffer) -> Self {
             let accel1_v = voltage_from_raw(value.adc_buffer[Adc2Channels::Adc2Channel12 as usize]);
@@ -471,7 +450,10 @@ pub async fn pedals_task() {
             BRAKE_PRESSED.store(false, Ordering::Relaxed);
         }
 
-        ACCEL_PRESSED.store(pedal_data.accel_r > Ratio::new::<ratio>(0.05), Ordering::Relaxed);
+        ACCEL_PRESSED.store(
+            pedal_data.accel_r > Ratio::new::<ratio>(0.05),
+            Ordering::Relaxed,
+        );
 
         drive_lock.calculate_bspd_fault(
             pedal_data.accel_r,

@@ -4,6 +4,7 @@
 //! Performance, Efficiency, Faulted) and the NERO dash menu position
 //! (`NeroMenu`), and arbitrates transitions between them.
 
+use crate::pedals::{get_accel_pressed, get_brake_pressed};
 use crate::rtds;
 use cangen::ToCanFrame;
 use defmt::{bitflags, debug, info, warn};
@@ -13,7 +14,6 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use variant_count::VariantCount;
-use crate::pedals::{get_accel_pressed, get_brake_pressed};
 
 const STATE_TRANSITION_QUEUE_SIZE: usize = 4;
 const STATE_TRANSITION_ERROR_CLEAR_TIMEOUT: Duration = Duration::from_millis(3000);

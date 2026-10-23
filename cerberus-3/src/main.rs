@@ -27,8 +27,8 @@ use crate::can::can_inbox_task;
 use adc::{Adc1Resources, adc1_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
-use pedals::pedals_task;
 use pedals::analog::{AdcPedalsResources, adc_pedals_task};
+use pedals::pedals_task;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
