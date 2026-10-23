@@ -3,7 +3,7 @@ members = ["msb-fw-2", "shepherd-3", "lightning", "cerberus-3", "atlas", "templa
 resolver = "3"
 
 [workspace.dependencies]
-boot-control = { package = "boot-control-stm32h563", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "c07383461cfe55eea4977ab77caa1c2714c3a0d4" }
+boot-control = { package = "boot-control-stm32h563", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "d0a109d9be17571e564a8d8509c7a104623a0ca9" }
 embassy-boot-stm32 = { version = "0.8.0", features = ["defmt"] }
 embassy-stm32 = { version = "0.6.0", features = ["defmt", "unstable-pac", "memory-x", "time", "time-driver-any", "exti", "stm32h563zi"] }
 embassy-sync = { version = "0.8.0", features = ["defmt"] }
@@ -34,7 +34,7 @@ crc = { version = "3.3", default-features = false }
 assign-resources = "0.5.0"
 
 can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "c07383461cfe55eea4977ab77caa1c2714c3a0d4" }
+cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "d0a109d9be17571e564a8d8509c7a104623a0ca9" }
 
 embassy-net = { version = "0.9.1", features = ["udp", "tcp", "medium-ethernet", "ipv4", "icmp-ping-reply", "defmt"] }
 rust-mqtt = { version = "0.5",default-features = false, features = ["defmt", "bump", "v5"]}
