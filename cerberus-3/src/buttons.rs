@@ -60,7 +60,7 @@ pub async fn button_task() -> ! {
             Button::UpTorque => pedals::increase_torque_limit(),
             Button::DownTorque => pedals::decrease_torque_limit(),
             Button::ToggleLaunchControl => pedals::toggle_launch_control(),
-            Button::ToggleTractionControl => {},
+            Button::ToggleTractionControl => {}
             Button::Unknown => {}
         }
     }
