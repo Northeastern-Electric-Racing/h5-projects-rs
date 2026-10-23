@@ -307,6 +307,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "heapless",
+ "num-traits",
  "panic-probe",
  "rust-mqtt",
  "sht3x-ner",
@@ -1287,6 +1288,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
