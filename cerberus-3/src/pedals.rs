@@ -44,7 +44,6 @@ fn tc_process() {}
 // END TEMP functions
 // ---------------------------------------------------------------------------
 
-
 pub(crate) mod constants {
     use core::marker::PhantomData;
     use embassy_time::Duration;
