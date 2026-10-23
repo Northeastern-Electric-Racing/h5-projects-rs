@@ -2,7 +2,11 @@
 //! handles all pedals related functions <br>
 //! ie, drive locks, torque and regen calls
 
-use crate::pedals::constants::{MAX_REGEN, PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH, REGEN_STEP_SIZE};
+use crate::pedals::constants::{
+    MAX_REGEN, PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH, REGEN_STEP_SIZE,
+};
+use crate::statemachine;
+use crate::statemachine::FuncState;
 use cangen::ToCanFrame;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -13,8 +17,6 @@ use uom::si::f32::{ElectricCurrent, Ratio, Torque, Velocity};
 use uom::si::ratio::{percent, ratio};
 use uom::si::torque::newton_meter;
 use uom::si::velocity::meter_per_second;
-use crate::statemachine;
-use crate::statemachine::FuncState;
 
 pub(crate) mod constants {
     use core::marker::PhantomData;
@@ -451,6 +453,7 @@ mod drive_modes {
         MAX_TORQUE_RATIO, MIN_REGEN, PIT_MAX_SPEED, REGEN_THRESHOLD_RATIO,
     };
     use crate::pedals::{dti_set_regen, dti_set_torque, get_launch_control, get_traction_control};
+    use crate::statemachine::FuncState;
     use core::marker::PhantomData;
     use core::ops::Sub;
     use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
@@ -462,7 +465,6 @@ mod drive_modes {
     use uom::si::time::millisecond;
     use uom::si::torque::newton_meter;
     use uom::si::velocity::meter_per_second;
-    use crate::statemachine::FuncState;
 
     const TORQUE_ACCUMULATOR_SIZE: usize = 10;
 
@@ -496,7 +498,6 @@ mod drive_modes {
             prev_time: None,
         };
 
-
         fn clamp_accel(&self, rat: Ratio) -> f32 {
             if rat > Ratio::new::<ratio>(1.0) {
                 return 1.0;
@@ -513,7 +514,10 @@ mod drive_modes {
         fn power_regression_accel_to_torque(&self, accel: Ratio) {
             // Constants come from power-regression fit model through (0,0), (20, 10) and (100, 100)
             dti_set_torque(
-                MAX_TORQUE * 0.137609f32 * self.clamp_accel(accel).powf(1.43068) * get_traction_control(),
+                MAX_TORQUE
+                    * 0.137609f32
+                    * self.clamp_accel(accel).powf(1.43068)
+                    * get_traction_control(),
             )
         }
 
@@ -529,8 +533,9 @@ mod drive_modes {
         }
 
         fn accel_pedal_regen_braking(&self, accel: Ratio) {
-            let regen_limit =
-                ElectricCurrent::new::<ampere>(REGEN_LIMIT_CURRENT_ENDURANCE.load(Ordering::Relaxed) as f32);
+            let regen_limit = ElectricCurrent::new::<ampere>(
+                REGEN_LIMIT_CURRENT_ENDURANCE.load(Ordering::Relaxed) as f32,
+            );
             let mut regen_current = ((regen_limit - MIN_REGEN) / REGEN_THRESHOLD_RATIO)
                 * (REGEN_THRESHOLD_RATIO - accel)
                 + MIN_REGEN;
@@ -549,7 +554,8 @@ mod drive_modes {
             let torque: i16 = (MAX_TORQUE.get::<newton_meter>()
                 * accel.get::<ratio>()
                 * MAX_TORQUE_RATIO.get::<ratio>()
-                * (1.0 - (vel / PIT_MAX_SPEED).get::<ratio>())) as i16;
+                * (1.0 - (vel / PIT_MAX_SPEED).get::<ratio>()))
+                as i16;
 
             self.torque_accumulator[self.torque_index] = torque;
 
@@ -589,11 +595,15 @@ mod drive_modes {
         fn handle_performance(&mut self, vel: Velocity, accel: Ratio) {
             if accel > ACCELERATION_THRESHOLD {
                 if get_launch_control() {
-                    self.launch_control(vel, accel - Ratio::new::<ratio>(0.25) / Ratio::new::<ratio>(0.75));
+                    self.launch_control(
+                        vel,
+                        accel - Ratio::new::<ratio>(0.25) / Ratio::new::<ratio>(0.75),
+                    );
                 } else {
                     self.linear_accel_to_torque(accel);
                 }
-            } else if vel > Velocity::new::<meter_per_second>(2.2352) /*5 MPH*/ && accel <= REGEN_THRESHOLD_RATIO {
+            } else if vel > Velocity::new::<meter_per_second>(2.2352) /*5 MPH*/ && accel <= REGEN_THRESHOLD_RATIO
+            {
                 self.accel_pedal_regen_braking(accel);
             } else {
                 dti_set_torque(Torque::new::<newton_meter>(0.0));
@@ -603,21 +613,27 @@ mod drive_modes {
         fn handle_endurance(&self, vel: Velocity, accel: Ratio) {
             if accel > ACCELERATION_THRESHOLD {
                 self.accel_pedal_regen_torque(accel);
-            } else if vel > Velocity::new::<meter_per_second>(2.2352) /*5 MPH*/ && accel <= REGEN_THRESHOLD_RATIO {
+            } else if vel > Velocity::new::<meter_per_second>(2.2352) /*5 MPH*/ && accel <= REGEN_THRESHOLD_RATIO
+            {
                 self.accel_pedal_regen_braking(accel);
             } else {
                 dti_set_torque(Torque::new::<newton_meter>(0.0));
             }
         }
 
-        pub(super) fn handle_drive_mode(&mut self, vel: Velocity, accel: Ratio, func_state: FuncState) {
+        pub(super) fn handle_drive_mode(
+            &mut self,
+            vel: Velocity,
+            accel: Ratio,
+            func_state: FuncState,
+        ) {
             match func_state {
                 FuncState::Ready => dti_set_torque(Torque::new::<newton_meter>(0.0)),
                 FuncState::Pit => dti_set_torque(self.derate_torque(vel, accel)),
                 FuncState::Reverse => dti_set_torque(-self.derate_torque(vel.abs(), accel)),
                 FuncState::Performance => self.handle_performance(vel, accel),
                 FuncState::Efficiency => self.handle_endurance(vel, accel),
-                FuncState::Faulted => {dti_set_torque(Torque::new::<newton_meter>(0.0))}
+                FuncState::Faulted => dti_set_torque(Torque::new::<newton_meter>(0.0)),
             }
         }
     }
@@ -681,9 +697,13 @@ pub fn toggle_launch_control() {
 
 pub fn get_regen_limit(func_state: FuncState) -> ElectricCurrent {
     if func_state == FuncState::Performance {
-        return ElectricCurrent::new::<ampere>(drive_modes::REGEN_LIMIT_CURRENT_PERFORMANCE.load(Ordering::Relaxed) as f32)
+        return ElectricCurrent::new::<ampere>(
+            drive_modes::REGEN_LIMIT_CURRENT_PERFORMANCE.load(Ordering::Relaxed) as f32,
+        );
     } else if func_state == FuncState::Efficiency {
-        return ElectricCurrent::new::<ampere>(drive_modes::REGEN_LIMIT_CURRENT_ENDURANCE.load(Ordering::Relaxed) as f32)
+        return ElectricCurrent::new::<ampere>(
+            drive_modes::REGEN_LIMIT_CURRENT_ENDURANCE.load(Ordering::Relaxed) as f32,
+        );
     }
     ElectricCurrent::new::<ampere>(0.0)
 }
@@ -697,16 +717,17 @@ pub fn set_regen_limit(func_state: FuncState, limit: ElectricCurrent) {
     }
 
     if func_state == FuncState::Performance {
-        drive_modes::REGEN_LIMIT_CURRENT_PERFORMANCE.store(limit_clamped.get::<ampere>() as u16, Ordering::Relaxed)
+        drive_modes::REGEN_LIMIT_CURRENT_PERFORMANCE
+            .store(limit_clamped.get::<ampere>() as u16, Ordering::Relaxed)
     } else if func_state == FuncState::Efficiency {
-        drive_modes::REGEN_LIMIT_CURRENT_ENDURANCE.store(limit_clamped.get::<ampere>() as u16, Ordering::Relaxed)
+        drive_modes::REGEN_LIMIT_CURRENT_ENDURANCE
+            .store(limit_clamped.get::<ampere>() as u16, Ordering::Relaxed)
     }
 }
 
 pub fn increase_regen_limit(func_state: FuncState) {
     set_regen_limit(func_state, get_regen_limit(func_state) + REGEN_STEP_SIZE);
 }
-
 
 pub fn decrease_regen_limit(func_state: FuncState) {
     set_regen_limit(func_state, get_regen_limit(func_state) - REGEN_STEP_SIZE);
@@ -756,7 +777,11 @@ pub async fn pedals_task() -> ! {
         } else {
             tc_process();
 
-            torque_lock.handle_drive_mode(dti_get_velocity(), pedal_data.accel_r, statemachine::get_func_state().await);
+            torque_lock.handle_drive_mode(
+                dti_get_velocity(),
+                pedal_data.accel_r,
+                statemachine::get_func_state().await,
+            );
 
             crate::can::OUTGOING
                 .send(pedal_data.to_volt_frame().to_can_frame())
