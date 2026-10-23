@@ -13,6 +13,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use variant_count::VariantCount;
+use crate::pedals::{get_accel_pressed, get_brake_pressed};
 
 const STATE_TRANSITION_QUEUE_SIZE: usize = 4;
 const STATE_TRANSITION_ERROR_CLEAR_TIMEOUT: Duration = Duration::from_millis(3000);
@@ -111,14 +112,6 @@ bitflags!(
 // TEMP functions, replace later
 // ---------------------------------------------------------------------------
 
-fn accel_pressed() -> bool {
-    false
-}
-
-fn pedals_get_brake_state() -> bool {
-    true
-}
-
 fn is_shutdown_closed() -> bool {
     true
 }
@@ -175,7 +168,7 @@ impl CerberusState {
 
         self.clear_error();
 
-        if accel_pressed() && new_state != FuncState::Faulted {
+        if get_accel_pressed() && new_state != FuncState::Faulted {
             debug!("Accelerator should not be pressed when transitioning state");
             self.set_error(TransitionError::ACCEL_PRESSED);
             return Err(());
@@ -208,7 +201,7 @@ impl CerberusState {
                     return Err(());
                 }
 
-                if !pedals_get_brake_state() {
+                if !get_brake_pressed() {
                     self.set_error(TransitionError::BRAKES_NOT_ENGAGED);
                     return Err(());
                 }

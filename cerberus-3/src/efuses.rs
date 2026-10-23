@@ -200,14 +200,14 @@ impl Efuse {
                 EfuseControlState::EfuseAuto,
                 Some(AutoPredicate {
                     value1: || 0.0, /* pedals brake percentage */
-                    value2: || crate::pedals::PEDAL_BRAKE_THRESH.get::<percent>(),
+                    value2: || crate::pedals::constants::PEDAL_BRAKE_THRESH.get::<percent>(),
                     operation: PredicateOperation::GREATER,
                 }),
                 Some(AutoPredicate {
                     value1: || 0.0, /* pedals brake threshold */
                     value2: || {
-                        (crate::pedals::PEDAL_BRAKE_THRESH
-                            - crate::pedals::PEDAL_BRAKE_TURNOFF_THRESH)
+                        (crate::pedals::constants::PEDAL_BRAKE_THRESH
+                            - crate::pedals::constants::PEDAL_BRAKE_TURNOFF_THRESH)
                             .get::<percent>()
                     },
                     operation: PredicateOperation::LESS,
