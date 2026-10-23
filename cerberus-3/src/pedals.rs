@@ -18,6 +18,33 @@ use uom::si::ratio::{percent, ratio};
 use uom::si::torque::newton_meter;
 use uom::si::velocity::meter_per_second;
 
+// ---------------------------------------------------------------------------
+// TEMP functions, replace later
+// ---------------------------------------------------------------------------
+
+fn dti_set_torque(_torque: Torque) {}
+
+fn dti_set_regen(_current: ElectricCurrent) {}
+
+fn dti_get_velocity() -> Velocity {
+    Velocity::new::<meter_per_second>(0.0)
+}
+
+fn get_traction_control() -> f32 {
+    0.0
+}
+
+fn is_not_precharge() -> bool {
+    false
+}
+
+fn tc_process() {}
+
+// ---------------------------------------------------------------------------
+// END TEMP functions
+// ---------------------------------------------------------------------------
+
+
 pub(crate) mod constants {
     use core::marker::PhantomData;
     use embassy_time::Duration;
@@ -420,32 +447,6 @@ pub(crate) mod analog {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// TEMP functions, replace later
-// ---------------------------------------------------------------------------
-
-fn dti_set_torque(_torque: Torque) {}
-
-fn dti_set_regen(_current: ElectricCurrent) {}
-
-fn dti_get_velocity() -> Velocity {
-    Velocity::new::<meter_per_second>(0.0)
-}
-
-fn get_traction_control() -> f32 {
-    0.0
-}
-
-fn is_not_precharge() -> bool {
-    false
-}
-
-fn tc_process() {}
-
-// ---------------------------------------------------------------------------
-// END TEMP functions
-// ---------------------------------------------------------------------------
 
 mod drive_modes {
     use crate::pedals::constants::{
