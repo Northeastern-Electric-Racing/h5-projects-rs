@@ -24,9 +24,15 @@ static_cell.workspace = true
 embassy-net.workspace = true
 rust-mqtt.workspace = true
 sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", version = "0.1.0" }
-ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
+cangen.workspace = true
+can-handler.workspace = true
+num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 variant_count = "1.2.1"
+uom = {
+    version = "0.38",
+    default-features = false,
+    features = ["si", "f32", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "autoconvert"]
+}
 
 [lints.clippy]
 enum_variant_names = "allow"

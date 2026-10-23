@@ -229,7 +229,7 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
@@ -259,7 +259,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "bitfield-struct",
  "cangen-macro",
@@ -269,7 +269,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "definition-rs",
  "heck",
@@ -307,10 +307,12 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "heapless",
+ "num-traits",
  "panic-probe",
  "rust-mqtt",
  "sht3x-ner",
  "static_cell",
+ "uom",
  "variant_count",
 ]
 
@@ -452,7 +454,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1261,12 +1263,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-integer"
+version = "0.1.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "num-rational"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -1627,7 +1649,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "sht3x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "defmt 1.2.0",
  "embedded-hal-async",
@@ -1954,6 +1976,7 @@ version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a739f83872836c82a4f2527d4e54b37007b3de68cafe7edde95fd695968bf4b9"
 dependencies = [
+ "num-rational",
  "num-traits",
  "typenum",
 ]
