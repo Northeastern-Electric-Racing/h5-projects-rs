@@ -2,17 +2,19 @@
 //! handles all pedals related functions <br>
 //! ie, drive locks, torque and regen calls
 
-use crate::pedals::constants::{PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH};
-use crate::pedals::locks::{Locks, State};
+use crate::pedals::constants::{MAX_REGEN, PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH, REGEN_STEP_SIZE};
 use cangen::ToCanFrame;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use uom::si::electric_current::ampere;
-use uom::si::f32::{ElectricCurrent, Ratio, Torque};
+use uom::si::f32::{ElectricCurrent, Ratio, Torque, Velocity};
 use uom::si::ratio::{percent, ratio};
 use uom::si::torque::newton_meter;
+use uom::si::velocity::meter_per_second;
+use crate::statemachine;
+use crate::statemachine::FuncState;
 
 pub(crate) mod constants {
     use core::marker::PhantomData;
@@ -417,35 +419,56 @@ pub(crate) mod analog {
     }
 }
 
+// ---------------------------------------------------------------------------
+// TEMP functions, replace later
+// ---------------------------------------------------------------------------
+
 fn dti_set_torque(_torque: Torque) {}
 
 fn dti_set_regen(_current: ElectricCurrent) {}
 
+fn dti_get_velocity() -> Velocity {
+    Velocity::new::<meter_per_second>(0.0)
+}
+
 fn get_traction_control() -> f32 {
     0.0
 }
+
+fn is_not_precharge() -> bool {
+    false
+}
+
+fn tc_process() {}
+
+// ---------------------------------------------------------------------------
+// END TEMP functions
+// ---------------------------------------------------------------------------
 
 mod drive_modes {
     use crate::pedals::constants::{
         ACCELERATION_THRESHOLD, DELTA_ACCELERATION_MAX, MAX_LIMITING_SPEED, MAX_TORQUE,
         MAX_TORQUE_RATIO, MIN_REGEN, PIT_MAX_SPEED, REGEN_THRESHOLD_RATIO,
     };
-    use crate::pedals::{dti_set_regen, dti_set_torque, get_traction_control};
+    use crate::pedals::{dti_set_regen, dti_set_torque, get_launch_control, get_traction_control};
     use core::marker::PhantomData;
     use core::ops::Sub;
-    use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
     use embassy_time::{Duration, Instant};
     use num_traits::float::Float;
     use uom::si::electric_current::ampere;
-    use uom::si::f32::{ElectricCurrent, Ratio, Time, Velocity};
+    use uom::si::f32::{ElectricCurrent, Ratio, Time, Torque, Velocity};
     use uom::si::ratio::ratio;
     use uom::si::time::millisecond;
     use uom::si::torque::newton_meter;
+    use uom::si::velocity::meter_per_second;
+    use crate::statemachine::FuncState;
 
     const TORQUE_ACCUMULATOR_SIZE: usize = 10;
 
-    pub(super) static TORQUE_LIMIT_PERCENTAGE: AtomicU32 = AtomicU32::new(0);
-    pub(super) static REGEN_LIMIT_CURRENT: AtomicU32 = AtomicU32::new(0);
+    pub(super) static TORQUE_LIMIT_PERCENTAGE: AtomicU16 = AtomicU16::new(0);
+    pub(super) static REGEN_LIMIT_CURRENT_PERFORMANCE: AtomicU16 = AtomicU16::new(0);
+    pub(super) static REGEN_LIMIT_CURRENT_ENDURANCE: AtomicU16 = AtomicU16::new(0);
     pub(super) static LAUNCH_CONTROL_ENABLED: AtomicBool = AtomicBool::new(false);
 
     pub(super) struct State {
@@ -472,100 +495,136 @@ mod drive_modes {
             },
             prev_time: None,
         };
-    }
 
-    fn clamp_accel(rat: Ratio) -> f32 {
-        if rat > Ratio::new::<ratio>(1.0) {
-            return 1.0;
-        } else if rat > Ratio::new::<ratio>(0.03) {
-            return rat.get::<ratio>();
-        }
-        0.0
-    }
 
-    fn linear_accel_to_torque(accel: Ratio) {
-        dti_set_torque(MAX_TORQUE * clamp_accel(accel) * get_traction_control())
-    }
-
-    fn power_regression_accel_to_torque(accel: Ratio) {
-        // Constants come from power-regression fit model through (0,0), (20, 10) and (100, 100)
-        dti_set_torque(
-            MAX_TORQUE * 0.137609f32 * clamp_accel(accel).powf(1.43068) * get_traction_control(),
-        )
-    }
-
-    fn derate_torque(vel: Velocity, accel: Ratio, state: &mut State) -> i16 {
-        if vel > PIT_MAX_SPEED {
-            return 0;
-        }
-        let torque: i16 = (MAX_TORQUE.get::<newton_meter>()
-            * accel.get::<ratio>()
-            * MAX_TORQUE_RATIO.get::<ratio>()
-            * (1.0 - (vel / PIT_MAX_SPEED).get::<ratio>())) as i16;
-
-        state.torque_accumulator[state.torque_index] = torque;
-
-        state.torque_index = (state.torque_index + 1) % TORQUE_ACCUMULATOR_SIZE;
-
-        let mut average = 0;
-        for i in state.torque_accumulator {
-            average += i;
+        fn clamp_accel(&self, rat: Ratio) -> f32 {
+            if rat > Ratio::new::<ratio>(1.0) {
+                return 1.0;
+            } else if rat > Ratio::new::<ratio>(0.03) {
+                return rat.get::<ratio>();
+            }
+            0.0
         }
 
-        average / (TORQUE_ACCUMULATOR_SIZE as i16)
-    }
-
-    fn accel_pedal_regen_torque(accel: Ratio) {
-        let coefficient = get_traction_control() * (accel - ACCELERATION_THRESHOLD)
-            / (Ratio::new::<ratio>(1.0) - ACCELERATION_THRESHOLD);
-
-        dti_set_torque(
-            coefficient.min(Ratio::new::<ratio>(1.0)).get::<ratio>()
-                * (TORQUE_LIMIT_PERCENTAGE.load(Ordering::Relaxed) as f32 / 100.0)
-                * MAX_TORQUE,
-        );
-    }
-
-    fn accel_pedal_regen_braking(accel: Ratio) {
-        let regen_limit =
-            ElectricCurrent::new::<ampere>(REGEN_LIMIT_CURRENT.load(Ordering::Relaxed) as f32);
-        let mut regen_current = ((regen_limit - MIN_REGEN) / REGEN_THRESHOLD_RATIO)
-            * (REGEN_THRESHOLD_RATIO - accel)
-            + MIN_REGEN;
-
-        if regen_current > regen_limit {
-            regen_current = regen_limit;
+        fn linear_accel_to_torque(&self, accel: Ratio) {
+            dti_set_torque(MAX_TORQUE * self.clamp_accel(accel) * get_traction_control())
         }
 
-        dti_set_regen(regen_current);
-    }
-
-    fn launch_control(vel: Velocity, accel: Ratio, state: &mut State) {
-        let mut delta_time = Duration::from_millis(0);
-        if let Some(time) = state.prev_time {
-            delta_time = time.sub(Instant::now());
-        } else {
-            state.prev_time = Some(Instant::now());
+        fn power_regression_accel_to_torque(&self, accel: Ratio) {
+            // Constants come from power-regression fit model through (0,0), (20, 10) and (100, 100)
+            dti_set_torque(
+                MAX_TORQUE * 0.137609f32 * self.clamp_accel(accel).powf(1.43068) * get_traction_control(),
+            )
         }
 
-        let delta_vel = vel - state.prev_velocity;
+        fn accel_pedal_regen_torque(&self, accel: Ratio) {
+            let coefficient = get_traction_control() * (accel - ACCELERATION_THRESHOLD)
+                / (Ratio::new::<ratio>(1.0) - ACCELERATION_THRESHOLD);
 
-        let ceil_delta_vel =
-            DELTA_ACCELERATION_MAX * Time::new::<millisecond>(delta_time.as_millis() as f32);
-
-        if vel < MAX_LIMITING_SPEED && delta_vel > ceil_delta_vel {
-            linear_accel_to_torque(state.prev_accel / 2.0);
-        } else {
-            linear_accel_to_torque(accel);
+            dti_set_torque(
+                coefficient.min(Ratio::new::<ratio>(1.0)).get::<ratio>()
+                    * (TORQUE_LIMIT_PERCENTAGE.load(Ordering::Relaxed) as f32 / 100.0)
+                    * MAX_TORQUE,
+            );
         }
-        state.prev_accel = accel;
-        state.prev_time = Some(Instant::now());
-        state.prev_velocity = vel;
+
+        fn accel_pedal_regen_braking(&self, accel: Ratio) {
+            let regen_limit =
+                ElectricCurrent::new::<ampere>(REGEN_LIMIT_CURRENT_ENDURANCE.load(Ordering::Relaxed) as f32);
+            let mut regen_current = ((regen_limit - MIN_REGEN) / REGEN_THRESHOLD_RATIO)
+                * (REGEN_THRESHOLD_RATIO - accel)
+                + MIN_REGEN;
+
+            if regen_current > regen_limit {
+                regen_current = regen_limit;
+            }
+
+            dti_set_regen(regen_current);
+        }
+
+        fn derate_torque(&mut self, vel: Velocity, accel: Ratio) -> Torque {
+            if vel > PIT_MAX_SPEED {
+                return Torque::new::<newton_meter>(0.0);
+            }
+            let torque: i16 = (MAX_TORQUE.get::<newton_meter>()
+                * accel.get::<ratio>()
+                * MAX_TORQUE_RATIO.get::<ratio>()
+                * (1.0 - (vel / PIT_MAX_SPEED).get::<ratio>())) as i16;
+
+            self.torque_accumulator[self.torque_index] = torque;
+
+            self.torque_index = (self.torque_index + 1) % TORQUE_ACCUMULATOR_SIZE;
+
+            let mut average: f32 = 0.0;
+            for i in self.torque_accumulator {
+                average += i as f32;
+            }
+
+            Torque::new::<newton_meter>(average / (TORQUE_ACCUMULATOR_SIZE as f32))
+        }
+
+        fn launch_control(&mut self, vel: Velocity, accel: Ratio) {
+            let mut delta_time = Duration::from_millis(0);
+            if let Some(time) = self.prev_time {
+                delta_time = time.sub(Instant::now());
+            } else {
+                self.prev_time = Some(Instant::now());
+            }
+
+            let delta_vel = vel - self.prev_velocity;
+
+            let ceil_delta_vel =
+                DELTA_ACCELERATION_MAX * Time::new::<millisecond>(delta_time.as_millis() as f32);
+
+            if vel < MAX_LIMITING_SPEED && delta_vel > ceil_delta_vel {
+                self.linear_accel_to_torque(self.prev_accel / 2.0);
+            } else {
+                self.linear_accel_to_torque(accel);
+            }
+            self.prev_accel = accel;
+            self.prev_time = Some(Instant::now());
+            self.prev_velocity = vel;
+        }
+
+        fn handle_performance(&mut self, vel: Velocity, accel: Ratio) {
+            if accel > ACCELERATION_THRESHOLD {
+                if get_launch_control() {
+                    self.launch_control(vel, accel - Ratio::new::<ratio>(0.25) / Ratio::new::<ratio>(0.75));
+                } else {
+                    self.linear_accel_to_torque(accel);
+                }
+            } else if vel > Velocity::new::<meter_per_second>(2.2352) /*5 MPH*/ && accel <= REGEN_THRESHOLD_RATIO {
+                self.accel_pedal_regen_braking(accel);
+            } else {
+                dti_set_torque(Torque::new::<newton_meter>(0.0));
+            }
+        }
+
+        fn handle_endurance(&self, vel: Velocity, accel: Ratio) {
+            if accel > ACCELERATION_THRESHOLD {
+                self.accel_pedal_regen_torque(accel);
+            } else if vel > Velocity::new::<meter_per_second>(2.2352) /*5 MPH*/ && accel <= REGEN_THRESHOLD_RATIO {
+                self.accel_pedal_regen_braking(accel);
+            } else {
+                dti_set_torque(Torque::new::<newton_meter>(0.0));
+            }
+        }
+
+        pub(super) fn handle_drive_mode(&mut self, vel: Velocity, accel: Ratio, func_state: FuncState) {
+            match func_state {
+                FuncState::Ready => dti_set_torque(Torque::new::<newton_meter>(0.0)),
+                FuncState::Pit => dti_set_torque(self.derate_torque(vel, accel)),
+                FuncState::Reverse => dti_set_torque(-self.derate_torque(vel.abs(), accel)),
+                FuncState::Performance => self.handle_performance(vel, accel),
+                FuncState::Efficiency => self.handle_endurance(vel, accel),
+                FuncState::Faulted => {dti_set_torque(Torque::new::<newton_meter>(0.0))}
+            }
+        }
     }
 }
 
 const PEDALS_TASK_PERIOD: Duration = Duration::from_millis(100);
-static LOCK_MUTEX: Mutex<ThreadModeRawMutex, State> = Mutex::new(State::INIT);
+static LOCK_MUTEX: Mutex<ThreadModeRawMutex, locks::State> = Mutex::new(locks::State::INIT);
 
 static BRAKE_PRESSED: AtomicBool = AtomicBool::new(false);
 static ACCEL_PRESSED: AtomicBool = AtomicBool::new(false);
@@ -588,7 +647,7 @@ pub fn get_torque_limit() -> Ratio {
 
 pub fn set_torque_limit(val: Ratio) {
     drive_modes::TORQUE_LIMIT_PERCENTAGE
-        .store(val.get::<percent>().min(100.0) as u32, Ordering::Relaxed);
+        .store(val.get::<percent>().min(100.0) as u16, Ordering::Relaxed);
 }
 
 pub fn increase_torque_limit() {
@@ -618,6 +677,39 @@ pub fn toggle_launch_control() {
         !drive_modes::LAUNCH_CONTROL_ENABLED.load(Ordering::Acquire),
         Ordering::Release,
     );
+}
+
+pub fn get_regen_limit(func_state: FuncState) -> ElectricCurrent {
+    if func_state == FuncState::Performance {
+        return ElectricCurrent::new::<ampere>(drive_modes::REGEN_LIMIT_CURRENT_PERFORMANCE.load(Ordering::Relaxed) as f32)
+    } else if func_state == FuncState::Efficiency {
+        return ElectricCurrent::new::<ampere>(drive_modes::REGEN_LIMIT_CURRENT_ENDURANCE.load(Ordering::Relaxed) as f32)
+    }
+    ElectricCurrent::new::<ampere>(0.0)
+}
+
+pub fn set_regen_limit(func_state: FuncState, limit: ElectricCurrent) {
+    let mut limit_clamped = limit;
+    if limit > MAX_REGEN {
+        limit_clamped = MAX_REGEN;
+    } else if limit.is_sign_negative() {
+        limit_clamped = ElectricCurrent::new::<ampere>(0.0);
+    }
+
+    if func_state == FuncState::Performance {
+        drive_modes::REGEN_LIMIT_CURRENT_PERFORMANCE.store(limit_clamped.get::<ampere>() as u16, Ordering::Relaxed)
+    } else if func_state == FuncState::Efficiency {
+        drive_modes::REGEN_LIMIT_CURRENT_ENDURANCE.store(limit_clamped.get::<ampere>() as u16, Ordering::Relaxed)
+    }
+}
+
+pub fn increase_regen_limit(func_state: FuncState) {
+    set_regen_limit(func_state, get_regen_limit(func_state) + REGEN_STEP_SIZE);
+}
+
+
+pub fn decrease_regen_limit(func_state: FuncState) {
+    set_regen_limit(func_state, get_regen_limit(func_state) - REGEN_STEP_SIZE);
 }
 
 #[embassy_executor::task]
@@ -653,18 +745,18 @@ pub async fn pedals_task() -> ! {
             ElectricCurrent::new::<ampere>(0.0),
         );
 
-        if
-        /* todo: BMS precharge not set */
-        false {
-            drive_lock.set_lock(Locks::BmsNotPrechargedYet);
+        if is_not_precharge() {
+            drive_lock.set_lock(locks::Locks::BmsNotPrechargedYet);
         } else {
-            drive_lock.unset_lock(Locks::BmsNotPrechargedYet);
+            drive_lock.unset_lock(locks::Locks::BmsNotPrechargedYet);
         }
 
         if drive_lock.any_locked() {
             dti_set_torque(Torque::new::<newton_meter>(0.0));
         } else {
-            // todo: call tc_process
+            tc_process();
+
+            torque_lock.handle_drive_mode(dti_get_velocity(), pedal_data.accel_r, statemachine::get_func_state().await);
 
             crate::can::OUTGOING
                 .send(pedal_data.to_volt_frame().to_can_frame())
