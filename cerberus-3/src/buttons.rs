@@ -55,12 +55,12 @@ pub async fn button_task() -> ! {
             Button::Right => statemachine::increment_nero_index().await,
             Button::Enter => statemachine::select_nero_index().await,
 
-            Button::UpRegen => pedals::increase_regen_limit(),
-            Button::DownRegen => pedals::decrease_regen_limit(),
+            Button::UpRegen => pedals::increase_regen_limit(statemachine::get_func_state().await),
+            Button::DownRegen => pedals::decrease_regen_limit(statemachine::get_func_state().await),
             Button::UpTorque => pedals::increase_torque_limit(),
             Button::DownTorque => pedals::decrease_torque_limit(),
             Button::ToggleLaunchControl => pedals::toggle_launch_control(),
-            Button::ToggleTractionControl => pedals::toggle_traction_control(),
+            Button::ToggleTractionControl => {},
             Button::Unknown => {}
         }
     }
