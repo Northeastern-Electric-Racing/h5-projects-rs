@@ -408,18 +408,6 @@ mod api {
         IndexByFaultId::from_fn(|fault| FaultState::from_bool(*faults.fault(fault)))
     }
 
-    pub enum CriticalityStatus {
-        /// At least one critical fault is active.
-        CriticalFaultsActive,
-        /// No critical faults are active.
-        Ok,
-    }
-
-    /// Checks if any critical faults are currently active.
-    pub fn criticality_status() -> CriticalityStatus {
-        if FLAGS.are_critical_faults_active() { CriticalityStatus::CriticalFaultsActive } else { CriticalityStatus::Ok }
-    }
-
     pub fn are_critical_faults_active() -> bool {
         FLAGS.are_critical_faults_active()
     }
@@ -441,6 +429,25 @@ mod api {
     pub fn try_queue(message: FaultCommand) -> Result<(), ()> {
         // Throwing away the specific error in map_err is fine here since Err always means "channel was full". This is also what can.rs does
         FAULT_QUEUE.try_send(message).map_err(|_| ())
+    }
+
+    pub enum FaultPin {
+        /// Set MCU fault ACTIVE (we are faulted).
+        /// 
+        /// This corresponds to LOW pinstate, since this pin is active-low.
+        Active,
+        /// Set MCU fault INACTIVE (we are not faulted).
+        /// 
+        /// This corresponds to a HIGH pinstate, since this pin is active-low.
+        Inactive,
+    }
+
+    /// Sets state of MCU fault.
+    pub fn set_fault(state: FaultPin) {
+        match state {
+            FaultPin::Active => { crate::gpios::pins().get().mcu_fault_pin.set_low(); },
+            FaultPin::Inactive => { crate::gpios::pins().get().mcu_fault_pin.set_high();},
+        }
     }
 }
 pub use api::*;
