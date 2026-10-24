@@ -25,12 +25,12 @@ pub fn update_bms_shutdown(state: BmsShutdownState) {
 pub fn is_shutdown_closed() -> bool {
     #[cfg(feature = "TSMS_OVERIDE")]
     {
-        return true;
+        return BmsShutdownState::Shutdown;
     }
 
     #[cfg(not(feature = "TSMS_OVERIDE"))]
     {
-        !BMS_SHUTDOWN.load(Ordering::Relaxed)
+        return !BMS_SHUTDOWN.load(Ordering::Relaxed)
     }
 }
 
