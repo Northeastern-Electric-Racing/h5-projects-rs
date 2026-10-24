@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use cangen::CanMessage;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::debug;
@@ -87,6 +88,11 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     });
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::VcuBootRequest::ID);
+    // Accept basic startup; device initialization continues in the spawned tasks.
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
     spawner.spawn(
         ner_can::can_tx(
             can_tx_half,
@@ -99,7 +105,7 @@ async fn main(spawner: Spawner) -> ! {
         ner_can::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
-    spawner.spawn(can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
+    spawner.spawn(can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
 
     // ADC1 + analog mux
     spawner.spawn(

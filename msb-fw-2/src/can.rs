@@ -19,16 +19,17 @@
 //! TODO: the pinned definitions have no messages for strain gauges 3-4, wheel speed or steering
 //! angle. Add those once the definitions include them.
 //!
-//! The MSB only transmits: the global filter rejects every incoming frame.
+//! Incoming frames are filtered to the application boot request ID.
 
 use crate::bind_interrupts::Irqs;
 use crate::shock_pot::{NUM_SHOCK_POTS, SHOCK_POT_DATA, ShockPot, ShockPotReading};
 use crate::strain_guage::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
-use can_handler::NerCan;
-use cangen::ToCanFrame;
+use can_handler::{NerCan, StdFilter};
+use cangen::{CanMessage, Msg, ToCanFrame};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::Peri;
+use embassy_stm32::can::filter::StandardFilterSlot;
 use embassy_stm32::can::{CanConfigurator, Frame};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -36,6 +37,8 @@ use embassy_sync::channel::Channel;
 
 /// Frames waiting for a free FDCAN TX buffer.
 const OUTGOING_CAPACITY: usize = 32;
+
+static INCOMING: Channel<ThreadModeRawMutex, Frame, 32> = Channel::new();
 
 static OUTGOING: Channel<ThreadModeRawMutex, Frame, OUTGOING_CAPACITY> = Channel::new();
 
@@ -47,11 +50,18 @@ pub struct CanResources {
 }
 
 /// Starts FDCAN2 through [`NerCan`] and spawns the CAN tasks.
-pub fn start(spawner: Spawner, r: CanResources) {
-    let (tx, rx, _properties) = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs)).start();
-    // Nothing is received (reject-all filter), but the RX half must stay alive: dropping both
-    // halves shuts the peripheral down.
-    core::mem::forget(rx);
+pub fn start(spawner: Spawner, r: CanResources, bootloader: boot_control::Bootloader<'static>) {
+    let (tx, rx, _properties) = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs))
+        .with_standard_filters(&[StdFilter {
+            slot: StandardFilterSlot::_0,
+            id1: cangen::MsbFrontBootRequest::ID,
+            id2: None,
+        }])
+        .start();
+    spawner.spawn(
+        can_handler::can_rx(rx, INCOMING.dyn_sender()).expect("Failed to spawn CAN receiver"),
+    );
+    spawner.spawn(can_rx_processer(bootloader).expect("Failed to spawn CAN processor"));
 
     spawner.spawn(
         can_handler::can_tx(tx, OUTGOING.dyn_receiver(), OUTGOING.dyn_sender())
@@ -117,4 +127,16 @@ fn strain_gauge_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Fra
         .with_strain1(strain1)
         .with_strain2(strain2)
         .to_can_frame()
+}
+
+#[embassy_executor::task]
+async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) {
+    loop {
+        let frame = INCOMING.receive().await;
+        if let Some(Msg::MsbFrontBootRequest(_)) = Msg::decode(&frame) {
+            if bootloader.handle_frame(&frame).is_err() {
+                defmt::error!("Failed to persist bootloader request");
+            }
+        }
+    }
 }

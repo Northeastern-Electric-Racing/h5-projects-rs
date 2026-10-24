@@ -38,7 +38,7 @@ mod api {
 
     /// Initializes CAN and starts up the CAN handler.
     #[embassy_executor::task]
-    pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources) {
+    pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources, bootloader: boot_control::Bootloader<'static>) {
         use embassy_stm32::can::{CanConfigurator};
         use embassy_stm32::can::filter::{StandardFilterSlot};
 
@@ -48,13 +48,16 @@ mod api {
         const DTI_ERPM_STATUS_MESSAGE: u16 = 0x416;
 
         let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
-        let can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None);
+        let mut can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None);
+        if let embedded_can::Id::Standard(id) = <cangen::BmsBootRequest as cangen::CanMessage>::ID {
+            can = can.add_standard_filter(StandardFilterSlot::_1, id.as_raw(), None);
+        }
 
         let (tx, rx, _props) = can.start();
 
         spawner.spawn(handler::can_tx(tx).expect("Failed to spawn can_handler::can_tx()."));
         spawner.spawn(handler::can_rx(rx).expect("Failed to spawn can_handler::can_rx()."));
-        spawner.spawn(handler::can_rx_processer().expect("Failed to spawn can_handler::can_rx_processer()."));
+        spawner.spawn(handler::can_rx_processer(bootloader).expect("Failed to spawn can_handler::can_rx_processer()."));
 
         #[cfg(defmt_monitor)]
         spawner.spawn(handler::can_props(_props).expect("Failed to spawn can_handler::can_props()."));
@@ -443,9 +446,14 @@ mod handler {
 
     /// Reads incoming CAN frames from the software queue.
     #[embassy_executor::task]
-    pub async fn can_rx_processer() -> ! {
+    pub async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) -> ! {
         loop {
-            let _frame = super::channels::INCOMING.receive().await;
+            let frame = super::channels::INCOMING.receive().await;
+            if let Some(cangen::Msg::BmsBootRequest(_)) = cangen::Msg::decode(&frame) {
+                if bootloader.handle_frame(&frame).is_err() {
+                    defmt::error!("Failed to persist bootloader request");
+                }
+            }
         }
     }
 

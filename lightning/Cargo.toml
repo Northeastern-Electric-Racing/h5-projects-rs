@@ -3,7 +3,11 @@ edition = "2024"
 name = "lightning"
 version = "0.1.0"
 
+[package.metadata.can-flash]
+ecu = "lightning"
+
 [dependencies]
+boot-control.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true

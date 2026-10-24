@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use cangen::CanMessage;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::debug;
@@ -172,7 +173,11 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     };
-    can::start(spawner, can_resources);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::MsbFrontBootRequest::ID);
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
+    can::start(spawner, can_resources, bootloader);
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
