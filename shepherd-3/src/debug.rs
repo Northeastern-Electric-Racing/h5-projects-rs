@@ -182,8 +182,6 @@ pub async fn faults_queuer_2() {
 }
 
 /// Task that sends out debug HV plate data.
-/// Lowk sends way too much stuff but we can use it for verification of life for now.
-#[cfg(not(feature = "hil"))]
 #[embassy_executor::task]
 pub async fn hv_plate_debug() {
     use crate::hv_plate::{self, HV_PLATE_FRESH_DATA_SIGNAL};
@@ -195,6 +193,7 @@ pub async fn hv_plate_debug() {
 
     let current_voltage_ready = hv_plate::cache().get_current_voltage().nice().ready().await;
     let voltages_ready = hv_plate::cache().get_voltages().nice().ready().await;
+    #[cfg(not(feature = "hil"))]
     let accumulated_ready = hv_plate::cache().get_accumulated().nice().ready().await;
     let flag_ready = hv_plate::cache().get_flag().nice().ready().await;
     let aux_ready = hv_plate::cache().get_aux().nice().ready().await;
@@ -209,6 +208,7 @@ pub async fn hv_plate_debug() {
         let current_voltage = *current_voltage_ready.get().data();
         let voltages = *voltages_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
+        #[cfg(not(feature = "hil"))]
         let accumulated = *accumulated_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
         let flag = *flag_ready.get().data();
@@ -240,11 +240,11 @@ pub async fn hv_plate_debug() {
             defmt_monitor::monitor!("HvPlate/TsVoltage", desc = "Tractive system voltage, in volts.", "{=f32}", voltages.ts_voltage.get::<volt>());
             defmt_monitor::monitor!("HvPlate/ShuntTemperature", desc = "Shunt thermistor temperature, in celsius.", "{=f32}", voltages.shunt_temperature.get::<degree_celsius>());
 
-            // Coulomb counting. The sums are running totals this firmware never clears, so a
-            // consumer integrates by diffing against its own previous value; the conversion
-            // count says how many samples each sum covers.
-            defmt_monitor::monitor!("HvPlate/Accumulated/CurrentSumMicrovolts", desc = "Summed shunt voltage across ACCN conversions, in microvolts. A running total, never reset here.", "{=i32}", accumulated.current_sum_microvolts);
-            defmt_monitor::monitor!("HvPlate/Accumulated/BattSumMicrovolts", desc = "Summed BATT-tap voltage across ACCN conversions, in microvolts.", "{=i32}", accumulated.batt_sum_microvolts);
+            #[cfg(not(feature = "hil"))]
+            {
+                defmt_monitor::monitor!("HvPlate/Accumulated/CurrentSumMicrovolts", desc = "Summed shunt voltage across ACCN conversions, in microvolts. A running total, never reset here.", "{=i32}", accumulated.current_sum_microvolts);
+                defmt_monitor::monitor!("HvPlate/Accumulated/BattSumMicrovolts", desc = "Summed BATT-tap voltage across ACCN conversions, in microvolts.", "{=i32}", accumulated.batt_sum_microvolts);
+            }
             defmt_monitor::monitor!("HvPlate/Accumulated/I1Cnt", desc = "I1ADC conversion counter. Says how many conversions the accumulator sums cover.", "{=u16}", flag.i1cnt);
             defmt_monitor::monitor!("HvPlate/Accumulated/I2Cnt", desc = "I2ADC conversion counter.", "{=u8}", flag.i2cnt);
 

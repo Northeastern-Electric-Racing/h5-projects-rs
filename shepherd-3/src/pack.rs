@@ -553,6 +553,7 @@ pub mod analyzer {
 
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
+        #[cfg_attr(feature = "hil", allow(unused_mut, unused_variables))]
         let mut segments_openwire_subscription = SEGMENTS_OPENWIRE_RAN_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
 
         // This is the "working"/persistent analyzer that this task mutates
@@ -618,6 +619,7 @@ pub mod analyzer {
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
 
+            #[cfg(not(feature = "hil"))]
             if segments_openwire_subscription.has_been_signaled() {
                 analyzer.detect_cell_open_wire(s_voltages_ow_even_on.get().data(), s_voltages_ow_odd_on.get().data()).await;
             }
