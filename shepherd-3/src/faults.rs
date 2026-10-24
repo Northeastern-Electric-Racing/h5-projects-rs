@@ -408,7 +408,18 @@ mod api {
         IndexByFaultId::from_fn(|fault| FaultState::from_bool(*faults.fault(fault)))
     }
 
+    pub enum CriticalityStatus {
+        /// At least one critical fault is active.
+        CriticalFaultsActive,
+        /// No critical faults are active.
+        Ok,
+    }
+
     /// Checks if any critical faults are currently active.
+    pub fn criticality_status() -> CriticalityStatus {
+        if FLAGS.are_critical_faults_active() { CriticalityStatus::CriticalFaultsActive } else { CriticalityStatus::Ok }
+    }
+
     pub fn are_critical_faults_active() -> bool {
         FLAGS.are_critical_faults_active()
     }
