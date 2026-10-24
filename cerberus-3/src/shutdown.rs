@@ -43,22 +43,28 @@ pub struct ShutdownInputs {
     pub tstm: Peri<'static, peripherals::PG9>
 }
 
-pub async fn report_shutdown_status(pins: &ShutdownInputs,) {
-    let shutdown_pins = cangen::ShutdownPins::new()
-        .with_bms_gpio(pins.bms.is_high())
-        .with_bots_gpio(pins.bots.is_high())
-        .with_bspd_gpio(pins.bspd.is_high())
-        .with_hv_c(pins.hv_c.is_high())
-        .with_hvd_gpio(pins.hvd.is_high())
-        .with_imd_gpio(pins.imd.is_high())
-        .with_ckpt_gpio(pins.ckpt.is_high())
-        .with_inertia_sw_gpio(pins.inertia_sw.is_high())
-        .with_tsms_gpio(pins.tsms.is_high());
+#[embassy_executor::task]
+pub async fn report_shutdown_task(pins: ShutdownInputs) {
 
-    let bms_shutdown: u8 = BMS_SHUTDOWN.load(Ordering::Relaxed) as u8;
-    let bms_status = cangen::BmsShutdownStatusAsReportedByVcu::new()
-        .with_bms_shutdown_as_reported_by_vcu(bms_shutdown);
+    loop {
+        let shutdown_pins = cangen::ShutdownPins::new()
+            .with_bms_gpio(pins.bms.is_high())
+            .with_bots_gpio(pins.bots.is_high())
+            .with_bspd_gpio(pins.bspd.is_high())
+            .with_hv_c(pins.hv_c.is_high())
+            .with_hvd_gpio(pins.hvd.is_high())
+            .with_imd_gpio(pins.imd.is_high())
+            .with_ckpt_gpio(pins.ckpt.is_high())
+            .with_inertia_sw_gpio(pins.inertia_sw.is_high())
+            .with_tsms_gpio(pins.tsms.is_high());
 
-    can::OUTGOING.send(shutdown_pins.to_can_frame()).await;
-    can::OUTGOING.send(bms_status.to_can_frame()).await;
+        let bms_shutdown = BMS_SHUTDOWN.load(Ordering::Relaxed);
+        let bms_status = cangen::BmsShutdownStatusAsReportedByVcu::new()
+            .with_bms_shutdown_as_reported_by_vcu(bms_shutdown);
+
+        can::OUTGOING.send(shutdown_pins.to_can_frame()).await;
+        can::OUTGOING.send(bms_status.to_can_frame()).await;
+
+        Timer::after_millis(100).await;
+    }
 }
