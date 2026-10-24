@@ -80,6 +80,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "840ad5d907de7448d88a3f22b4a7b5d326c6eb3deeb9f94cfaaec7354a80b305"
 
 [[package]]
+name = "atomic_enum"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99e1aca718ea7b89985790c94aad72d77533063fe00bc497bb79a7c2dae6a661"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1313,6 +1324,7 @@ dependencies = [
  "adbms2950",
  "adbms6830b",
  "assign-resources",
+ "atomic_enum",
  "cangen",
  "cortex-m",
  "cortex-m-rt",
