@@ -1,7 +1,7 @@
 use std::{env, fs, path::PathBuf};
 
 fn main() {
-    // Make this application's memory layout available when building from the workspace.
+    // Copy memory.x into OUT_DIR and add it to the linker search path.
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     fs::write(out.join("memory.x"), include_bytes!("memory.x")).unwrap();
     println!("cargo:rustc-link-search={}", out.display());
