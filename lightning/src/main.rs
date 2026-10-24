@@ -38,8 +38,10 @@ bind_interrupts!(struct IrqsUsart {
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
 
+// --- CAN bootloader support ---
 // Match this ECU's boot-entry ID in ecus.json.
 const BOOT_REQUEST_ID: u16 = 0x043;
+// --- End CAN bootloader support ---
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -101,11 +103,13 @@ async fn main(_spawner: Spawner) -> ! {
                 id1: IMD_CAN_ID,
                 id2: None,
             },
+            // --- CAN bootloader support ---
             StdFilter {
                 slot: can::filter::StandardFilterSlot::_2,
                 id1: BOOT_REQUEST_ID,
                 id2: None,
             },
+            // --- End CAN bootloader support ---
         ])
         .with_extended_filters(&[ExtFilter {
             slot: can::filter::ExtendedFilterSlot::_2,
@@ -141,6 +145,7 @@ async fn main(_spawner: Spawner) -> ! {
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();
     unwrap!(usart.write(s.as_bytes()).await);
 
+    // --- CAN bootloader support ---
     let mut bootloader = boot_control::Bootloader::new(
         p.FLASH,
         embedded_can::Id::Standard(embedded_can::StandardId::new(BOOT_REQUEST_ID).unwrap()),
@@ -148,6 +153,7 @@ async fn main(_spawner: Spawner) -> ! {
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");
+    // --- End CAN bootloader support ---
 
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 5000000);
     watchdog.unleash();

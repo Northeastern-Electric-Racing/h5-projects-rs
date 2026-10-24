@@ -49,9 +49,11 @@ mod api {
 
         let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
         let mut can = handler::NerCan::init(configurator).add_standard_filter(StandardFilterSlot::_0, DTI_ERPM_STATUS_MESSAGE, None);
+        // --- CAN bootloader support ---
         if let embedded_can::Id::Standard(id) = <cangen::BmsBootRequest as cangen::CanMessage>::ID {
             can = can.add_standard_filter(StandardFilterSlot::_1, id.as_raw(), None);
         }
+        // --- End CAN bootloader support ---
 
         let (tx, rx, _props) = can.start();
 
@@ -449,11 +451,13 @@ mod handler {
     pub async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) -> ! {
         loop {
             let frame = super::channels::INCOMING.receive().await;
+            // --- CAN bootloader support ---
             if let Some(cangen::Msg::BmsBootRequest(_)) = cangen::Msg::decode(&frame) {
                 if bootloader.handle_frame(&frame).is_err() {
                     defmt::error!("Failed to persist bootloader request");
                 }
             }
+            // --- End CAN bootloader support ---
         }
     }
 

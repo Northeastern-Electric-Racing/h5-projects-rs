@@ -173,10 +173,12 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     };
+    // --- CAN bootloader support ---
     let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::MsbFrontBootRequest::ID);
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");
+    // --- End CAN bootloader support ---
     can::start(spawner, can_resources, bootloader);
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);

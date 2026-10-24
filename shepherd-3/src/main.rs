@@ -120,9 +120,11 @@ async fn main(spawner: Spawner) {
 
     hardfault::report_last_reset();
 
+    // --- CAN bootloader support ---
     let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::BmsBootRequest::ID);
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader.confirm_boot().expect("Failed to confirm application startup");
+    // --- End CAN bootloader support ---
     let r = split_resources!(p);
 
     spawner.spawn(can::can_task(spawner, r.can, bootloader).expect("Failed to spawn can::can_task()."));

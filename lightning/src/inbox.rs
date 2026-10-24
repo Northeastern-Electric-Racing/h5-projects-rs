@@ -53,12 +53,14 @@ pub mod inbox {
                 match receiver.read().with_timeout(CAN_RECV_TIMEOUT).await {
                     Ok(frame) => match frame {
                         Ok(envelope) => match envelope.frame.id() {
+                            // --- CAN bootloader support ---
                             Id::Standard(id) if id.as_raw() == crate::BOOT_REQUEST_ID => {
                                 if bootloader.handle_frame(&envelope.frame).is_err() {
                                     defmt::error!("Failed to persist bootloader request");
                                 }
                                 None
                             }
+                            // --- End CAN bootloader support ---
                             &IMD_CAN_ID_PROCESSED => {
                                 // Only the 4th and 5th bits mean there is an error on the IMD
                                 match u16::from_le_bytes([
