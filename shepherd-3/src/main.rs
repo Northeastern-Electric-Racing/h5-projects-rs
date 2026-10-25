@@ -23,6 +23,7 @@ pub mod state_machine;
 pub mod faults;
 pub mod pack;
 pub mod helpers;
+pub mod gpios;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
@@ -78,6 +79,10 @@ assign_resources! {
         lineb_tx_dma: GPDMA1_CH6,
         lineb_rx_dma: GPDMA1_CH7,
     }
+    /// Resources for `gpios` module.
+    gpios: GpiosResources {
+        mcu_fault_pin: PG15,
+    }
 }
 
 #[cfg(feature = "hil")]
@@ -109,6 +114,10 @@ assign_resources! {
         tx_dma: GPDMA1_CH6,
         rx_dma: GPDMA1_CH7,
     }
+    /// Resources for `gpios` module.
+    gpios: GpiosResources {
+        mcu_fault_pin: PG15,
+    }
 }
 
 #[embassy_executor::main]
@@ -120,6 +129,8 @@ async fn main(spawner: Spawner) {
     hardfault::report_last_reset();
 
     let r = split_resources!(p);
+
+    gpios::init(r.gpios);
 
     spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
