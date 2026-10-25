@@ -5,16 +5,6 @@ version = 4
 [[package]]
 name = "adbms-register-macros"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.9",
-]
-
-[[package]]
-name = "adbms-register-macros"
-version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79#810be7e0b5a0c0162be26917e0dbce41af545b79"
 dependencies = [
  "proc-macro2",
