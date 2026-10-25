@@ -192,7 +192,7 @@ async fn main(spawner: Spawner) -> ! {
     // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
     spawner.spawn(
-        rtds::rtds_task(rtds_pin, shutdown::is_shutdown_closed)
+        rtds::rtds_task(rtds_pin, ||shutdown::get_shutdown_state()==BmsShutdownState::Closed)
             .expect("Failed to spawn rtds::rtds_task()."),
     );
 

@@ -34,14 +34,6 @@ pub fn get_shutdown_state() -> BmsShutdownState {
     } 
 }
 
-pub fn is_shutdown_closed() -> bool {
-    if cfg!(feature = "TSMS_OVERIDE") {  
-        return true; 
-    } else {  
-        return !BMS_SHUTDOWN.load(Ordering::Relaxed);
-    } 
-}
-
 pub struct ShutdownInputs {
     pub bms: Peri<'static, peripherals::PF6>,
     pub bots: Peri<'static, peripherals::PF7>,
