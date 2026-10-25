@@ -17,7 +17,7 @@ pub mod connected {
 }
 
 use embassy_time::{Duration, Instant};
-use crate::units::{Voltage, volt};
+use crate::units::{Voltage, Current};
 use crate::helpers::deadline::Deadline;
 
 /// Cell voltage that ends a charge phase.
@@ -29,33 +29,80 @@ const LONG_CHARGE: Duration = Duration::from_secs(15 * 60);
 const SHORT_CHARGE: Duration = Duration::from_secs(20);
 const SETTLE: Duration = Duration::from_secs(60);
 
-#[derive(Copy, Clone, PartialEq, defmt::Format)]
-pub enum ChargeStage {
-    /// Phase 1: bulk charge, up to 15 minutes at a time.
-    LongChargeUp(Deadline),
-    /// Phase 1 rest, so the cells can settle before their OCV is believed.
-    LongSettle(Deadline),
-    /// Phase 2: short top-up bursts.
-    ShortChargeUp(Deadline),
-    /// Phase 2 rest.
-    ShortSettle(Deadline),
-    /// Settled OCV reached the target. Terminal.
-    Done,
-    /// Charging was abandoned. Terminal.
-    Fault,
-}
-impl ChargeStage {
-    /// Creates a [`LongChargeUp`] with the necessary deadline.
-    pub fn long_charge_up() -> Self { Self::LongChargeUp(Deadline::expire_in(LONG_CHARGE)) }
-    /// Creates a [`LongSettle`] with the necessary deadline.
-    pub fn long_settle() -> Self { Self::LongSettle(Deadline::expire_in(SETTLE)) }
-    /// Creates a [`ShortChargeUp`] with the necessary deadline.
-    pub fn short_charge_up() -> Self { Self::ShortChargeUp(Deadline::expire_in(SHORT_CHARGE)) }
-    /// Creates a [`ShortSettle`] with the necessary deadline.
-    pub fn short_settle() -> Self { Self::ShortSettle(Deadline::expire_in(SETTLE)) }
-}
-impl Default for ChargeStage {
-    fn default() -> Self { ChargeStage::long_charge_up() }
+/// Configuration for the different charge stages.
+mod stages {
+    use super::*;
+
+    /// How long a `LongChargeUp` session should last before expiring.
+    const LONG_CHARGE_DURATION: Duration = Duration::from_secs(15 * 60);
+    /// How much current we should request from the charger while in `LongChargeUp`.
+    const LONG_CHARGE_CURRENT: Current = Current::from_amps(5.0);
+    struct LongChargeUp {
+        /// RUNTIME FIELD. When this `LongChargeUp` session should expire (based on LONG_CHARGE_DURATION).
+        deadline: Deadline,
+
+        /// CONSTANT FIELD. How much current we should request from the charger while in `LongChargeUp`.
+        current: Current 
+    }
+    impl LongChargeUp {
+        fn new() -> Self { Self { deadline: Deadline::expire_in(LONG_CHARGE_DURATION), current: LONG_CHARGE_CURRENT }}
+    }
+
+    /// How long a `ShortChargeUp` session should last before expiring.
+    const SHORT_CHARGE_DURATION: Duration = Duration::from_secs(20);
+    /// The starting current for `ShortChargeUp`.
+    const SHORT_CHARGE_START_CURRENT: Current = Current::from_amps(5.0);
+    /// The rate at which we step down the current.
+    const SHORT_CHARGE_CURRENT_STEP: Current = Current::from_amps(1.0);
+    struct ShortChargeUp {
+        /// RUNTIME FIELD. When this `ShortChargeUp` session should expire (based on SHORT_CHARGE_DURATION).
+        deadline: Deadline,
+        /// RUNTIME FIELD. How much current we should request from the charger while in `ShortChargeUp`.
+        /// This varies at runtime. It steps down depending on how filled the cells are.
+        current: Current,
+
+        /// CONSTANT FIELD. The step at which we step down `current`.
+        current_step: Current, 
+    }
+    impl ShortChargeUp {
+        fn new() -> Self { Self { deadline: Deadline::expire_in(SHORT_CHARGE_DURATION), current: SHORT_CHARGE_START_CURRENT, current_step: SHORT_CHARGE_CURRENT_STEP } }
+    }
+
+    /// Balancing period.
+    const BALANCING_ACTIVE_DURATION: Duration = Duration::from_secs(60);
+    /// Cooldown after balancing for BALANCING_ACTIVE_DURATION.
+    const BALANCING_COOLDOWN_DURATION: Duration = Duration::from_secs(120);
+
+    #[derive(Copy, Clone, PartialEq, defmt::Format)]
+    pub enum ChargeStage {
+        /// First charging stage, in which we pull full current from the charger. This is what is used for like the first 90%+ percent of charge.
+        LongChargeUp,
+        /// Second charging stage (entered when we approach full charge). We charge with less current, and keep decreasing that current gradually as we keep moving towards full charge.
+        ShortChargeUp,
+        /// Sidequest stage that can be entered from the other stages. Entered if we need to balance, but a little bit of current can still be pulled from the charger at the same time.
+        BalanceAndChargeUp,
+        /// Sidequest stage that can be entered from the other stages. Entered if we need to balance, but cannot pull any more current from the charger because at least one cell has reached the max/full voltage. 
+        BalanceOnly,
+        /// Short phase that is transitioned to after the Deadline of the active phase expires. It is used to temporarily turn off charging to observe OCV, and then decide the next steps to take (i.e., if we are DONE, or if we must go back to another stage).
+        Settle,
+        /// We are done with charging.
+        Done,
+        /// Something bad happened.
+        Fault,
+    }
+    impl ChargeStage {
+        /// Creates a [`LongChargeUp`] with the necessary deadline.
+        pub fn long_charge_up() -> Self { Self::LongChargeUp(Deadline::expire_in(LONG_CHARGE)) }
+        /// Creates a [`LongSettle`] with the necessary deadline.
+        pub fn long_settle() -> Self { Self::LongSettle(Deadline::expire_in(SETTLE)) }
+        /// Creates a [`ShortChargeUp`] with the necessary deadline.
+        pub fn short_charge_up() -> Self { Self::ShortChargeUp(Deadline::expire_in(SHORT_CHARGE)) }
+        /// Creates a [`ShortSettle`] with the necessary deadline.
+        pub fn short_settle() -> Self { Self::ShortSettle(Deadline::expire_in(SETTLE)) }
+    }
+    impl Default for ChargeStage {
+        fn default() -> Self { ChargeStage::long_charge_up() }
+    }
 }
 
 /// Conditions that serve as inputs for `ChargeStage::next()`.
@@ -70,16 +117,6 @@ impl ChargeStage {
     /// Whether current should be requested from the charger in this stage.
     pub const fn charging_allowed(self) -> bool {
         matches!(self, Self::LongChargeUp(..) | Self::ShortChargeUp(..))
-    }
-
-    /// How long the stage runs before it times out, or `None` if it has no timer.
-    const fn duration(self) -> Option<Duration> {
-        match self {
-            Self::LongChargeUp(..) => Some(LONG_CHARGE),
-            Self::ShortChargeUp(..) => Some(SHORT_CHARGE),
-            Self::LongSettle(..) | Self::ShortSettle(..) => Some(SETTLE),
-            Self::Done | Self::Fault => None,
-        }
     }
 
     /// The whole stage graph
@@ -123,7 +160,6 @@ impl ChargeStage {
 #[derive(Default)]
 pub struct Charger {
     stage: ChargeStage,
-    deadline: Option<Instant>,
 }
 
 impl Charger {
@@ -135,7 +171,6 @@ impl Charger {
     /// always begins a fresh bulk phase rather than resuming a stale one.
     pub fn restart(&mut self, now: Instant) {
         self.stage = ChargeStage::default();
-        self.arm(now);
         defmt::info!("Charge stage: starting at {}", self.stage);
     }
 
@@ -165,10 +200,5 @@ impl Charger {
         defmt::info!("Charge stage: {} -> {}", self.stage, stage);
         self.stage = stage;
         self.arm(now);
-    }
-
-    /// Starts the current stage's timer, if it has one.
-    fn arm(&mut self, now: Instant) {
-        self.deadline = self.stage.duration().map(|d| now + d);
     }
 }
