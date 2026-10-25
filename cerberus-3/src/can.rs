@@ -39,7 +39,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_1: StdFilter = StdFilter {
         slot: StandardFilterSlot::_1,
         id1: cangen::CellTemperatures::ID,
-        id2: Some(cangen::LightningPulseMessage::ID),
+        id2: None,
     };
 
     const SLOT_2: StdFilter = StdFilter {
@@ -69,7 +69,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_1E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_1,
         id1: cangen::RtdsCommandMessage::ID,
-        id2: None,
+        id2: Some(cangen::LightningPulseMessage::ID),
     };
 
     const SLOT_2E: ExtFilter = ExtFilter {
@@ -103,7 +103,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     };
 
     const SLOT_7E: ExtFilter = ExtFilter {
-        slot: ExtendedFilterSlot::_4,
+        slot: ExtendedFilterSlot::_7,
         id1: cangen::SpareEfuseState::ID,
         id2: None,
     };
