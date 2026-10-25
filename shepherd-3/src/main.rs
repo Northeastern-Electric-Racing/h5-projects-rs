@@ -114,6 +114,10 @@ assign_resources! {
         tx_dma: GPDMA1_CH6,
         rx_dma: GPDMA1_CH7,
     }
+    /// Resources for `gpios` module.
+    gpios: GpiosResources {
+        mcu_fault_pin: PG15,
+    }
 }
 
 #[embassy_executor::main]
