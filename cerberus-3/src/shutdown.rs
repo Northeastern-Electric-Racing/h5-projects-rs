@@ -22,16 +22,17 @@ pub fn update_bms_shutdown(state: BmsShutdownState) {
 }
 
 
-pub fn is_shutdown_closed() -> bool {
-    #[cfg(feature = "TSMS_OVERIDE")]
-    {
-        return BmsShutdownState::Shutdown;
-    }
-
-    #[cfg(not(feature = "TSMS_OVERIDE"))]
-    {
-        return !BMS_SHUTDOWN.load(Ordering::Relaxed)
-    }
+pub fn get_shutdown_state() -> BmsShutdownState {
+    if cfg!(feature = "TSMS_OVERIDE") {  
+        return BmsShutdownState::Shutdown; 
+    } else {  
+        if !BMS_SHUTDOWN.load(Ordering::Relaxed){
+            return BmsShutdownState::Shutdown
+        }
+        else{
+            return BmsShutdownState::Closed
+        }
+    } 
 }
 
 pub struct ShutdownInputs {
