@@ -242,44 +242,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "can-handler"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=45c9c098e9f729812cfbe101cc7d9747759f0a2e#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
-dependencies = [
- "defmt 1.2.0",
- "embassy-executor",
- "embassy-futures",
- "embassy-stm32",
- "embassy-sync",
- "embassy-time",
- "embedded-can",
- "heapless",
-]
-
-[[package]]
 name = "cangen"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
-dependencies = [
- "bitfield-struct",
- "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
- "embedded-can",
-]
-
-[[package]]
-name = "cangen"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
-dependencies = [
- "bitfield-struct",
- "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af)",
- "embedded-can",
-]
-
-[[package]]
-name = "cangen"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=45c9c098e9f729812cfbe101cc7d9747759f0a2e#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
 dependencies = [
  "bitfield-struct",
  "cangen-macro",
@@ -290,19 +255,6 @@ dependencies = [
 name = "cangen-macro"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
-dependencies = [
- "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
- "heck",
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "cangen-macro"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
 dependencies = [
  "definition-rs",
  "heck",
@@ -326,7 +278,7 @@ dependencies = [
 name = "cerberus-3"
 version = "0.1.0"
 dependencies = [
- "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "can-handler",
  "cangen",
  "cortex-m",
  "cortex-m-rt",
@@ -486,28 +438,6 @@ dependencies = [
 name = "definition-rs"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
-dependencies = [
- "proc-macro2",
- "quote",
- "schemars",
- "serde",
-]
-
-[[package]]
-name = "definition-rs"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
-dependencies = [
- "proc-macro2",
- "quote",
- "schemars",
- "serde",
-]
-
-[[package]]
-name = "definition-rs"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=45c9c098e9f729812cfbe101cc7d9747759f0a2e#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1207,8 +1137,8 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 name = "lightning"
 version = "0.1.0"
 dependencies = [
- "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "can-handler",
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
@@ -1268,7 +1198,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 name = "msb-fw-2"
 version = "0.1.0"
 dependencies = [
- "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "can-handler",
  "cangen",
  "cortex-m",
  "cortex-m-rt",

@@ -6,6 +6,7 @@ mod hardware;
 mod state;
 
 use crate::hardware::Leds;
+use cangen::ToCanFrame;
 use core::fmt::Write;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
@@ -16,7 +17,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::Uart;
 use embassy_stm32::{Config, dma, peripherals, usart};
 use embassy_stm32::{bind_interrupts, wdg::IndependentWatchdog};
-use embassy_time::{Duration, Ticker, Timer};
+use embassy_time::{Duration, Ticker};
 use heapless::String;
 
 use {defmt_rtt as _, panic_probe as _};
@@ -116,12 +117,19 @@ async fn main(spawner: Spawner) -> ! {
     watchdog.unleash();
     let mut ticker = Ticker::every(Duration::from_millis(500));
 
-    let leds: Leds = Leds::new(p.PE4, p.PE5);
-    spawner
-        .spawn(state::state_machine::state_machine(leds).expect("Failed to spawn state machine"));
+    spawner.spawn(
+        state::state_machine::state_machine(Leds::new(p.PE4, p.PE5))
+            .expect("Failed to spawn state machine"),
+    );
+
+    let mut count: u32 = 0;
+    let msg = cangen::LightningPulseMessage::new().with_count(count);
+
     loop {
         debug!("I'm not dead yet");
-        Timer::after_millis(500).await;
+        count += 1;
+        msg.with_count(count);
+        can::OUTGOING.send(msg.to_can_frame()).await;
         ticker.next().await;
         watchdog.pet();
     }
