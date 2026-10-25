@@ -56,15 +56,15 @@ pub struct ShutdownInputs {
 
 #[embassy_executor::task]
 pub async fn report_shutdown_task(pins: ShutdownInputs) {
-    let bms = Input::new(pins.bms, Pull::Up);
-    let bots = Input::new(pins.bots, Pull::Up);
-    let bspd = Input::new(pins.bspd, Pull::Up);
-    let hv_c = Input::new(pins.hv_c, Pull::Up);
-    let hvd = Input::new(pins.hvd, Pull::Up);
-    let imd = Input::new(pins.imd, Pull::Up);
-    let ckpt = Input::new(pins.ckpt, Pull::Up);
-    let inertia_sw = Input::new(pins.inertia_sw, Pull::Up);
-    let tsms = Input::new(pins.tsms, Pull::Up);
+    let bms = Input::new(pins.bms, Pull::None);
+    let bots = Input::new(pins.bots, Pull::None);
+    let bspd = Input::new(pins.bspd, Pull::None);
+    let hv_c = Input::new(pins.hv_c, Pull::None);
+    let hvd = Input::new(pins.hvd, Pull::None);
+    let imd = Input::new(pins.imd, Pull::None);
+    let ckpt = Input::new(pins.ckpt, Pull::None);
+    let inertia_sw = Input::new(pins.inertia_sw, Pull::None);
+    let tsms = Input::new(pins.tsms, Pull::None);
 
     loop {
         let shutdown_pins = cangen::ShutdownPins::new()
