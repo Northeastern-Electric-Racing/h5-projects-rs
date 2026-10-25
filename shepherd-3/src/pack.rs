@@ -571,8 +571,8 @@ pub mod analyzer {
         let filtered_cell_voltages = segments::cache().get_filtered_cell_voltages().nice().ready().await;
         let redundant_aux = segments::cache().get_redundant_aux().nice().ready().await;
         let status_a = segments::cache().get_status_a().nice().ready().await;
-        let _s_voltages_ow_even_on = segments::cache().get__s_voltages_ow_even_on().nice().ready().await;
-        let _s_voltages_ow_odd_on = segments::cache().get__s_voltages_ow_odd_on().nice().ready().await;
+        let _s_voltages_ow_even_on = segments::cache().get_s_voltages_ow_even_on().nice().ready().await;
+        let _s_voltages_ow_odd_on = segments::cache().get_s_voltages_ow_odd_on().nice().ready().await;
 
 
         loop {
