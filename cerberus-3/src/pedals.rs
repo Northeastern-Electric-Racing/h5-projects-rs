@@ -100,13 +100,13 @@ pub(crate) mod constants {
 
 mod locks {
     use crate::pedals::constants::*;
+    use crate::pedals::get_accel_pressed;
     use defmt::bitflags;
     use embassy_time::{Duration, Instant};
     use uom::si::electric_current::ampere;
     use uom::si::f32::{ElectricCurrent, ElectricPotential, Ratio};
     use uom::si::ratio::ratio;
     use variant_count::VariantCount;
-    use crate::pedals::get_accel_pressed;
 
     #[derive(VariantCount, Clone, Copy, Debug, defmt::Format)]
     pub enum Locks {
@@ -406,7 +406,9 @@ mod drive_modes {
         ACCELERATION_THRESHOLD, DELTA_ACCELERATION_MAX, MAX_LIMITING_SPEED, MAX_TORQUE,
         MAX_TORQUE_RATIO, MIN_REGEN, PIT_MAX_SPEED, REGEN_THRESHOLD,
     };
-    use crate::pedals::{dti_set_regen, dti_set_torque, get_launch_control, get_regen_limit, get_traction_control};
+    use crate::pedals::{
+        dti_set_regen, dti_set_torque, get_launch_control, get_regen_limit, get_traction_control,
+    };
     use crate::statemachine::FuncState;
     use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
@@ -416,7 +418,7 @@ mod drive_modes {
     use uom::si::ratio::ratio;
     use uom::si::time::millisecond;
     use uom::si::torque::newton_meter;
-    use uom::si::velocity::{kilometer_per_hour, meter_per_second};
+    use uom::si::velocity::kilometer_per_hour;
 
     const TORQUE_ACCUMULATOR_SIZE: usize = 10;
 
@@ -497,16 +499,14 @@ mod drive_modes {
         }
 
         fn derate_torque(&mut self, vel: Velocity, accel: Ratio) -> Torque {
-            let torque: i16 =
-                if vel > PIT_MAX_SPEED {
-                    0
-                } else {
-                    (MAX_TORQUE.get::<newton_meter>()
-                        * accel.get::<ratio>()
-                        * MAX_TORQUE_RATIO.get::<ratio>()
-                        * (1.0 - (vel / PIT_MAX_SPEED).get::<ratio>()))
-                        as i16
-                };
+            let torque: i16 = if vel > PIT_MAX_SPEED {
+                0
+            } else {
+                (MAX_TORQUE.get::<newton_meter>()
+                    * accel.get::<ratio>()
+                    * MAX_TORQUE_RATIO.get::<ratio>()
+                    * (1.0 - (vel / PIT_MAX_SPEED).get::<ratio>())) as i16
+            };
 
             self.torque_accumulator[self.torque_index] = torque;
 
@@ -554,8 +554,7 @@ mod drive_modes {
                 } else {
                     self.linear_accel_to_torque(accel);
                 }
-            } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD
-            {
+            } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD {
                 self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Performance));
             } else {
                 dti_set_torque(Torque::new::<newton_meter>(0.0));
@@ -565,8 +564,7 @@ mod drive_modes {
         fn handle_endurance(&self, vel: Velocity, accel: Ratio) {
             if accel > ACCELERATION_THRESHOLD {
                 self.accel_pedal_regen_torque(accel);
-            } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD
-            {
+            } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD {
                 self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Efficiency));
             } else {
                 dti_set_torque(Torque::new::<newton_meter>(0.0));
@@ -701,8 +699,13 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
     let mut dma_buffer = [0u16; 2 * analog::Adc2Channels::VARIANT_COUNT];
     let mut pedal_buffer = analog::PedalBuffer::new();
 
-    let mut adc = Adc::new(r.adc, analog::Irqs, config)
-        .into_ring_buffered(r.dma, &mut dma_buffer, analog::Irqs, sequence.into_iter(), None);
+    let mut adc = Adc::new(r.adc, analog::Irqs, config).into_ring_buffered(
+        r.dma,
+        &mut dma_buffer,
+        analog::Irqs,
+        sequence.into_iter(),
+        None,
+    );
     adc.set_alignment(analog::Adc2Channels::VARIANT_COUNT);
     adc.start();
 
