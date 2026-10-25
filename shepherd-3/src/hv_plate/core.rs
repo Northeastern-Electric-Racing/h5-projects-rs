@@ -168,6 +168,32 @@ impl HvPlate {
     }
 }
 
+/// What GPO4 is driving the AIR coil to do, as far as the chip has acknowledged.
+pub mod relay {
+    use atomic_enum::atomic_enum;
+    use core::sync::atomic::Ordering;
+
+    #[atomic_enum]
+    #[derive(PartialEq, Eq, defmt::Format)]
+    pub enum RelayState {
+        /// Nothing has been written yet, or the last write failed.
+        Unknown = 0,
+        Open,
+        Closed,
+    }
+
+    static STATE: AtomicRelayState = AtomicRelayState::new(RelayState::Unknown);
+
+    pub(super) fn store(state: RelayState) {
+        STATE.store(state, Ordering::Relaxed);
+    }
+
+    /// What the chip last acknowledged about GPO4.
+    pub fn state() -> RelayState {
+        STATE.load(Ordering::Relaxed)
+    }
+}
+
 pub mod jobs {
     use crate::job_diagnostics;
 
@@ -345,8 +371,13 @@ pub mod task {
                 signal::HV_PLATE_FRESH_DATA_SIGNAL.signal();
             }
 
-            if let Err(err) = hv_plate.set_hv_relay(precharge::relay_should_be_closed()).await {
-                defmt::error!("HvPlate: precharge: relay write failed, will retry next tick. Error: {}", err);
+            let want_closed = precharge::relay_should_be_closed();
+            match hv_plate.set_hv_relay(want_closed).await {
+                Ok(()) => relay::store(if want_closed { relay::RelayState::Closed } else { relay::RelayState::Open }),
+                Err(err) => {
+                    relay::store(relay::RelayState::Unknown);
+                    defmt::error!("HvPlate: precharge: relay write failed, will retry next tick. Error: {}", err);
+                },
             }
 
             '_diagnostic: {

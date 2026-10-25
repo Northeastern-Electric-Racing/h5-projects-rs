@@ -260,6 +260,8 @@ mod system {
         PackTooHot                     => Critical, Automatic { timeout: Duration::from_secs(5) },
         HvPlateCommsFault              => Critical, PassFail  { consecutive_bads: 0, consecutive_okays: 0 },
         SegmentCommsFault              => Critical, Automatic { timeout: Duration::from_secs(5) },
+        // u_TODO - make sure to add this fault bit to the CAN spec (13 bits !!)
+        ContactorWeldedFault           => Critical, PassFail  { consecutive_bads: 0, consecutive_okays: 0 },
         FakeFault1                     => Critical, Automatic { timeout: Duration::from_millis(1000) },
         FakeFault2                     => Critical, Automatic { timeout: Duration::from_millis(2500) },
         CellOpenWireFault              => Critical, PassFail { consecutive_bads: const { duration_to_open_wire_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
