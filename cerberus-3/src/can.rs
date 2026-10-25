@@ -144,7 +144,7 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::PrechargeStatus(_)) => {}
             Some(Msg::RtdsCommandMessage(_)) => {}
 
-            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
+            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
             Some(Msg::ShutdownAsReadByBms(m)) => debug!("shutdown: {}", m.shutdown_state()),
             Some(_) => debug!("Unknown message"),
             _ => {

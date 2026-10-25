@@ -41,9 +41,12 @@ impl Button {
     }
 }
 
-pub async fn register_press(button: u8) {
+pub fn register_press(button: u8) {
     debug!("Pressed: {}", button);
-    PRESSED.send(Button::from_id(button)).await;
+    debug!("Pressed: {}", button);
+    if PRESSED.try_send(Button::from_id(button)).is_err() {
+        debug!("Button queue full, dropping press {}", button);
+    }
 }
 
 #[embassy_executor::task]
