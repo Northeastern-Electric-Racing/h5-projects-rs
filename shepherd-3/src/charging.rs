@@ -162,6 +162,9 @@ mod stages {
     struct Inputs {
         max_ocv: Voltage,
         max_voltage: Voltage,
+        min_ocv: Voltage,
+        delta_ocv: Voltage,
+
     }
     impl Inputs {
         /// Based on the input values, checks if we have exceeded the fault conditions.
@@ -172,6 +175,10 @@ mod stages {
 
     /// Cell voltage that ends a charge phase.
     const MAX_CHARGE_VOLT: Voltage = Voltage::from_volts(4.19);
+    /// `delta_ocv` at which balancing should start.
+    const BALANCE_START_DELTA_V: Voltage = Voltage::from_volts(0.020);
+    /// `delta_ocv` at which balancing should stop.
+    const BALANCE_STOP_DELTA_V: Voltage = Voltage::from_volts(0.015);
 
     impl ChargeStage {
         fn next(self, inputs: Inputs) -> Self {
@@ -180,13 +187,17 @@ mod stages {
                     if inputs.exceeded_fault_voltages()           { Self::Fault }
                     else if inputs.max_voltage >= MAX_CHARGE_VOLT { Self::ShortChargeUp(ShortChargeUp::new()) }
                     // u_TODO if balancing needed && balancing possible, then go into BalanceAndChargeUp if less than max charge volts, or go into BalanceOnly
-                    else if h.deadline.past()                     { Self::Settle(Settle::new()) },
+                    else if h.deadline.past()                     { Self::Settle(Settle::new()) }
                     else                                          { self }
 
                 },
 
                 Self::ShortChargeUp(h) => {
                     if inputs.exceeded_fault_voltages() { Self::Fault }
+                    else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && (h.current <= SHORT_CHARGE_CURRENT_STEP) { Self::Settle(Settle::new()) }
+                    else if h.deadline.past()                                                                   { Self::Settle(Settle::new()) }
+                    // u_TODO else if balancing needed && balancing possible, then go into BalanceAndChargeUp if less than max charge volts, or go into BalanceOnly
+                    else                                                                                        { self }
                 },
 
                 Self::BalanceAndChargeUp(h) => {
