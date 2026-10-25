@@ -9,6 +9,8 @@ use crate::statemachine;
 use crate::statemachine::FuncState;
 use cangen::ToCanFrame;
 use core::sync::atomic::{AtomicBool, Ordering};
+use defmt::debug;
+use embassy_stm32::adc::{Adc, AdcChannel, Clock, Config, Prescaler, Resolution};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
@@ -17,7 +19,6 @@ use uom::si::f32::{ElectricCurrent, Ratio, Torque, Velocity};
 use uom::si::ratio::{percent, ratio};
 use uom::si::torque::newton_meter;
 use uom::si::velocity::meter_per_second;
-
 // ---------------------------------------------------------------------------
 // TEMP functions, replace later
 // ---------------------------------------------------------------------------
@@ -46,6 +47,7 @@ fn tc_process() {}
 
 pub(crate) mod constants {
     use core::marker::PhantomData;
+    use embassy_stm32::adc::SampleTime;
     use embassy_time::Duration;
     use uom::si::f32::{Acceleration, ElectricCurrent, ElectricPotential, Ratio, Torque, Velocity};
 
@@ -76,6 +78,7 @@ pub(crate) mod constants {
     pub(super) const PEDAL_DIFF_THRESH: Ratio = q!(Ratio, 20.0, percent);
     pub(super) const PEDAL_HARD_BRAKE_THRESH: Ratio = q!(Ratio, 20.0, percent);
     pub const PEDAL_BRAKE_THRESH: Ratio = q!(Ratio, 15.0, percent);
+    pub(super) const SAMPLE_TIME: SampleTime = SampleTime::Cycles475;
     pub(super) const MAX_VOLTS_UNSCALED: ElectricPotential = q!(ElectricPotential, 5.0);
     pub(super) const MIN_APPS1_VOLTS: ElectricPotential = q!(ElectricPotential, 2.1);
     pub(super) const MAX_APPS1_VOLTS: ElectricPotential = q!(ElectricPotential, 3.4);
@@ -83,15 +86,15 @@ pub(crate) mod constants {
     pub(super) const MAX_APPS2_VOLTS: ElectricPotential = q!(ElectricPotential, 2.2);
     pub const PEDAL_BRAKE_TURNOFF_THRESH: Ratio = q!(Ratio, 0.4, percent);
     pub(super) const DELTA_ACCELERATION_MAX: Acceleration =
-        q!(Acceleration, 22.0 * 1609.344 / 60.0); // 22 MPH per second
+        q!(Acceleration, 22.0 * 1609.344 / 60.0 / 60.0); // 22 MPH per second
     pub(super) const MAX_LIMITING_SPEED: Velocity = q!(Velocity, 30.0 * 1609.344 / 60.0 / 60.0); // 30 MPH
     pub(super) const MAX_TORQUE_RATIO: Ratio = q!(Ratio, 30.0, percent);
     pub(super) const ACCELERATION_THRESHOLD: Ratio = q!(Ratio, 30.0, percent);
-    pub(super) const REGEN_THRESHOLD_RATIO: Ratio = q!(Ratio, 25.0, percent);
+    pub(super) const REGEN_THRESHOLD: Ratio = q!(Ratio, 25.0, percent);
     pub(super) const MIN_REGEN: ElectricCurrent = q!(ElectricCurrent, 75.0);
     pub(super) const MAX_REGEN: ElectricCurrent = q!(ElectricCurrent, 400.0);
-    pub(super) const REGEN_STEP_SIZE: ElectricCurrent = q!(ElectricCurrent, 400.0);
-    pub(super) const PIT_MAX_SPEED: Velocity = q!(Velocity, 5.0 / 2.237);
+    pub(super) const REGEN_STEP_SIZE: ElectricCurrent = q!(ElectricCurrent, 10.0);
+    pub(super) const PIT_MAX_SPEED: Velocity = q!(Velocity, 5.0 / 2.237); // 5 mph
     pub(super) const MAX_TORQUE: Torque = q!(Torque, 214.0);
 }
 
@@ -103,8 +106,9 @@ mod locks {
     use uom::si::f32::{ElectricCurrent, ElectricPotential, Ratio};
     use uom::si::ratio::ratio;
     use variant_count::VariantCount;
+    use crate::pedals::get_accel_pressed;
 
-    #[derive(VariantCount, Clone, Copy, Debug)]
+    #[derive(VariantCount, Clone, Copy, Debug, defmt::Format)]
     pub enum Locks {
         BrakeOc,
         BrakeSc,
@@ -169,11 +173,14 @@ mod locks {
                 Locks::BspdPref => {}
                 Locks::BmsNotPrechargedYet => {}
             }
-            todo!("Call appropriate fault");
+            // todo: call the appropriate fault
+            defmt::error!("Fault queued: {:?}", fault);
         }
 
         pub(super) fn unset_lock(&mut self, fault: Locks) {
-            self.drive_locks.remove(fault.get_flag());
+            if !get_accel_pressed() {
+                self.drive_locks.remove(fault.get_flag());
+            }
         }
 
         pub(super) fn any_locked(&self) -> bool {
@@ -221,20 +228,18 @@ mod locks {
             &mut self,
             accel1_voltage: ElectricPotential,
             accel2_voltage: ElectricPotential,
-            accel1_percentage: Ratio,
-            accel2_percentage: Ratio,
+            accel_diff_ratio: Ratio,
         ) {
             let open_circuit_fault = (accel1_voltage
-                > MAX_VOLTS_UNSCALED + APPS_THRESHOLD_TOLERANCE)
-                || (accel2_voltage > MAX_VOLTS_UNSCALED + APPS_THRESHOLD_TOLERANCE);
+                > MAX_VOLTS_UNSCALED - APPS_THRESHOLD_TOLERANCE)
+                || (accel2_voltage > MAX_VOLTS_UNSCALED - APPS_THRESHOLD_TOLERANCE);
             self.debounce(Locks::AccelOc, open_circuit_fault, &PEDAL_FAULT_DEBOUNCE);
 
             let short_circuit_fault = (accel1_voltage < MIN_APPS1_VOLTS - APPS_THRESHOLD_TOLERANCE)
                 || (accel2_voltage < MIN_APPS2_VOLTS - APPS_THRESHOLD_TOLERANCE);
             self.debounce(Locks::AccelSc, short_circuit_fault, &PEDAL_FAULT_DEBOUNCE);
 
-            let pedal_diff_fault =
-                (accel1_percentage - accel2_percentage).abs() > PEDAL_DIFF_THRESH;
+            let pedal_diff_fault = accel_diff_ratio > PEDAL_DIFF_THRESH;
             self.debounce(Locks::AccelDiff, pedal_diff_fault, &PEDAL_FAULT_DEBOUNCE);
         }
 
@@ -246,7 +251,7 @@ mod locks {
         ) {
             if brake_percentage > PEDAL_HARD_BRAKE_THRESH
                 && (accel_percentage > Ratio::new::<ratio>(0.25)
-                    || dc_current > ElectricCurrent::new::<ampere>(0.1))
+                    || dc_current > ElectricCurrent::new::<ampere>(10.0))
             {
                 self.motor_disabled = true;
                 // TODO: queue BSPD_prefault
@@ -267,22 +272,14 @@ mod locks {
 
 pub(crate) mod analog {
     use crate::pedals::constants::*;
-    use embassy_stm32::adc::{Adc, AdcChannel, Clock, Config, Prescaler, Resolution, SampleTime};
     use embassy_stm32::{Peri, bind_interrupts, peripherals};
-    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-    use embassy_sync::mutex::Mutex;
-    use embassy_sync::once_lock::OnceLock;
-    use embassy_time::{Duration, Timer};
     use uom::si::electric_potential::volt;
     use uom::si::f32::{ElectricPotential, Pressure, Ratio};
     use uom::si::pressure::psi;
     use uom::si::ratio::ratio;
     use variant_count::VariantCount;
 
-    const SAMPLE_TIME: SampleTime = SampleTime::Cycles475;
-    const PEDAL_ADC_SETTLE: Duration = Duration::from_millis(100);
-
-    bind_interrupts!(struct Irqs {
+    bind_interrupts!(pub(super) struct Irqs {
         ADC2 => embassy_stm32::adc::InterruptHandler<peripherals::ADC2>;
         GPDMA1_CHANNEL4 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH4>;
     });
@@ -308,44 +305,6 @@ pub(crate) mod analog {
         pub bse2: Peri<'static, peripherals::PF14>,
     }
 
-    #[embassy_executor::task]
-    pub(crate) async fn adc_pedals_task(r: AdcPedalsResources) {
-        let mut config = Config::default();
-        config.resolution = Some(Resolution::Bits12);
-        config.clock = Clock::Async(Prescaler::Div64);
-
-        let sequence = [
-            (r.apps1.degrade_adc(), SAMPLE_TIME),
-            (r.apps2.degrade_adc(), SAMPLE_TIME),
-            (r.bse1.degrade_adc(), SAMPLE_TIME),
-            (r.bse2.degrade_adc(), SAMPLE_TIME),
-        ];
-
-        let mut adc2 = Adc::new(r.adc, Irqs, config);
-
-        let mut sequence = adc2.configure_sequence(r.dma, sequence.into_iter(), Irqs);
-
-        let mut buffer = [0u16; Adc2Channels::VARIANT_COUNT];
-
-        let _ = PEDAL_ADC_MUTEX.init(Mutex::new(PedalBuffer::new()));
-
-        loop {
-            sequence.read(&mut buffer).await;
-
-            let mut mux = PEDAL_ADC_MUTEX.get().await.lock().await;
-
-            mux.update(&buffer);
-
-            Timer::after(PEDAL_ADC_SETTLE).await;
-        }
-    }
-
-    static PEDAL_ADC_MUTEX: OnceLock<Mutex<ThreadModeRawMutex, PedalBuffer>> = OnceLock::new();
-
-    pub(super) async fn get_pedal_data() -> PedalData {
-        PedalData::from(*PEDAL_ADC_MUTEX.get().await.lock().await)
-    }
-
     /// Maps the raw adc value to equivalent 3.3 volt voltage.
     fn voltage_from_raw(raw_adc: u16) -> ElectricPotential {
         ElectricPotential::new::<volt>((raw_adc as f32) * 3.3 / 4096.0 * 5000.0 / 3000.0)
@@ -359,10 +318,11 @@ pub(crate) mod analog {
         if value > max {
             return Ratio::new::<ratio>(1.0);
         }
-        if value < min {
+        let val = (value - min) / (max - min);
+        if value < min || val < Ratio::new::<ratio>(0.05) {
             return Ratio::new::<ratio>(0.0);
         }
-        (value - min) / (max - min)
+        val
     }
 
     fn pressure_from_voltage(value: ElectricPotential) -> Pressure {
@@ -370,19 +330,15 @@ pub(crate) mod analog {
     }
 
     #[derive(Clone, Copy)]
-    struct PedalBuffer {
-        adc_buffer: [u16; Adc2Channels::VARIANT_COUNT],
+    pub(super) struct PedalBuffer {
+        pub(super) data: [u16; Adc2Channels::VARIANT_COUNT],
     }
 
     impl PedalBuffer {
         pub fn new() -> Self {
             Self {
-                adc_buffer: [0; Adc2Channels::VARIANT_COUNT],
+                data: [0; Adc2Channels::VARIANT_COUNT],
             }
-        }
-
-        pub fn update(&mut self, buffer: &[u16; Adc2Channels::VARIANT_COUNT]) {
-            self.adc_buffer = *buffer;
         }
     }
 
@@ -391,9 +347,8 @@ pub(crate) mod analog {
         pub(super) accel2_v: ElectricPotential,
         pub(super) brake1_v: ElectricPotential,
         pub(super) brake2_v: ElectricPotential,
-        pub(super) accel1_r: Ratio,
-        pub(super) accel2_r: Ratio,
         pub(super) accel_r: Ratio,
+        pub(super) accel_diff_r: Ratio,
         pub(super) brake_r: Ratio,
         brake1_p: Pressure,
         brake2_p: Pressure,
@@ -419,10 +374,10 @@ pub(crate) mod analog {
 
     impl From<PedalBuffer> for PedalData {
         fn from(value: PedalBuffer) -> Self {
-            let accel1_v = voltage_from_raw(value.adc_buffer[Adc2Channels::Adc2Channel12 as usize]);
-            let accel2_v = voltage_from_raw(value.adc_buffer[Adc2Channels::Adc2Channel10 as usize]);
-            let brake1_v = voltage_from_raw(value.adc_buffer[Adc2Channels::Adc2Channel2 as usize]);
-            let brake2_v = voltage_from_raw(value.adc_buffer[Adc2Channels::Adc2Channel6 as usize]);
+            let accel1_v = voltage_from_raw(value.data[Adc2Channels::Adc2Channel12 as usize]);
+            let accel2_v = voltage_from_raw(value.data[Adc2Channels::Adc2Channel10 as usize]);
+            let brake1_v = voltage_from_raw(value.data[Adc2Channels::Adc2Channel2 as usize]);
+            let brake2_v = voltage_from_raw(value.data[Adc2Channels::Adc2Channel6 as usize]);
 
             let accel1_r = fraction_from_voltage(accel1_v, MIN_APPS1_VOLTS, MAX_APPS1_VOLTS);
             let accel2_r = fraction_from_voltage(accel2_v, MIN_APPS2_VOLTS, MAX_APPS2_VOLTS);
@@ -436,9 +391,8 @@ pub(crate) mod analog {
                 accel2_v,
                 brake1_v,
                 brake2_v,
-                accel1_r,
-                accel2_r,
                 accel_r: (accel1_r + accel2_r) / 2.0f32,
+                accel_diff_r: (accel1_r - accel2_r).abs(),
                 brake_r: (brake1_r + brake2_r) / 2.0f32,
                 brake1_p: pressure_from_voltage(brake1_v),
                 brake2_p: pressure_from_voltage(brake2_v),
@@ -450,25 +404,23 @@ pub(crate) mod analog {
 mod drive_modes {
     use crate::pedals::constants::{
         ACCELERATION_THRESHOLD, DELTA_ACCELERATION_MAX, MAX_LIMITING_SPEED, MAX_TORQUE,
-        MAX_TORQUE_RATIO, MIN_REGEN, PIT_MAX_SPEED, REGEN_THRESHOLD_RATIO,
+        MAX_TORQUE_RATIO, MIN_REGEN, PIT_MAX_SPEED, REGEN_THRESHOLD,
     };
-    use crate::pedals::{dti_set_regen, dti_set_torque, get_launch_control, get_traction_control};
+    use crate::pedals::{dti_set_regen, dti_set_torque, get_launch_control, get_regen_limit, get_traction_control};
     use crate::statemachine::FuncState;
     use core::marker::PhantomData;
-    use core::ops::Sub;
     use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
-    use embassy_time::{Duration, Instant};
+    use embassy_time::Instant;
     use num_traits::float::Float;
-    use uom::si::electric_current::ampere;
     use uom::si::f32::{ElectricCurrent, Ratio, Time, Torque, Velocity};
     use uom::si::ratio::ratio;
     use uom::si::time::millisecond;
     use uom::si::torque::newton_meter;
-    use uom::si::velocity::meter_per_second;
+    use uom::si::velocity::{kilometer_per_hour, meter_per_second};
 
     const TORQUE_ACCUMULATOR_SIZE: usize = 10;
 
-    pub(super) static TORQUE_LIMIT_PERCENTAGE: AtomicU16 = AtomicU16::new(0);
+    pub(super) static TORQUE_LIMIT_PERCENTAGE: AtomicU16 = AtomicU16::new(100);
     pub(super) static REGEN_LIMIT_CURRENT_PERFORMANCE: AtomicU16 = AtomicU16::new(0);
     pub(super) static REGEN_LIMIT_CURRENT_ENDURANCE: AtomicU16 = AtomicU16::new(0);
     pub(super) static LAUNCH_CONTROL_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -532,12 +484,9 @@ mod drive_modes {
             );
         }
 
-        fn accel_pedal_regen_braking(&self, accel: Ratio) {
-            let regen_limit = ElectricCurrent::new::<ampere>(
-                REGEN_LIMIT_CURRENT_ENDURANCE.load(Ordering::Relaxed) as f32,
-            );
-            let mut regen_current = ((regen_limit - MIN_REGEN) / REGEN_THRESHOLD_RATIO)
-                * (REGEN_THRESHOLD_RATIO - accel)
+        fn accel_pedal_regen_braking(&self, accel: Ratio, regen_limit: ElectricCurrent) {
+            let mut regen_current = ((regen_limit - MIN_REGEN) / REGEN_THRESHOLD)
+                * (REGEN_THRESHOLD - accel)
                 + MIN_REGEN;
 
             if regen_current > regen_limit {
@@ -548,14 +497,16 @@ mod drive_modes {
         }
 
         fn derate_torque(&mut self, vel: Velocity, accel: Ratio) -> Torque {
-            if vel > PIT_MAX_SPEED {
-                return Torque::new::<newton_meter>(0.0);
-            }
-            let torque: i16 = (MAX_TORQUE.get::<newton_meter>()
-                * accel.get::<ratio>()
-                * MAX_TORQUE_RATIO.get::<ratio>()
-                * (1.0 - (vel / PIT_MAX_SPEED).get::<ratio>()))
-                as i16;
+            let torque: i16 =
+                if vel > PIT_MAX_SPEED {
+                    0
+                } else {
+                    (MAX_TORQUE.get::<newton_meter>()
+                        * accel.get::<ratio>()
+                        * MAX_TORQUE_RATIO.get::<ratio>()
+                        * (1.0 - (vel / PIT_MAX_SPEED).get::<ratio>()))
+                        as i16
+                };
 
             self.torque_accumulator[self.torque_index] = torque;
 
@@ -570,12 +521,13 @@ mod drive_modes {
         }
 
         fn launch_control(&mut self, vel: Velocity, accel: Ratio) {
-            let mut delta_time = Duration::from_millis(0);
-            if let Some(time) = self.prev_time {
-                delta_time = time.sub(Instant::now());
-            } else {
+            let Some(prev) = self.prev_time else {
                 self.prev_time = Some(Instant::now());
-            }
+                self.prev_velocity = vel;
+                self.prev_accel = accel;
+                return;
+            };
+            let delta_time = prev.elapsed();
 
             let delta_vel = vel - self.prev_velocity;
 
@@ -597,14 +549,14 @@ mod drive_modes {
                 if get_launch_control() {
                     self.launch_control(
                         vel,
-                        accel - Ratio::new::<ratio>(0.25) / Ratio::new::<ratio>(0.75),
+                        (accel - Ratio::new::<ratio>(0.25)) / Ratio::new::<ratio>(0.75),
                     );
                 } else {
                     self.linear_accel_to_torque(accel);
                 }
-            } else if vel > Velocity::new::<meter_per_second>(2.2352) /*5 MPH*/ && accel <= REGEN_THRESHOLD_RATIO
+            } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD
             {
-                self.accel_pedal_regen_braking(accel);
+                self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Performance));
             } else {
                 dti_set_torque(Torque::new::<newton_meter>(0.0));
             }
@@ -613,9 +565,9 @@ mod drive_modes {
         fn handle_endurance(&self, vel: Velocity, accel: Ratio) {
             if accel > ACCELERATION_THRESHOLD {
                 self.accel_pedal_regen_torque(accel);
-            } else if vel > Velocity::new::<meter_per_second>(2.2352) /*5 MPH*/ && accel <= REGEN_THRESHOLD_RATIO
+            } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD
             {
-                self.accel_pedal_regen_braking(accel);
+                self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Efficiency));
             } else {
                 dti_set_torque(Torque::new::<newton_meter>(0.0));
             }
@@ -734,18 +686,42 @@ pub fn decrease_regen_limit(func_state: FuncState) {
 }
 
 #[embassy_executor::task]
-pub async fn pedals_task() -> ! {
+pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
+    let mut config = Config::default();
+    config.resolution = Some(Resolution::Bits12);
+    config.clock = Clock::Async(Prescaler::Div64);
+
+    let sequence = [
+        (r.apps1.degrade_adc(), constants::SAMPLE_TIME),
+        (r.apps2.degrade_adc(), constants::SAMPLE_TIME),
+        (r.bse1.degrade_adc(), constants::SAMPLE_TIME),
+        (r.bse2.degrade_adc(), constants::SAMPLE_TIME),
+    ];
+
+    let mut dma_buffer = [0u16; 2 * analog::Adc2Channels::VARIANT_COUNT];
+    let mut pedal_buffer = analog::PedalBuffer::new();
+
+    let mut adc = Adc::new(r.adc, analog::Irqs, config)
+        .into_ring_buffered(r.dma, &mut dma_buffer, analog::Irqs, sequence.into_iter(), None);
+    adc.set_alignment(analog::Adc2Channels::VARIANT_COUNT);
+    adc.start();
+
     let mut drive_lock: locks::State = locks::State::INIT;
     let mut torque_lock: drive_modes::State = drive_modes::State::INIT;
 
     loop {
-        let pedal_data: analog::PedalData = analog::get_pedal_data().await;
+        if adc.read_latest(&mut pedal_buffer.data) != analog::Adc2Channels::VARIANT_COUNT {
+            debug!("Failed to read all pedal channels, skipping this iteration");
+            dti_set_torque(Torque::new::<newton_meter>(0.0)); // Set torque to 0 if we can't read the pedals for safety reasons
+            Timer::after(PEDALS_TASK_PERIOD).await;
+            continue;
+        }
+        let pedal_data: analog::PedalData = pedal_buffer.into();
 
         drive_lock.calculate_accel_fault(
             pedal_data.accel1_v,
             pedal_data.accel2_v,
-            pedal_data.accel1_r,
-            pedal_data.accel2_r,
+            pedal_data.accel_diff_r,
         );
         drive_lock.calculate_brake_fault(pedal_data.brake1_v, pedal_data.brake2_v);
 
@@ -782,15 +758,15 @@ pub async fn pedals_task() -> ! {
                 pedal_data.accel_r,
                 statemachine::get_func_state().await,
             );
-
-            crate::can::OUTGOING
-                .send(pedal_data.to_volt_frame().to_can_frame())
-                .await;
-            crate::can::OUTGOING
-                .send(pedal_data.to_per_frame().to_can_frame())
-                .await;
         }
         *LOCK_MUTEX.lock().await = drive_lock;
+
+        crate::can::OUTGOING
+            .send(pedal_data.to_volt_frame().to_can_frame())
+            .await;
+        crate::can::OUTGOING
+            .send(pedal_data.to_per_frame().to_can_frame())
+            .await;
         Timer::after(PEDALS_TASK_PERIOD).await;
     }
 }

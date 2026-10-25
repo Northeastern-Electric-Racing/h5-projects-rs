@@ -27,7 +27,7 @@ use crate::can::can_inbox_task;
 use adc::{Adc1Resources, adc1_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
-use pedals::analog::{AdcPedalsResources, adc_pedals_task};
+use pedals::analog::AdcPedalsResources;
 use pedals::pedals_task;
 
 #[embassy_executor::main]
@@ -127,10 +127,8 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     // pedals
-    spawner.spawn(pedals_task().expect("Failed to spawn pedals::pedals_task"));
     spawner.spawn(
-        // pedals ADC
-        adc_pedals_task(AdcPedalsResources {
+        pedals_task(AdcPedalsResources {
             adc: p.ADC2,
             dma: p.GPDMA1_CH4,
             apps1: p.PC2,
@@ -138,7 +136,7 @@ async fn main(spawner: Spawner) -> ! {
             bse1: p.PF13,
             bse2: p.PF14,
         })
-        .expect("Failed to spawn adc2_task()."),
+        .expect("Failed to spawn pedals::pedals_task"),
     );
 
     // eFuses

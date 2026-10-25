@@ -31,7 +31,7 @@ variant_count = "1.2.1"
 uom = {
     version = "0.38",
     default-features = false,
-    features = ["si", "f32", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "autoconvert"]
+    features = ["si", "f32", "autoconvert"]
 }
 
 [lints.clippy]
