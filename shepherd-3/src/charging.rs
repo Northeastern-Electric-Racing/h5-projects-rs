@@ -37,15 +37,15 @@ impl LongChargeUp {
     fn new() -> Self { Self { deadline: Deadline::expire_in(LONG_CHARGE_DURATION), current: LONG_CHARGE_CURRENT }}
 }
 
-/// How long a `ShortChargeUp` session should last before expiring.
-const SHORT_CHARGE_DURATION: Duration = Duration::from_secs(20);
+/// How long the `ShortCharge` should run before checking if it should step down voltage again.
+const SHORT_CHARGE_CHECK_DURATION: Duration = Duration::from_secs(5);
 /// The starting current for `ShortChargeUp`.
 const SHORT_CHARGE_START_CURRENT: Current = Current::from_amps(5.0);
 /// The rate at which we step down the current.
 const SHORT_CHARGE_CURRENT_STEP: Current = Current::from_amps(1.0);
 #[derive(Copy, Clone, PartialEq)]
 struct ShortChargeUp {
-    /// RUNTIME FIELD. When this `ShortChargeUp` session should expire (based on SHORT_CHARGE_DURATION).
+    /// RUNTIME FIELD. When this `ShortChargeUp` should check to step down the voltage next.
     deadline: Deadline,
     /// RUNTIME FIELD. How much current we should request from the charger while in `ShortChargeUp`.
     /// This varies at runtime. It steps down depending on how filled the cells are.
@@ -55,8 +55,19 @@ struct ShortChargeUp {
     current_step: Current, 
 }
 impl ShortChargeUp {
-    fn new() -> Self { Self { deadline: Deadline::expire_in(SHORT_CHARGE_DURATION), current: SHORT_CHARGE_START_CURRENT, current_step: SHORT_CHARGE_CURRENT_STEP } }
-    fn with_current(current: Current) -> Self { Self { deadline: Deadline::expire_in(SHORT_CHARGE_DURATION), current, current_step: SHORT_CHARGE_CURRENT_STEP } }
+    fn new() -> Self { Self { deadline: Deadline::expire_in(SHORT_CHARGE_CHECK_DURATION), current: SHORT_CHARGE_START_CURRENT, current_step: SHORT_CHARGE_CURRENT_STEP } }
+    fn with_current(current: Current) -> Self { Self { deadline: Deadline::expire_in(SHORT_CHARGE_CHECK_DURATION), current, current_step: SHORT_CHARGE_CURRENT_STEP } }
+
+    /// Keeps this the same, but schedules a new deadline after `SHORT_CHARGE_CHECK_DURATION`.
+    fn reschedule(&mut self) { 
+        self.deadline = Deadline::expire_in(SHORT_CHARGE_CHECK_DURATION);  
+    }
+
+    /// Steps down the current, and schedules a new deadline after `SHORT_CHARGE_CHECK_DURATION`.
+    fn reschedule_with_step_down(&mut self) { 
+        self.deadline = Deadline::expire_in(SHORT_CHARGE_CHECK_DURATION);
+        self.current -= self.current_step;
+    }
 }
 
 /// Data structure to store the state of the most-recently-active charge stage (either LongChargeUp or ShortChargeUp) so it can be restored.
@@ -73,6 +84,11 @@ impl ChargeRestoreCache {
         *self = match stage {
             ChargeStage::LongChargeUp(_) => Self::LongChargeUp,
             ChargeStage::ShortChargeUp(h) => Self::ShortChargeUp(h.current),
+            ChargeStage::Balance(h) => match h.kind {
+                BalancingKind::Current(current) => Self::ShortChargeUp(current),
+                _ => *self,
+
+            },
             _ => *self,
         }
     }
@@ -202,9 +218,9 @@ impl ChargeStage {
         match self {
             ChargeStage::LongChargeUp(h) => Some(h.current),
             ChargeStage::ShortChargeUp(h) => Some(h.current),
-            ChargeStage::Balance(h) => match h.kind {
-                BalancingKind::Current(current) => Some(current),
-                BalancingKind::NoCurrent => None,
+            ChargeStage::Balance(h) => match (h.kind, h.deadline) {
+                (BalancingKind::Current(current), BalancingDeadline::Active(..)) => Some(current),
+                _ => None,
             }
             ChargeStage::Settle(_) => None,
             ChargeStage::Done => None,
@@ -270,7 +286,8 @@ const BALANCE_STOP_DELTA_V: Voltage = Voltage::from_volts(0.015);
 const BAL_MIN_V: Voltage = Voltage::from_volts(4.05);
 
 impl ChargeStage {
-    fn next(self, inputs: Inputs) -> Self {
+    #[rustfmt::skip]
+    fn tick(self, inputs: Inputs) -> Self {
         match self {
             Self::LongChargeUp(h) => {
                 if inputs.exceeded_fault_voltages()                                         { Self::Fault }
@@ -281,18 +298,18 @@ impl ChargeStage {
 
             },
 
-            Self::ShortChargeUp(h) => {
+            Self::ShortChargeUp(mut h) => {
                 if inputs.exceeded_fault_voltages()                                                         { Self::Fault }
                 else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && (h.current <= SHORT_CHARGE_CURRENT_STEP) { Self::Settle(Settle::new()) }
-                else if h.deadline.past()                                                                   { Self::Settle(Settle::new()) }
                 else if inputs.should_we_start_balancing() && inputs.is_balancing_allowed()                 { inputs.appropriate_balancing_phase() /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
+                else if h.deadline.past()                                                                   { if inputs.max_voltage >= MAX_CHARGE_VOLT { h.reschedule_with_step_down(); Self::ShortChargeUp(h) } else { h.reschedule(); Self::ShortChargeUp(h)} }
                 else                                                                                        { self }
             },
 
             Self::Balance(mut h) => {
                 if inputs.exceeded_fault_voltages()                                 { Self::Fault }
-                else if h.is_drawcurrent() && inputs.max_voltage >= MAX_CHARGE_VOLT { h.to_nocurrent(); self }
-                else if h.deadline.is_active_and(|d| { d.past() })        { h.to_cooldown(); self }
+                else if h.is_drawcurrent() && inputs.max_voltage >= MAX_CHARGE_VOLT { h.to_nocurrent(); Self::Balance(h) }
+                else if h.deadline.is_active_and(|d| { d.past() })        { h.to_cooldown(); Self::Balance(h) }
                 else if h.deadline.is_cooldown_and(|d| { d.past() })      { Self::Settle(Settle::new()) }
                 else                                                                { self }
             },
@@ -312,6 +329,31 @@ impl ChargeStage {
             Self::Fault => self,
         }
     }   
+
+    /// Routines to be called every tick we are in a state. 
+    /// 
+    /// This is called before the state updates on the tick. So, if a tick results in a state change, this will not be called until the subsequent tick.
+    fn on_tick(&mut self) {
+        match self {
+            Self::LongChargeUp(h) => {
+            },
+
+            Self::ShortChargeUp(h) => {
+                h.deadline
+            },
+
+            Self::Balance(h) => {
+                
+            },
+
+            Self::Settle(h) => {
+                
+            },
+
+            Self::Done => (),
+            Self::Fault => (),
+        }
+    }
 } 
 
 /// The charge machine's state.
@@ -338,8 +380,9 @@ impl Charger {
     /// Advances one cycle.
     pub fn tick(&mut self) {
         let Some((max_ocv, max_voltage, min_ocv, delta_ocv)) = analyzer::analyzer().try_partial_get(|h| (h.data.max_ocv.value(), h.data.max_voltage.value(), h.data.min_ocv.value(), h.data.delta_ocv)) else { return; };
-
-        self.stage = self.stage.next(Inputs {
+        
+        self.stage.on_tick();
+        self.stage = self.stage.tick(Inputs {
             max_ocv,
             max_voltage,
             min_ocv,
