@@ -50,7 +50,7 @@ impl<T: Copy> SnapshotCell<T> {
 }
 
 /// SnapshotCell that doesn't allow you to mutate the inner data.
-/// 
+///
 /// This is useful if your API ever needs to let readers read data without
 /// letting them mutate it.
 #[repr(transparent)]

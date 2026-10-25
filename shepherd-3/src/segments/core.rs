@@ -561,12 +561,16 @@ pub mod task {
     /// Converts a duration to a "number of segments task cycles" value. Will return `None` if `duration` isn't an exact multiple of
     /// `SEGMENTS_TASK_FREQUENCY` or if either one isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
     /// call inside a `const{}` block for compile-time error checking purposes.
-    pub const fn duration_to_segments_task_cycles(duration: Duration) -> Option<usize> { duration_to_task_cycles(SEGMENTS_TASK_FREQUENCY, duration) }
+    pub const fn duration_to_segments_task_cycles(duration: Duration) -> Option<usize> {
+        duration_to_task_cycles(SEGMENTS_TASK_FREQUENCY, duration)
+    }
 
     /// Converts a duration to a "number of open wire test cycles" value. Will return `None` if `duration` isn't an exact multiple of
     /// `OPEN_WIRE_FREQUENCY` or if either one isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
     /// call inside a `const{}` block for compile-time error checking purposes.
-    pub const fn duration_to_open_wire_cycles(duration: Duration) -> Option<usize> { duration_to_task_cycles(OPEN_WIRE_FREQUENCY, duration) }
+    pub const fn duration_to_open_wire_cycles(duration: Duration) -> Option<usize> {
+        duration_to_task_cycles(OPEN_WIRE_FREQUENCY, duration)
+    }
 
     /// Main task in charge of managing the segments.
     ///

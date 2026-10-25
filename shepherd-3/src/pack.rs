@@ -507,7 +507,7 @@ pub mod analyzer {
                     faults::queue(FaultCommand::CellVoltageTooLow(PassFailAction::NotifyOkay)).await;
                 }
 
-                // Update cell voltage too high fault 
+                // Update cell voltage too high fault
                 // (note: the separate CellChargeVoltageTooHigh fault from TSECU-Shepherd is combined with CellVoltageTooHigh now, they just check different values depending on state)
                 let max = if crate::state_machine::bms_state().is_charging() { Voltage::from_volts(4.193) } else { Voltage::from_volts(4.2) };
                 if self.max_ocv.value() > max {
@@ -665,7 +665,6 @@ pub mod analyzer {
         let s_voltages_ow_even_on = segments::cache().get_s_voltages_ow_even_on().nice().ready().await;
         let s_voltages_ow_odd_on = segments::cache().get_s_voltages_ow_odd_on().nice().ready().await;
 
-
         loop {
             // Run one loop of this task every time new Segments data arrives.
             segments_freshdata_subscription.wait().await;
@@ -674,24 +673,22 @@ pub mod analyzer {
             let cell_voltages = match state_machine::bms_state() {
                 // If we are charging, get normal cell voltages.
                 BmsState::Charging => *normal_cell_voltages.get().data(),
-                // If we are not charging, get filtered cell voltages. 
+                // If we are not charging, get filtered cell voltages.
                 _ => *filtered_cell_voltages.get().data(),
             };
 
             let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new());
 
             let cell_temps: IndexByChip<IndexByCell<Temperature>> = {
-                let rdax = *redundant_aux.get().data(); 
+                let rdax = *redundant_aux.get().data();
 
                 IndexByChip::from_fn(|chip| {
                     let temps = rdax[chip].to_temps().cell_temperatures;
-                    IndexByCell::from_fn(|cell| {
-                        temps[cell]
-                    })
+                    IndexByCell::from_fn(|cell| temps[cell])
                 })
             };
 
-            let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| { status_a.get().data()[chip].itmp });
+            let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| status_a.get().data()[chip].itmp);
 
             let soc_data = crate::hv_plate::soc_data();
             // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly

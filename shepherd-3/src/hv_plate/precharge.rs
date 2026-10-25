@@ -185,15 +185,9 @@ pub mod task {
 
     impl Inputs {
         fn read(batt: &cache::current_voltage::Nice) -> Option<Self> {
-            let (ts, current) = crate::pack::analyzer::analyzer().try_partial_get(|inner| {
-                (inner.data.ts_voltage, inner.data.pack_current)
-            })?;
+            let (ts, current) = crate::pack::analyzer::analyzer().try_partial_get(|inner| (inner.data.ts_voltage, inner.data.pack_current))?;
 
-            Some(Self {
-                ts: ts?,
-                batt: batt.data().batt_voltage,
-                current: current?,
-            })
+            Some(Self { ts: ts?, batt: batt.data().batt_voltage, current: current? })
         }
     }
 
