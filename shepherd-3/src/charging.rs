@@ -171,6 +171,8 @@ mod stages {
         fn exceeded_fault_voltages(&self) -> bool {
             (self.max_ocv >= MAX_CHARGE_VOLT_FLT) || (self.max_voltage >= MAX_CHARGE_VOLT_FLT)
         }
+
+        fn is_
     }
 
     /// Cell voltage that ends a charge phase.
