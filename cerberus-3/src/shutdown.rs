@@ -21,17 +21,24 @@ pub fn update_bms_shutdown(state: BmsShutdownState) {
     );
 }
 
-
 pub fn get_shutdown_state() -> BmsShutdownState {
     if cfg!(feature = "TSMS_OVERIDE") {  
-        return BmsShutdownState::Shutdown; 
+        return BmsShutdownState::Closed; 
     } else {  
-        if !BMS_SHUTDOWN.load(Ordering::Relaxed){
+        if BMS_SHUTDOWN.load(Ordering::Relaxed){
             return BmsShutdownState::Shutdown
         }
         else{
             return BmsShutdownState::Closed
         }
+    } 
+}
+
+pub fn is_shutdown_closed() -> bool {
+    if cfg!(feature = "TSMS_OVERIDE") {  
+        return true; 
+    } else {  
+        return !BMS_SHUTDOWN.load(Ordering::Relaxed);
     } 
 }
 
