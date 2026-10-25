@@ -1,6 +1,6 @@
 use embassy_time::{Instant, Duration};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, defmt::Format, PartialEq)]
 pub struct Deadline {
     inner: Instant,
 }
@@ -32,5 +32,10 @@ impl Deadline {
     /// Checks if we are currently based the scheduled deadline.
     pub fn past(&self) -> bool {
         self.inner < Instant::now()
+    }
+
+    /// Checks if the provided `Instant` is past the scheduled deadline.
+    pub fn past_at(&self, i: Instant) -> bool {
+        self.inner < i
     }
 }

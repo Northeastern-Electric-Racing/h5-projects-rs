@@ -46,8 +46,8 @@ mod sm {
         pub now: Instant,
         pub critical_fault_active: bool,
         pub charger_connected: bool,
-        pub max_cell_voltage: Voltage,
-        pub max_ocv: Voltage,
+        pub max_cell_voltage: Option<Voltage>,
+        pub max_ocv: Option<Voltage>,
     }
 
     /// The state a handler is allowed to mutate.
@@ -367,6 +367,7 @@ mod task {
     use crate::units::{Voltage, volt};
     use super::*;
     use super::sm::*;
+    use crate::pack::analyzer;
 
     /// Reads every value the state machine depends on, once, into an [`Inputs`].
     fn snapshot() -> Inputs {
@@ -375,7 +376,7 @@ mod task {
             critical_fault_active: crate::faults::are_critical_faults_active(),
             charger_connected: api::charger_connected(),
             // u_TODO: read from somewhere
-            max_cell_voltage: Voltage::new::<volt>(0.0),
+            max_cell_voltage: analyzer::analyzer().try_partial_get(|a| a.data.max_voltage.value()),
             max_ocv: Voltage::new::<volt>(0.0),
         }
     }
