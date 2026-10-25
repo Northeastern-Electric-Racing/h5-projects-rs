@@ -15,7 +15,7 @@ static TIMER: StaticCell<Timer<'static, TIM2>> = StaticCell::new();
 ///
 /// `Copy`, and it only reads the counter, so one value serves every line and SPI device.
 #[derive(Copy, Clone)]
-pub struct PrecisionDelay {
+pub struct TimerDelay {
     timer: &'static Timer<'static, TIM2>,
     ticks_per_us: u32,
 }
@@ -24,7 +24,7 @@ pub struct PrecisionDelay {
 ///
 /// TIM2 rather than C's TIM5, which embassy's time driver already took. Unprescaled, so the
 /// unavoidable +/-1 tick sampling error is nanoseconds rather than a microsecond.
-pub fn init(tim: Peri<'static, TIM2>) -> PrecisionDelay {
+pub fn init(tim: Peri<'static, TIM2>) -> TimerDelay {
     let timer = TIMER.init(Timer::new(tim));
 
     timer.regs_gp32().psc().write_value(0);
@@ -35,10 +35,10 @@ pub fn init(tim: Peri<'static, TIM2>) -> PrecisionDelay {
 
     let ticks_per_us = timer.get_clock_frequency().0 / 1_000_000;
 
-    PrecisionDelay { timer, ticks_per_us }
+    TimerDelay { timer, ticks_per_us }
 }
 
-impl PrecisionDelay {
+impl TimerDelay {
     /// Spins for at least `ns`. Rounds up, and the wrapping subtraction stays correct across the
     /// counter's ~25 s lap -- which no delay this can be asked for comes close to.
     fn spin_ns(&self, ns: u32) {
@@ -50,7 +50,7 @@ impl PrecisionDelay {
 }
 
 /// Blocking: what the ADBMS drivers' `BusIdle` is built on.
-impl embedded_hal::delay::DelayNs for PrecisionDelay {
+impl embedded_hal::delay::DelayNs for TimerDelay {
     fn delay_ns(&mut self, ns: u32) {
         self.spin_ns(ns);
     }
@@ -64,7 +64,7 @@ const SPIN_LIMIT_NS: u32 = (1_000_000_000 / embassy_time::TICK_HZ) as u32;
 ///
 /// Yields past [`SPIN_LIMIT_NS`]: the 6830 pulses 500 us *per chip*, which would otherwise hold
 /// the executor for milliseconds.
-impl embedded_hal_async::delay::DelayNs for PrecisionDelay {
+impl embedded_hal_async::delay::DelayNs for TimerDelay {
     async fn delay_ns(&mut self, ns: u32) {
         if ns < SPIN_LIMIT_NS {
             self.spin_ns(ns);
