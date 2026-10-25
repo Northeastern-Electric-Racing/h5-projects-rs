@@ -4,7 +4,7 @@
 //! Performance, Efficiency, Faulted) and the NERO dash menu position
 //! (`NeroMenu`), and arbitrates transitions between them.
 
-use crate::rtds;
+use crate::{rtds, shutdown::{self, BmsShutdownState}};
 use cangen::ToCanFrame;
 use defmt::{bitflags, debug, info, warn};
 use embassy_futures::select::{Either3, select3};
@@ -119,10 +119,6 @@ fn pedals_get_brake_state() -> bool {
     true
 }
 
-fn is_shutdown_closed() -> bool {
-    true
-}
-
 fn get_launch_control() -> bool {
     false
 }
@@ -213,7 +209,7 @@ impl CerberusState {
                     return Err(());
                 }
 
-                if !is_shutdown_closed() {
+                if shutdown::get_shutdown_state() == BmsShutdownState::Shutdown {
                     self.set_error(TransitionError::SHUTDOWN_OPEN);
                     return Err(());
                 }
@@ -277,7 +273,7 @@ impl CerberusState {
             NeroMenu::Performance => self.transition_functional_state(FuncState::Performance),
             NeroMenu::Efficiency => self.transition_functional_state(FuncState::Efficiency),
             NeroMenu::Games => {
-                if is_shutdown_closed() {
+                if shutdown::get_shutdown_state() == BmsShutdownState::Closed {
                     self.set_error(TransitionError::ENTER_GAMES_SHUTDOWN_CLOSED);
                     return Err(());
                 }
@@ -325,7 +321,7 @@ impl CerberusState {
             .with_home_mode(u8::from(self.home_mode))
             .with_nero_index(self.nero_menu as u8)
             .with_car_speed(get_mph())
-            .with_tsms(is_shutdown_closed())
+            .with_tsms(shutdown::get_shutdown_state() == BmsShutdownState::Closed)
             .with_torque_limit_percentage(get_torque_limit_percent())
             // Same expression as the C (`functional != F_REVERSE`). Verify against
             // the CAN definition if the dash shows reverse inverted.
