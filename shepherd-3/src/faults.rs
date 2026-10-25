@@ -261,7 +261,7 @@ mod system {
         CellChargeVoltageTooHigh       => Critical, Automatic { timeout: Duration::from_secs(5) },
         PackTooHot                     => Critical, Automatic { timeout: Duration::from_secs(5) },
         DieTempMaximumFault            => Critical, Automatic { timeout: Duration::from_secs(5) },
-        HvPlateCommsFault              => Critical, Automatic { timeout: Duration::from_secs(5) },
+        HvPlateCommsFault              => Critical, PassFail  { consecutive_bads: 0, consecutive_okays: 0 },
         SegmentCommsFault              => Critical, Automatic { timeout: Duration::from_secs(5) },
         CellOpenWireFault              => Critical, PassFail  { consecutive_bads: 1, consecutive_okays: 0 },
         FakeFault1                     => Critical, Automatic { timeout: Duration::from_millis(1000) },
