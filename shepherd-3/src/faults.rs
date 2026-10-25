@@ -2,6 +2,7 @@ use strum::{EnumCount, VariantArray, EnumIter, EnumIs, IntoEnumIterator};
 use embassy_time::{Duration, Instant, Timer};
 use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
+use crate::segments::{duration_to_open_wire_cycles, duration_to_segments_task_cycles};
 
 mod system {
     use super::*;
@@ -256,16 +257,15 @@ mod system {
     define_faults! {
         DischargeLimitEnforcementFault => Critical, Automatic { timeout: Duration::from_secs(5) },
         ChargeLimitEnforcement         => Critical, Automatic { timeout: Duration::from_secs(5) },
-        CellVoltageTooLow              => Critical, Automatic { timeout: Duration::from_secs(5) },
-        CellVoltageTooHigh             => Critical, Automatic { timeout: Duration::from_secs(5) },
-        CellChargeVoltageTooHigh       => Critical, Automatic { timeout: Duration::from_secs(5) },
         PackTooHot                     => Critical, Automatic { timeout: Duration::from_secs(5) },
-        DieTempMaximumFault            => Critical, Automatic { timeout: Duration::from_secs(5) },
         HvPlateCommsFault              => Critical, PassFail  { consecutive_bads: 0, consecutive_okays: 0 },
         SegmentCommsFault              => Critical, Automatic { timeout: Duration::from_secs(5) },
-        CellOpenWireFault              => Critical, PassFail  { consecutive_bads: 1, consecutive_okays: 0 },
         FakeFault1                     => Critical, Automatic { timeout: Duration::from_millis(1000) },
         FakeFault2                     => Critical, Automatic { timeout: Duration::from_millis(2500) },
+        CellOpenWireFault              => Critical, PassFail { consecutive_bads: const { duration_to_open_wire_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
+        CellVoltageTooLow              => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
+        CellVoltageTooHigh             => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
+        DieTempMaximumFault            => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
     }
 }
 pub use system::*;

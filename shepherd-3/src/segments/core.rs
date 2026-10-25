@@ -418,6 +418,9 @@ pub mod jobs {
             // run as normal.
             self.service.api().command(commands::snapshot::snap()).await.map_err(UpdateError::SnapError)?;
 
+            // Note: even though we typically only use `cell_voltages` when in charging mode,
+            // we still update the cache regardless just in case. other code in this project
+            // relies on that assumption so probably do a big thorough check if anyone ever changes this
             cache::CACHE.update_cell_voltages(self.service.api()).await?;
             cache::CACHE.update_average_cell_voltages(self.service.api()).await?;
             cache::CACHE.update_filtered_cell_voltages(self.service.api()).await?;
@@ -491,9 +494,9 @@ pub mod jobs {
             // even though these are S voltages we don't need to use SNAP since we are manually polling here
 
             self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOnOddOff, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
-            cache::CACHE.update_s_voltages_ow_even_on(self.service.api()).await?;
+            cache::CACHE.update__s_voltages_ow_even_on(self.service.api()).await?;
             self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOffOddOn, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
-            cache::CACHE.update_s_voltages_ow_odd_on(self.service.api()).await?;
+            cache::CACHE.update__s_voltages_ow_odd_on(self.service.api()).await?;
 
             // Unless we are not charging, restart continuous redundant conversions (since that is what we
             // normally use outside of this function when we aren't charging).
@@ -533,7 +536,41 @@ pub mod task {
     pub const OPEN_WIRE_FREQUENCY: Duration = Duration::from_secs(30);
 
     /// Frequency (in ms) at which the segments task should run.
-    pub const SEGMENTS_TASK_FREQUENCY_MS: u64 = 300;
+    pub const SEGMENTS_TASK_FREQUENCY: Duration = Duration::from_millis(300);
+
+    /// Helper that converts `duration` to a "lapses of `task_frequency`" value. Will return `None` if `duration` isn't an exact
+    /// multiple of `task_frequency` or if either isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
+    /// call inside a `const{}` block for compile-time error checking purposes.
+    pub const fn duration_to_task_cycles(task_frequency: Duration, duration: Duration) -> Option<usize> {
+        // Converts `duration` into a whole number of milliseconds. If `duration` cannot be represented in a whole number of milliseconds, this returns `None`.
+        const fn whole_millis(duration: Duration) -> Option<u64> {
+            let millis = duration.as_millis();
+            if Duration::from_millis(millis).as_ticks() == duration.as_ticks() { Some(millis) } else { None }
+        }
+
+        let (Some(duration_ms), Some(period_ms)) = (whole_millis(duration), whole_millis(task_frequency)) else {
+            return None;
+        };
+
+        match duration_ms.checked_rem(period_ms) {
+            Some(0) => Some((duration_ms / period_ms) as usize),
+            _ => None,
+        }
+    }
+
+    /// Converts a duration to a "number of segments task cycles" value. Will return `None` if `duration` isn't an exact multiple of
+    /// `SEGMENTS_TASK_FREQUENCY` or if either one isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
+    /// call inside a `const{}` block for compile-time error checking purposes.
+    pub const fn duration_to_segments_task_cycles(duration: Duration) -> Option<usize> {
+        duration_to_task_cycles(SEGMENTS_TASK_FREQUENCY, duration)
+    }
+
+    /// Converts a duration to a "number of open wire test cycles" value. Will return `None` if `duration` isn't an exact multiple of
+    /// `OPEN_WIRE_FREQUENCY` or if either one isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
+    /// call inside a `const{}` block for compile-time error checking purposes.
+    pub const fn duration_to_open_wire_cycles(duration: Duration) -> Option<usize> {
+        duration_to_task_cycles(OPEN_WIRE_FREQUENCY, duration)
+    }
 
     /// Main task in charge of managing the segments.
     ///
@@ -644,7 +681,7 @@ pub mod task {
             diagnostics.log();
 
             // u_TODO maybe eventually try making this a Ticker or something, for now though this is closest to tx_thread_sleep so probably should keep it for now until we know everything else works
-            Timer::after_millis(SEGMENTS_TASK_FREQUENCY_MS).await;
+            Timer::after(SEGMENTS_TASK_FREQUENCY).await;
         }
     }
 }
