@@ -13,8 +13,8 @@ const NANOS_PER_MICRO: u32 = 1_000;
 pub(super) const ACCUMULATOR_DEPTH: AccumulatorDepth = AccumulatorDepth::Samples32;
 const ACCN: u16 = accumulation_count(ACCUMULATOR_DEPTH as u8);
 
-const NOMINAL_CONVERSION_NANOS: u32 = adbms2950::line::conversion_times::IXADC_CONVERSION_MS as u32 * 1_000_000;
-const CONVERSION_STARTUP_MASK: Duration = Duration::from_micros(adbms2950::line::conversion_times::IXADC_INIT_MAX_MS as u64 * 1_000 + NOMINAL_CONVERSION_NANOS as u64 * ACCN as u64 / 1_000);
+const NOMINAL_CONVERSION_NANOS: u32 = adbms2950::api::conversion_times::IXADC_CONVERSION_MS as u32 * 1_000_000;
+const CONVERSION_STARTUP_MASK: Duration = Duration::from_micros(adbms2950::api::conversion_times::IXADC_INIT_MAX_MS as u64 * 1_000 + NOMINAL_CONVERSION_NANOS as u64 * ACCN as u64 / 1_000);
 /// How long to watch `I1CNTPHA` before trusting a new `t_CONV`.
 const MEASUREMENT_WINDOW: Duration = Duration::from_millis(500);
 

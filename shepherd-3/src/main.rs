@@ -32,6 +32,10 @@ assign_resources! {
     default: DefaultResources {
         watchdog: IWDG,
     }
+    /// Timer backing the sub-microsecond delays the ADBMS parts need for CSB-high to SDO.
+    precision_delay: PrecisionDelayResources {
+        tim: TIM2,
+    }
     /// Resources for CAN.
     can: CanResources {
         can: FDCAN2,
@@ -91,6 +95,10 @@ assign_resources! {
     default: DefaultResources {
         watchdog: IWDG,
     }
+    /// Timer backing the sub-microsecond delays the ADBMS parts need for CSB-high to SDO.
+    precision_delay: PrecisionDelayResources {
+        tim: TIM2,
+    }
     /// Resources for CAN.
     can: CanResources {
         can: FDCAN2,
@@ -134,8 +142,11 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
-    spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
-    spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
+
+    let spi_delay = helpers::precision_delay::init(r.precision_delay.tim);
+    spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb, spi_delay).expect("Failed to spawn segments::segments_task()."));
+    spawner.spawn(hv_plate::hv_plate_task(r.hv_plate, spi_delay).expect("Failed to spawn hv_plate::hv_plate_task()."));
+
     spawner.spawn(hv_plate::soc_task().expect("Failed to spawn hv_plate::soc_task()."));
     spawner.spawn(hv_plate::precharge_task().expect("Failed to spawn hv_plate::precharge_task()."));
     spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));

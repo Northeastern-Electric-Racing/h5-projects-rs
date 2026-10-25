@@ -17,6 +17,7 @@ embassy-stm32 = { workspace = true }
 embassy-sync.workspace = true
 embassy-time.workspace = true
 embassy-futures.workspace = true
+embedded-hal.workspace = true
 embedded-hal-async.workspace = true
 embedded-hal-bus.workspace = true
 embedded-can.workspace = true
@@ -33,8 +34,8 @@ strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 # u_TODO - probably maybe move this to the workspace Cargo.toml eventually if this is gonna be something we use
 uom = { version = "0.38.0", default-features = false, features = ["si", "f32"] }
 
-adbms6830b = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop", features = ["defmt"] }
-adbms2950 = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "810be7e0b5a0c0162be26917e0dbce41af545b79", features = ["defmt"] }
+adbms6830b = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs", rev = "ecc5e9d9cca9031e99c1408f2a7e0642d9ff71e9", features = ["defmt"] }
+adbms2950 = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs", rev = "ecc5e9d9cca9031e99c1408f2a7e0642d9ff71e9", features = ["defmt"] }
 defmt-monitor = { git = "https://github.com/bjackson312006/defmt-monitor.git", branch = "main" }
 libm = { version = "0.2.16" }
 

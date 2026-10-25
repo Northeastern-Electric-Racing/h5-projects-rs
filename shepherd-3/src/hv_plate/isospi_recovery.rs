@@ -1,7 +1,7 @@
 //! isoSPI break detection and recovery
 
 use adbms2950::api::LineId;
-use adbms2950::line::Error;
+use adbms2950::api::Error;
 use embassy_time::{Duration, Instant};
 
 use crate::hv_plate::core::alias;

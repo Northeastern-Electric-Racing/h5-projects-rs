@@ -14,7 +14,7 @@ use adbms2950::chip::registers::{
     status::Status,
     voltage::{Voltages1A, Voltages1C},
 };
-use adbms2950::line::Error;
+use adbms2950::api::Error;
 use crate::helpers::startup_cell::{StartupCell, UnwriteableStartupCell};
 
 use super::core::alias;
