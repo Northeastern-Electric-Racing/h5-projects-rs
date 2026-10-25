@@ -434,7 +434,7 @@ pub mod analyzer {
             }
         }
 
-        pub async fn detect_cell_open_wire(&mut self, s_voltages_ow_even_on: &IndexByChip<IndexByCell<Voltage>>, s_voltages_ow_odd_on: &IndexByChip<IndexByCell<Voltage>>) {
+        pub async fn detect_cell_open_wire(&mut self, _s_voltages_ow_even_on: &IndexByChip<IndexByCell<Voltage>>, _s_voltages_ow_odd_on: &IndexByChip<IndexByCell<Voltage>>) {
             let mut open_wire_fault_active = false;
 
             for chip in ChipId::iter() {
@@ -445,9 +445,9 @@ pub mod analyzer {
                     }
 
                     // Cell voltage when even cells were excited and odd cells were left normal.
-                    let even_excited: Voltage = s_voltages_ow_even_on[chip][cell];
+                    let even_excited: Voltage = _s_voltages_ow_even_on[chip][cell];
                     // Cell voltage when odd cells were excited and even cells were left normal.
-                    let odd_excited: Voltage = s_voltages_ow_odd_on[chip][cell];
+                    let odd_excited: Voltage = _s_voltages_ow_odd_on[chip][cell];
 
                     let depends: Comparison = if cell.is_even() {
                         // This cell is even, so its `excited` voltage comes from when only even cells were excited,
@@ -571,8 +571,8 @@ pub mod analyzer {
         let filtered_cell_voltages = segments::cache().get_filtered_cell_voltages().nice().ready().await;
         let redundant_aux = segments::cache().get_redundant_aux().nice().ready().await;
         let status_a = segments::cache().get_status_a().nice().ready().await;
-        let s_voltages_ow_even_on = segments::cache().get_s_voltages_ow_even_on().nice().ready().await;
-        let s_voltages_ow_odd_on = segments::cache().get_s_voltages_ow_odd_on().nice().ready().await;
+        let _s_voltages_ow_even_on = segments::cache().get__s_voltages_ow_even_on().nice().ready().await;
+        let _s_voltages_ow_odd_on = segments::cache().get__s_voltages_ow_odd_on().nice().ready().await;
 
 
         loop {
@@ -621,7 +621,7 @@ pub mod analyzer {
 
             #[cfg(not(feature = "hil"))]
             if segments_openwire_subscription.has_been_signaled() {
-                analyzer.detect_cell_open_wire(s_voltages_ow_even_on.get().data(), s_voltages_ow_odd_on.get().data()).await;
+                analyzer.detect_cell_open_wire(_s_voltages_ow_even_on.get().data(), _s_voltages_ow_odd_on.get().data()).await;
             }
 
             update(*analyzer);
