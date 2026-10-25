@@ -33,7 +33,7 @@ assign_resources! {
         watchdog: IWDG,
     }
     /// Timer backing the sub-microsecond delays the ADBMS parts need for CSB-high to SDO.
-    precision_delay: PrecisionDelayResources {
+    spi_delay: PrecisionDelayResources {
         tim: TIM2,
     }
     /// Resources for CAN.
@@ -96,7 +96,7 @@ assign_resources! {
         watchdog: IWDG,
     }
     /// Timer backing the sub-microsecond delays the ADBMS parts need for CSB-high to SDO.
-    precision_delay: PrecisionDelayResources {
+    spi_delay: PrecisionDelayResources {
         tim: TIM2,
     }
     /// Resources for CAN.
@@ -139,14 +139,12 @@ async fn main(spawner: Spawner) {
     let r = split_resources!(p);
 
     gpios::init(r.gpios);
+    let spi_delay = helpers::timer_delay::init(r.spi_delay.tim);
 
     spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
-
-    let spi_delay = helpers::precision_delay::init(r.precision_delay.tim);
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb, spi_delay).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate, spi_delay).expect("Failed to spawn hv_plate::hv_plate_task()."));
-
     spawner.spawn(hv_plate::soc_task().expect("Failed to spawn hv_plate::soc_task()."));
     spawner.spawn(hv_plate::precharge_task().expect("Failed to spawn hv_plate::precharge_task()."));
     spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));

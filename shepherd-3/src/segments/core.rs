@@ -23,14 +23,14 @@ pub mod alias {
         spi::{Spi, mode::Master},
     };
     use super::ADBMS6830B_NUM_CHIPS;
-    use crate::helpers::precision_delay::PrecisionDelay;
+    use crate::helpers::timer_delay::TimerDelay;
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     /// This is just a single SPI controller with a CS pin.
     #[cfg(feature = "hil")]
     pub type SpiDevice = super::super::hil::HilDevice;
     #[cfg(not(feature = "hil"))]
-    pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, PrecisionDelay>;
+    pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, TimerDelay>;
 
     /// The error type our `SpiDevice` produces.
     #[allow(unused)]
@@ -39,13 +39,13 @@ pub mod alias {
     /// Type alias representing an IsoSPI Line.
     ///
     /// Each line can go up to `ADBMS6830B_NUM_CHIPS` chips, but the actual number of chips they have is dynamic at runtime and is managed by the `Service`.
-    pub type Line = adbms6830b::line::Line<SpiDevice, PrecisionDelay, ADBMS6830B_NUM_CHIPS>;
+    pub type Line = adbms6830b::line::Line<SpiDevice, TimerDelay, ADBMS6830B_NUM_CHIPS>;
 
     /// Type alias representing our adbms6830b Service configuration.
-    pub type Service = adbms6830b::turnkey::service::Service<SpiDevice, PrecisionDelay, ADBMS6830B_NUM_CHIPS>;
+    pub type Service = adbms6830b::turnkey::service::Service<SpiDevice, TimerDelay, ADBMS6830B_NUM_CHIPS>;
 
     /// Type alias for the `Api` (basically the same as `Service` but for the underlying API)
-    pub type Api = adbms6830b::turnkey::api::Api<SpiDevice, PrecisionDelay, ADBMS6830B_NUM_CHIPS>;
+    pub type Api = adbms6830b::turnkey::api::Api<SpiDevice, TimerDelay, ADBMS6830B_NUM_CHIPS>;
 }
 
 /// Guy in charge of the segments.
@@ -61,7 +61,7 @@ impl Segments {
     /// - `r_linea`: pins and other hardware resources for Line A
     /// - `r_lineb`: pins and other hardware resources for Line B
     /// - `delay`: the shared counter both lines use to honour t5
-    pub fn new(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources, delay: crate::helpers::precision_delay::PrecisionDelay) -> Self {
+    pub fn new(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources, delay: crate::helpers::timer_delay::TimerDelay) -> Self {
         #[cfg(not(feature = "hil"))]
         use embedded_hal_bus::spi::ExclusiveDevice;
         use adbms6830b::turnkey::service::service_config::{ServiceConfig, SEGMENT_ISOSPI_EVAL_PERIOD_MS, SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS, SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS, SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL, SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW, SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT, SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS};
@@ -578,7 +578,7 @@ pub mod task {
     /// In general this task should only really do stuff that requires ownership of the SPI peripheral. It should just make reads for cache updates, and maybe some conditional reads based on BMS state. It
     /// shouldn't do any processing on that read data though. Once the data is cached, it should generally be read by other tasks since reading the data doesn't require making any actual SPI transactions.
     #[embassy_executor::task]
-    pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources, delay: crate::helpers::precision_delay::PrecisionDelay) {
+    pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources, delay: crate::helpers::timer_delay::TimerDelay) {
         let mut segments = Segments::new(r_linea, r_lineb, delay);
 
         /// Timing diagnostics for the segments task.

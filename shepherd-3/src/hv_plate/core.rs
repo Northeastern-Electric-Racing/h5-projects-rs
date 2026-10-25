@@ -30,7 +30,7 @@ pub mod alias {
     };
     #[cfg(not(feature = "hil"))]
     use embedded_hal_bus::spi::ExclusiveDevice;
-    use crate::helpers::precision_delay::PrecisionDelay;
+    use crate::helpers::timer_delay::TimerDelay;
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     ///
@@ -39,13 +39,13 @@ pub mod alias {
     #[cfg(feature = "hil")]
     pub type SpiDevice = super::super::hil::HilDevice;
     #[cfg(not(feature = "hil"))]
-    pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, PrecisionDelay>;
+    pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, TimerDelay>;
 
     /// The error type our `SpiDevice` produces.
     pub type SpiError = <SpiDevice as embedded_hal_async::spi::ErrorType>::Error;
 
     /// Type alias for the stateful API over both lines.
-    pub type Api = adbms2950::api::Api<SpiDevice, PrecisionDelay>;
+    pub type Api = adbms2950::api::Api<SpiDevice, TimerDelay>;
 }
 
 /// Holds the ADBMS2950B device api
@@ -56,7 +56,7 @@ struct HvPlate {
 }
 
 impl HvPlate {
-    fn new(r: crate::HvPlateResources, delay: crate::helpers::precision_delay::PrecisionDelay) -> Self {
+    fn new(r: crate::HvPlateResources, delay: crate::helpers::timer_delay::TimerDelay) -> Self {
         #[cfg(not(feature = "hil"))]
         let (spi_a, spi_b) = {
             use embedded_hal_bus::spi::ExclusiveDevice;
@@ -297,7 +297,7 @@ pub mod task {
     }
 
     #[embassy_executor::task]
-    pub async fn hv_plate_task(r: crate::HvPlateResources, delay: crate::helpers::precision_delay::PrecisionDelay) {
+    pub async fn hv_plate_task(r: crate::HvPlateResources, delay: crate::helpers::timer_delay::TimerDelay) {
         /// With ACCN = 32 and IXADC_CONVERSION_MS = 1, IVB1ACC is overwritten every 32 ms *nominally*,
         /// but the internal oscillator runs up to 10% fast, so a window can close in 32/1.1 = 29.09 ms.
         /// 25 ms leaves headroom for jitter on top.
