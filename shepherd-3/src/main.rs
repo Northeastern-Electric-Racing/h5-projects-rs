@@ -26,6 +26,7 @@ pub mod helpers;
 pub mod statemachine;
 pub mod charging;
 pub mod gpios;
+pub mod prelude;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
@@ -136,7 +137,8 @@ async fn main(spawner: Spawner) {
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
     spawner.spawn(hv_plate::soc_task().expect("Failed to spawn hv_plate::soc_task()."));
     spawner.spawn(hv_plate::precharge_task().expect("Failed to spawn hv_plate::precharge_task()."));
-    spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
+    //spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
+    spawner.spawn(statemachine::state_machine_task().expect("Faield to spawn statemachine::state_machine_task()"));
     spawner.spawn(faults::task::faults_task().expect("Failed to spawn faults task."));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
     spawner.spawn(debug::faults_debug(spawner).expect("Failed to spawn faults debug task."));
