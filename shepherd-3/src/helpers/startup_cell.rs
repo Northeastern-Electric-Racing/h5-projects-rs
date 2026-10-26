@@ -1,4 +1,4 @@
-use core::cell::{Cell, RefCell};
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::task::Poll;
 
@@ -7,7 +7,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::waitqueue::MultiWakerRegistration;
 
 struct State<T, const N: usize> {
-    value: Cell<Option<T>>,
+    value: RefCell<Option<T>>,
     wakers: RefCell<MultiWakerRegistration<N>>,
 }
 
@@ -37,7 +37,7 @@ impl<M: RawMutex, T: Copy, const N: usize> StartupCellRaw<M, T, N> {
     pub const fn new() -> Self {
         Self {
             inner: Mutex::new(State {
-                value: Cell::new(None),
+                value: RefCell::new(None),
                 wakers: RefCell::new(MultiWakerRegistration::new()),
             }),
         }
@@ -45,9 +45,13 @@ impl<M: RawMutex, T: Copy, const N: usize> StartupCellRaw<M, T, N> {
 
     /// Stores `value` and replaces any previous value. Upon the first
     /// time being called, this will wake up all waiters.
+    ///
+    /// ### Panics
+    /// If this is called from inside a [`Self::try_partial_get`] or [`Self::partial_get`]
+    /// closure on this same cell.
     pub fn set(&self, value: T) {
         self.inner.lock(|s| {
-            if s.value.replace(Some(value)).is_none() {
+            if s.value.borrow_mut().replace(value).is_none() {
                 s.wakers.borrow_mut().wake();
             }
         });
@@ -55,7 +59,18 @@ impl<M: RawMutex, T: Copy, const N: usize> StartupCellRaw<M, T, N> {
 
     /// Gets the current value, or `None` if not set yet.
     pub fn try_get(&self) -> Option<T> {
-        self.inner.lock(|s| s.value.get())
+        self.try_partial_get(|inner| *inner)
+    }
+
+    /// Calls `f` with a reference to the current value and returns whatever `f` copies out of it,
+    /// or `None` if not set yet.
+    ///
+    /// You can use this instead of [`Self::try_get`] when only part of `T` is needed.
+    ///
+    /// ### Panics
+    /// If `f` calls [`Self::set`] on this same cell.
+    pub fn try_partial_get<R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
+        self.inner.lock(|s| s.value.borrow().as_ref().map(f))
     }
 
     /// Gets the current value. If there is no data inside yet, this
@@ -64,23 +79,35 @@ impl<M: RawMutex, T: Copy, const N: usize> StartupCellRaw<M, T, N> {
     /// Once the data has been set for the first time, this future
     /// will always resolve immediately and basically works like a normal sync function.
     pub async fn get(&self) -> T {
-        poll_fn(|cx| {
-            self.inner.lock(|s| match s.value.get() {
-                Some(v) => Poll::Ready(v),
-                None => {
-                    s.wakers.borrow_mut().register(cx.waker());
-                    Poll::Pending
-                },
-            })
-        })
-        .await
+        self.ready().await.get()
+    }
+
+    /// Calls `f` with a reference to the current value and returns whatever `f` copies out of it.
+    /// If there is no data inside yet, this will .await until the data has been set for the first time.
+    ///
+    /// You can use this instead of [`Self::get`] when only part of `T` is needed.
+    ///
+    /// ### Panics
+    /// If `f` calls [`Self::set`] on this same cell.
+    pub async fn partial_get<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        self.ready().await.partial_get(f)
     }
 
     /// Waits for the first write to this cell, and then returns a handle
     /// that provides a nicer API for getting data that is known to
     /// already be set (i.e., no need to .await).
     pub async fn ready(&self) -> Ready<'_, M, T, N> {
-        self.get().await;
+        poll_fn(|cx| {
+            self.inner.lock(|s| {
+                if s.value.borrow().is_some() {
+                    Poll::Ready(())
+                } else {
+                    s.wakers.borrow_mut().register(cx.waker());
+                    Poll::Pending
+                }
+            })
+        })
+        .await;
         Ready { cell: self }
     }
 
@@ -108,7 +135,17 @@ impl<M: RawMutex, T, const N: usize> Copy for Ready<'_, M, T, N> {}
 impl<M: RawMutex, T: Copy, const N: usize> Ready<'_, M, T, N> {
     /// Gets the current value.
     pub fn get(&self) -> T {
-        match self.cell.try_get() {
+        self.partial_get(|inner| *inner)
+    }
+
+    /// Calls `f` with a reference to the current value and returns whatever `f` copies out of it.
+    ///
+    /// You can use this instead of [`Self::get`] when only part of `T` is needed.
+    ///
+    /// ### Panics
+    /// If `f` calls [`StartupCellRaw::set`] on this same cell.
+    pub fn partial_get<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        match self.cell.try_partial_get(f) {
             Some(v) => v,
 
             // PANIC SAFETY: The API ensures that a `Ready` is only created after
@@ -132,6 +169,17 @@ impl<M: RawMutex, T: Copy, const N: usize> UnwriteableStartupCellRaw<M, T, N> {
         self.inner.try_get()
     }
 
+    /// Calls `f` with a reference to the current value and returns whatever `f` copies out of it,
+    /// or `None` if not set yet.
+    ///
+    /// You can use this instead of [`Self::try_get`] when only part of `T` is needed.
+    ///
+    /// ### Panics
+    /// If `f` calls [`StartupCellRaw::set`] on this same cell.
+    pub fn try_partial_get<R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
+        self.inner.try_partial_get(f)
+    }
+
     /// Gets the current value. If there is no data inside yet, this
     /// will .await until the data has been set for the first time.
     ///
@@ -139,6 +187,17 @@ impl<M: RawMutex, T: Copy, const N: usize> UnwriteableStartupCellRaw<M, T, N> {
     /// will always resolve immediately and basically works like a normal sync function.
     pub async fn get(&self) -> T {
         self.inner.get().await
+    }
+
+    /// Calls `f` with a reference to the current value and returns whatever `f` copies out of it.
+    /// If there is no data inside yet, this will .await until the data has been set for the first time.
+    ///
+    /// You can use this instead of [`Self::get`] when only part of `T` is needed.
+    ///
+    /// ### Panics
+    /// If `f` calls [`StartupCellRaw::set`] on this same cell.
+    pub async fn partial_get<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        self.inner.partial_get(f).await
     }
 
     /// Waits for the first write to this cell, and then returns a handle

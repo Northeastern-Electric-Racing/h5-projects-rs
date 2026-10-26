@@ -53,15 +53,17 @@ pub struct CanResources {
 
 /// Starts FDCAN2 through [`NerCan`] and spawns the CAN tasks.
 pub fn start(spawner: Spawner, r: CanResources, bootloader: boot_control::Bootloader<'static>) {
-    let (tx, rx, _properties) = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs))
-        // --- CAN bootloader support ---
-        .with_standard_filters(&[StdFilter {
+    let mut can = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs));
+    // --- CAN bootloader support ---
+    if let embedded_can::Id::Standard(id) = cangen::MsbFrontBootRequest::ID {
+        can = can.with_standard_filters(&[StdFilter {
             slot: StandardFilterSlot::_0,
-            id1: cangen::MsbFrontBootRequest::ID,
+            id1: id.as_raw(),
             id2: None,
-        }])
-        // --- End CAN bootloader support ---
-        .start();
+        }]);
+    }
+    // --- End CAN bootloader support ---
+    let (tx, rx, _properties) = can.start();
     // --- CAN bootloader support ---
     spawner.spawn(
         can_handler::can_rx(rx, INCOMING.dyn_sender()).expect("Failed to spawn CAN receiver"),
