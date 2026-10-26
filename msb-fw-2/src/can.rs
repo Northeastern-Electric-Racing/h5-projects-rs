@@ -53,17 +53,16 @@ pub struct CanResources {
 
 /// Starts FDCAN2 through [`NerCan`] and spawns the CAN tasks.
 pub fn start(spawner: Spawner, r: CanResources, bootloader: boot_control::Bootloader<'static>) {
-    let mut can = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs));
     // --- CAN bootloader support ---
-    if let embedded_can::Id::Standard(id) = cangen::MsbFrontBootRequest::ID {
-        can = can.with_standard_filters(&[StdFilter {
-            slot: StandardFilterSlot::_0,
-            id1: id.as_raw(),
-            id2: None,
-        }]);
-    }
+    const SLOT_0: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_0,
+        id1: cangen::MsbFrontBootRequest::ID,
+        id2: None,
+    };
     // --- End CAN bootloader support ---
-    let (tx, rx, _properties) = can.start();
+    let (tx, rx, _properties) = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs))
+        .with_standard_filters(&[SLOT_0])
+        .start();
     // --- CAN bootloader support ---
     spawner.spawn(
         can_handler::can_rx(rx, INCOMING.dyn_sender()).expect("Failed to spawn CAN receiver"),
@@ -142,10 +141,11 @@ fn strain_gauge_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Fra
 async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) {
     loop {
         let frame = INCOMING.receive().await;
-        if let Some(Msg::MsbFrontBootRequest(_)) = Msg::decode(&frame) {
-            if bootloader.handle_frame(&frame).is_err() {
-                defmt::error!("Failed to persist bootloader request");
-            }
+        match Msg::decode(&frame) {
+            Some(Msg::MsbFrontBootRequest(_)) => bootloader
+                .handle_frame(&frame)
+                .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
+            _ => {}
         }
     }
 }

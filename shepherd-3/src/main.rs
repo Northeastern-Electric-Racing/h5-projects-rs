@@ -3,7 +3,6 @@
 #[macro_use]
 extern crate uom;
 
-use cangen::CanMessage;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::wdg::IndependentWatchdog;
@@ -121,6 +120,10 @@ assign_resources! {
     }
 }
 
+// --- CAN bootloader support ---
+const BOOT_REQUEST_ID: u16 = 0x013;
+// --- End CAN bootloader support ---
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Initializing project...");
@@ -130,7 +133,7 @@ async fn main(spawner: Spawner) {
     hardfault::report_last_reset();
 
     // --- CAN bootloader support ---
-    let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::BmsBootRequest::ID);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH, embedded_can::Id::Standard(embedded_can::StandardId::new(BOOT_REQUEST_ID).unwrap()));
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader.confirm_boot().expect("Failed to confirm application startup");
     // --- End CAN bootloader support ---

@@ -46,14 +46,12 @@ mod api {
 
         let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
         #[rustfmt::skip]
-        let mut can = handler::NerCan::init(configurator)
+        let can = handler::NerCan::init(configurator)
             .add_standard_filter(StandardFilterSlot::_0, rx_ids::DTI_INPUT_VOLTAGE, None)
             .add_standard_filter(StandardFilterSlot::_1, rx_ids::DTI_DC_CURRENT, None)
-            .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None);
-        // --- CAN bootloader support ---
-        if let embedded_can::Id::Standard(id) = <cangen::BmsBootRequest as cangen::CanMessage>::ID {
-            can = can.add_standard_filter(StandardFilterSlot::_2, id.as_raw(), None);
-        }
+            .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None)
+            // --- CAN bootloader support ---
+            .add_standard_filter(StandardFilterSlot::_2, crate::BOOT_REQUEST_ID, None);
         // --- End CAN bootloader support ---
 
         let (tx, rx, _props) = can.start();
@@ -457,15 +455,14 @@ mod handler {
         loop {
             let frame = super::channels::INCOMING.receive().await;
 
-            // --- CAN bootloader support ---
-            if let Some(cangen::Msg::BmsBootRequest(_)) = cangen::Msg::decode(&frame) {
-                if bootloader.handle_frame(&frame).is_err() {
-                    defmt::error!("Failed to persist bootloader request");
-                }
-            }
-            // --- End CAN bootloader support ---
-
             match frame.id() {
+                // --- CAN bootloader support ---
+                Id::Standard(id) if id.as_raw() == crate::BOOT_REQUEST_ID => {
+                    if bootloader.handle_frame(&frame).is_err() {
+                        defmt::error!("Failed to persist bootloader request");
+                    }
+                },
+                // --- End CAN bootloader support ---
                 Id::Extended(id) if id.as_raw() == CHARGER_BOX => {
                     state_machine::charger_frame_received();
                     if let Some(current) = decode_current(frame.data()) {

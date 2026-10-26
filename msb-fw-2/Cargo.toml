@@ -7,7 +7,7 @@ version = "0.1.0"
 boot-control.workspace = true
 embedded-can.workspace = true
 
-can-handler.workspace = true
+can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "418f3c64f21b7bacde572e7cea7be95dd6e393c7" }
 cangen.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
