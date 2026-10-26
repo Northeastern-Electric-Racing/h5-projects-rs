@@ -4,10 +4,8 @@
 //! Performance, Efficiency, Faulted) and the NERO dash menu position
 //! (`NeroMenu`), and arbitrates transitions between them.
 
-use crate::{
-    rtds,
-    shutdown::{self, BmsShutdownState},
-};
+use crate::rtds;
+use crate::shutdown::{self, BmsShutdownState};
 use cangen::ToCanFrame;
 use defmt::{bitflags, debug, info, warn};
 use embassy_futures::select::{Either3, select3};

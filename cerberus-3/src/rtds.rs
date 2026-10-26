@@ -100,7 +100,6 @@ pub fn is_reversing() -> bool {
 
 struct Rtds {
     pin: Output<'static>,
-    shutdown_closed: bool,
     state: RtdsState,
     /// when the current state next needs attention. `Instant::MAX` if never (idle)
     deadline: Instant,
@@ -109,8 +108,8 @@ struct Rtds {
 impl Rtds {
     fn set_pin(&mut self) {
         // shutdown open = can't drive, so don't let rtds go off
-        if !(self.shutdown_closed) {
-            debug!("RTDS shut down due to shutdown_closed.");
+        if shutdown::get_shutdown_state() == BmsShutdownState::Open {
+            debug!("RTDS shut down due to shutdown_open.");
             return;
         }
 
@@ -192,7 +191,6 @@ impl Rtds {
 pub async fn rtds_task(pin: Output<'static>) {
     let mut rtds = Rtds {
         pin,
-        shutdown_closed: shutdown::get_shutdown_state() == BmsShutdownState::Closed,
         state: RtdsState::Idle,
         deadline: Instant::MAX,
     };
