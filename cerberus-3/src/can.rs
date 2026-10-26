@@ -133,7 +133,7 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
         match Msg::decode(&frame) {
             // --- CAN bootloader support ---
             Some(Msg::VcuBootRequest(_)) => bootloader
-                .handle_frame(&frame)
+                .handle_request(frame.data())
                 .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
             // --- End CAN bootloader support ---
             Some(Msg::CellTemperatures(_)) => {}

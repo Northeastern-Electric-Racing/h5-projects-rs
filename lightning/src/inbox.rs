@@ -55,7 +55,9 @@ pub mod inbox {
                         Ok(envelope) => match envelope.frame.id() {
                             // --- CAN bootloader support ---
                             Id::Standard(id) if id.as_raw() == crate::BOOT_REQUEST_ID => {
-                                if bootloader.handle_frame(&envelope.frame).is_err() {
+                                if !embedded_can::Frame::is_remote_frame(&envelope.frame)
+                                    && bootloader.handle_request(envelope.frame.data()).is_err()
+                                {
                                     defmt::error!("Failed to persist bootloader request");
                                 }
                                 None

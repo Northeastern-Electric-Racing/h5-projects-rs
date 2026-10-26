@@ -146,10 +146,7 @@ async fn main(_spawner: Spawner) -> ! {
     unwrap!(usart.write(s.as_bytes()).await);
 
     // --- CAN bootloader support ---
-    let mut bootloader = boot_control::Bootloader::new(
-        p.FLASH,
-        embedded_can::Id::Standard(embedded_can::StandardId::new(BOOT_REQUEST_ID).unwrap()),
-    );
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");

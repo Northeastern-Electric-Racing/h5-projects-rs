@@ -58,10 +58,11 @@ request fails, the bootloader logs an error and stays in update mode.
 ## Application integration
 
 The `boot-control` helper handles CAN boot requests and startup confirmation.
-Create it with `boot_control::Bootloader::new(p.FLASH, request_id)`. The H563
+Create it with `boot_control::Bootloader::new(p.FLASH)`. The H563
 helper handles the boot-state partition, scratch buffer, and reset.
-Call `confirm_boot()` after required startup checks and `handle_frame()` from the
-receive task. Configure CAN and its boot-request filter in the application as usual.
+Call `confirm_boot()` after required startup checks. In the receive task, match
+the boot-request ID, reject remote frames, and pass the payload to `handle_request()`.
+Configure CAN and its boot-request filter in the application as usual.
 The fixed boot-request payload is `B0 07 10 AD`.
 
 Applications use the shared `boot-control/platforms/stm32h563/memory.x` in

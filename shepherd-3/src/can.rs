@@ -458,7 +458,9 @@ mod handler {
             match frame.id() {
                 // --- CAN bootloader support ---
                 Id::Standard(id) if id.as_raw() == crate::BOOT_REQUEST_ID => {
-                    if bootloader.handle_frame(&frame).is_err() {
+                    if !embedded_can::Frame::is_remote_frame(&frame)
+                        && bootloader.handle_request(frame.data()).is_err()
+                    {
                         defmt::error!("Failed to persist bootloader request");
                     }
                 },

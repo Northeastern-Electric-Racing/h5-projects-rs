@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-use cangen::CanMessage;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::debug;
@@ -174,7 +173,7 @@ async fn main(spawner: Spawner) -> ! {
         tx: p.PB6,
     };
     // --- CAN bootloader support ---
-    let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::MsbFrontBootRequest::ID);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");

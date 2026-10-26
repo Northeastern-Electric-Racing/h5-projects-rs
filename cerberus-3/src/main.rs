@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-use cangen::CanMessage;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::debug;
@@ -93,7 +92,7 @@ async fn main(spawner: Spawner) -> ! {
         tx: p.PB6,
     });
     // --- CAN bootloader support ---
-    let mut bootloader = boot_control::Bootloader::new(p.FLASH, cangen::VcuBootRequest::ID);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader
         .confirm_boot()

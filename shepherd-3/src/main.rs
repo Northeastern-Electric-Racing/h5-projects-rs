@@ -133,7 +133,7 @@ async fn main(spawner: Spawner) {
     hardfault::report_last_reset();
 
     // --- CAN bootloader support ---
-    let mut bootloader = boot_control::Bootloader::new(p.FLASH, embedded_can::Id::Standard(embedded_can::StandardId::new(BOOT_REQUEST_ID).unwrap()));
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader.confirm_boot().expect("Failed to confirm application startup");
     // --- End CAN bootloader support ---

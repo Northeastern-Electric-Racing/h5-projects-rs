@@ -143,7 +143,7 @@ async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
             Some(Msg::MsbFrontBootRequest(_)) => bootloader
-                .handle_frame(&frame)
+                .handle_request(frame.data())
                 .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
             _ => {}
         }
