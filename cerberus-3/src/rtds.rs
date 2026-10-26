@@ -5,12 +5,12 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use crate::shutdown;
 use defmt::{debug, error};
 use embassy_futures::select::{Either, select};
 use embassy_stm32::gpio::Output;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
-use crate::shutdown;
 
 /// how long the rtds sound plays
 const RTDS_DURATION: Duration = Duration::from_millis(1500);
