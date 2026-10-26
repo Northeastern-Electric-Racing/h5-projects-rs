@@ -80,9 +80,7 @@ pub struct InputPin {
 }
 impl InputPin {
     fn new(pin: Peri<'static, AnyPin>, pull: Pull) -> Self {
-        Self {
-            pin: CriticalSectionMutex::new(RefCell::new(Input::new(pin, pull))),
-        }
+        Self { pin: CriticalSectionMutex::new(RefCell::new(Input::new(pin, pull))) }
     }
 
     /// Get whether the pin input level is high.

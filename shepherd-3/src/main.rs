@@ -145,6 +145,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
+    spawner.spawn(shutdown::shutdown_task().expect("Failed to spawn shutdown::shutdown_task()."));
     spawner.spawn(hv_plate::soc_task().expect("Failed to spawn hv_plate::soc_task()."));
     spawner.spawn(hv_plate::precharge_task().expect("Failed to spawn hv_plate::precharge_task()."));
     spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
