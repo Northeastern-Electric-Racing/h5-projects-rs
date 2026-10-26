@@ -3,7 +3,7 @@
 
 mod can;
 mod hardware;
-mod state;
+mod statemachine;
 
 use crate::hardware::Leds;
 use cangen::ToCanFrame;
@@ -108,6 +108,7 @@ async fn main(spawner: Spawner) -> ! {
             .expect("Failed to spawn ner_can::can_rx()."),
     );
     spawner.spawn(can::can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
+    spawner.spawn(can::can_pulse_task().expect("Failed to spawn can::can_pulse_task()."));
 
     let mut s: String<128> = String::new();
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();
@@ -122,14 +123,8 @@ async fn main(spawner: Spawner) -> ! {
             .expect("Failed to spawn state machine"),
     );
 
-    let mut count: u32 = 0;
-    let msg = cangen::LightningPulseMessage::new().with_count(count);
-
     loop {
         debug!("I'm not dead yet");
-        count += 1;
-        msg.with_count(count);
-        can::OUTGOING.send(msg.to_can_frame()).await;
         ticker.next().await;
         watchdog.pet();
     }
