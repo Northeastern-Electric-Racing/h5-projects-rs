@@ -8,15 +8,15 @@ use crate::can;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BmsShutdownState {
-    Open, // corresponds to false over CAN (bad state)
+    Open,   // corresponds to false over CAN (bad state)
     Closed, // corresponds to true over CAN (normal state)
 }
 
 impl BmsShutdownState {
     pub fn from(s: bool) -> Self {
         match s {
-            true  => BmsShutdownState::Closed,
-            false   => BmsShutdownState::Open,
+            true => BmsShutdownState::Closed,
+            false => BmsShutdownState::Open,
         }
     }
 }
@@ -29,9 +29,9 @@ pub async fn update_bms_shutdown(state: BmsShutdownState) {
 
 pub fn get_shutdown_state() -> BmsShutdownState {
     if cfg!(feature = "TSMS_OVERIDE") {
-        return BmsShutdownState::Closed;
+        BmsShutdownState::Closed
     } else {
-        return BmsShutdownState::from(BMS_SHUTDOWN.load(Ordering::Relaxed));
+        BmsShutdownState::from(BMS_SHUTDOWN.load(Ordering::Relaxed))
     }
 }
 

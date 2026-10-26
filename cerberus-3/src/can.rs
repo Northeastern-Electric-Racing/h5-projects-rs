@@ -146,7 +146,9 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::RtdsCommandMessage(_)) => {}
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
-            Some(Msg::ShutdownAsReadByBms(m)) => shutdown::update_bms_shutdown(BmsShutdownState::from(m.shutdown_state())).await,
+            Some(Msg::ShutdownAsReadByBms(m)) => {
+                shutdown::update_bms_shutdown(BmsShutdownState::from(m.shutdown_state())).await
+            }
             Some(_) => debug!("Unknown message"),
             _ => {
                 debug!("failed to parse id")
