@@ -180,10 +180,16 @@ const SETTLE_DURATION: Duration = Duration::from_secs(60);
 struct Settle {
     /// RUNTIME FIELD. When this `Settle` should expire.
     deadline: Deadline,
+
+    /// RUNTIME FIELD. If this `Settle` was entered from `Balancing`.
+    were_balancing: bool,
 }
 impl Settle {
     /// Creates a new `Settle`.
-    fn new() -> Self { Self { deadline: Deadline::expire_in(SETTLE_DURATION) } }
+    fn new() -> Self { Self { deadline: Deadline::expire_in(SETTLE_DURATION), were_balancing: false } }
+
+    /// Creates a new `Settle` with `were_balancing` = true.
+    fn new_from_balancing() -> Self { Self { deadline: Deadline::expire_in(SETTLE_DURATION), were_balancing: true } }
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -310,18 +316,20 @@ impl ChargeStage {
                 if inputs.exceeded_fault_voltages()                                 { Self::Fault }
                 else if h.is_drawcurrent() && inputs.max_voltage >= MAX_CHARGE_VOLT { h.to_nocurrent(); Self::Balance(h) }
                 else if h.deadline.is_active_and(|d| { d.past() })        { h.to_cooldown(); Self::Balance(h) }
-                else if h.deadline.is_cooldown_and(|d| { d.past() })      { Self::Settle(Settle::new()) }
+                else if h.deadline.is_cooldown_and(|d| { d.past() })      { Self::Settle(Settle::new_from_balancing()) }
                 else                                                                { self }
             },
 
             Self::Settle(h) => {
+                let wants_balancing = if h.were_balancing { !inputs.should_we_stop_balancing() } else { inputs.should_we_start_balancing() };
+
                 if inputs.exceeded_fault_voltages() { Self::Fault }
                 else if h.deadline.past() {
-                    if inputs.is_balancing_allowed() && inputs.should_we_start_balancing() { inputs.appropriate_balancing_phase_ocv() /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
-                    else if inputs.max_ocv >= MAX_CHARGE_VOLT                              { Self::Done }
-                    else                                                                   { Self::from_charge_restore_cache(inputs.charge_restore_cache) /* Self::LongChargeUp or Self::ShortChargeUp */ }
+                    if inputs.is_balancing_allowed() && wants_balancing { inputs.appropriate_balancing_phase_ocv() /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
+                    else if inputs.max_ocv >= MAX_CHARGE_VOLT           { Self::Done }
+                    else                                                { Self::from_charge_restore_cache(inputs.charge_restore_cache) /* Self::LongChargeUp or Self::ShortChargeUp */ }
                 }
-                else                                                                       { self }
+                else                                                    { self }
             },
 
             Self::Done => self,
