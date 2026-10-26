@@ -26,11 +26,13 @@ const COMMAND_QUEUE_SIZE: usize = 4;
 #[derive(Clone, Copy, defmt::Format)]
 pub(crate) enum RtdsCommand {
     /// play the ready to drive sound once
-    Sound,
-    /// beep continuously until cancelled
-    Reverse,
-    /// go back to idle (pin off)
-    Cancel,
+    SoundRTDS,
+    /// stop ready to drive sound
+    CancelRTDS,
+    /// beep continuously while in reverse
+    StartReverse,
+    /// stop reverse sound
+    StopReverse,
 }
 
 impl TryFrom<u8> for RtdsCommand {
@@ -39,9 +41,10 @@ impl TryFrom<u8> for RtdsCommand {
     /// map the `command` byte from RtdsCommandMessage
     fn try_from(byte: u8) -> Result<Self, Self::Error> {
         match byte {
-            0 => Ok(RtdsCommand::Sound),
-            1 | 3 => Ok(RtdsCommand::Cancel),
-            2 => Ok(RtdsCommand::Reverse),
+            0 => Ok(RtdsCommand::SoundRTDS),
+            1 => Ok(RtdsCommand::CancelRTDS),
+            2 => Ok(RtdsCommand::StartReverse),
+            3 => Ok(RtdsCommand::StopReverse),
             other => Err(other),
         }
     }
@@ -81,20 +84,14 @@ pub(crate) fn send(command: RtdsCommand) -> Result<(), RtdsError> {
     })
 }
 
-/// play the rtds
 pub fn sound_rtds() -> Result<(), RtdsError> {
-    send(RtdsCommand::Sound)
+    send(RtdsCommand::SoundRTDS)
 }
-
-/// start the reverse beeping, plays until `cancel_rtds` is called
 pub fn start_reverse_rtds() -> Result<(), RtdsError> {
-    send(RtdsCommand::Reverse)
+    send(RtdsCommand::StartReverse)
 }
-
-/// stop whatever is playing (rtds or reverse) and go idle,
-/// call when leaving reverse or when shutdown is open
-pub fn cancel_sounds() -> Result<(), RtdsError> {
-    send(RtdsCommand::Cancel)
+pub fn stop_reverse_rtds() -> Result<(), RtdsError> {
+    send(RtdsCommand::StopReverse)
 }
 
 /// is the pin high
@@ -158,14 +155,25 @@ impl Rtds {
         REVERSING.store(state == RtdsState::Reverse, Ordering::Relaxed);
     }
 
+    fn go_idle(&mut self) {
+        self.clear_pin();
+        self.set_state(RtdsState::Idle, Instant::MAX);
+    }
+
     fn handle_command(&mut self, command: RtdsCommand) {
         debug!("Handling RTDS command: {:?}", command);
         match command {
-            RtdsCommand::Sound => {
+            RtdsCommand::SoundRTDS => {
                 self.set_pin();
                 self.set_state(RtdsState::Drive, Instant::now() + RTDS_DURATION);
             }
-            RtdsCommand::Reverse => {
+            RtdsCommand::CancelRTDS => {
+                // only stop the rtds sound, leave reverse alone
+                if self.state == RtdsState::Drive {
+                    self.go_idle();
+                }
+            }
+            RtdsCommand::StartReverse => {
                 // already beeping, don't restart the beep pattern
                 if self.state != RtdsState::Reverse {
                     self.clear_pin();
@@ -173,9 +181,11 @@ impl Rtds {
                     self.set_state(RtdsState::Reverse, Instant::now() + REVERSE_HALF_PERIOD);
                 }
             }
-            RtdsCommand::Cancel => {
-                self.clear_pin();
-                self.set_state(RtdsState::Idle, Instant::MAX);
+            RtdsCommand::StopReverse => {
+                // only stop reverse, leave an rtds sound alone
+                if self.state == RtdsState::Reverse {
+                    self.go_idle();
+                }
             }
         }
     }
