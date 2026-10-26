@@ -171,16 +171,16 @@ dependencies = [
 [[package]]
 name = "boot-control"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0#127a2a160233d8a16e71cf2dae7cbd692972edd0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42#110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42"
 
 [[package]]
 name = "boot-control-stm32h563"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0#127a2a160233d8a16e71cf2dae7cbd692972edd0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42#110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42"
 dependencies = [
  "boot-control",
  "cortex-m",
- "embassy-boot-stm32",
+ "embassy-boot 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "embassy-embedded-hal",
  "embassy-stm32",
  "embassy-sync",
@@ -231,7 +231,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0#127a2a160233d8a16e71cf2dae7cbd692972edd0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42#110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42"
 dependencies = [
  "bitfield-struct",
  "cangen-macro",
@@ -241,7 +241,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0#127a2a160233d8a16e71cf2dae7cbd692972edd0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42#110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42"
 dependencies = [
  "definition-rs",
  "heck",
@@ -425,7 +425,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0#127a2a160233d8a16e71cf2dae7cbd692972edd0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42#110e6d0c8ffcdf53b7e7c707783f44f8e16c6e42"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -538,6 +538,21 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 [[package]]
 name = "embassy-boot"
 version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73bfc955c9238df2ce9fecc6f18a64b13ecaa41a3cd42d940a09f304765d10db"
+dependencies = [
+ "digest",
+ "document-features",
+ "embassy-embedded-hal",
+ "embassy-sync",
+ "embedded-storage",
+ "embedded-storage-async",
+ "signature",
+]
+
+[[package]]
+name = "embassy-boot"
+version = "0.7.0"
 source = "git+https://github.com/embassy-rs/embassy?rev=c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb#c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb"
 dependencies = [
  "defmt 1.2.0",
@@ -559,7 +574,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
- "embassy-boot",
+ "embassy-boot 0.7.0 (git+https://github.com/embassy-rs/embassy?rev=c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb)",
  "embassy-stm32",
  "embassy-sync",
  "embedded-storage",

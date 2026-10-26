@@ -137,9 +137,7 @@ async fn main(spawner: Spawner) {
 
     // Confirm basic startup to prevent rollback on the next reset.
     // Device initialization continues in application tasks.
-    bootloader
-        .confirm_boot()
-        .expect("Failed to confirm application startup");
+    bootloader.confirm_boot().expect("Failed to confirm application startup");
     spawner.spawn(can::can_task(spawner, r.can, bootloader).expect("Failed to spawn can::can_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
