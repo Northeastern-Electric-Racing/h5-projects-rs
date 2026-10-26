@@ -1,6 +1,5 @@
 //! CAN bring-up for Cerberus.
 
-use crate::shutdown::BmsShutdownState;
 use crate::{buttons, shutdown};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
