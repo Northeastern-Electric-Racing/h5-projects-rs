@@ -43,7 +43,7 @@ pub async fn statemachine_task(mut leds: lights::Leds) -> ! {
     leds.set_all_off();
     loop {
         let event = FAULT_QUEUE.receive().await;
-        let in_grace = !(bms_seen || imd_seen);
+        let in_grace = !(bms_seen && imd_seen);
         match event {
             FaultframeState::BMSFault | FaultframeState::BMSOk => bms_seen = true,
             FaultframeState::IMDFault | FaultframeState::IMDOk => imd_seen = true,
