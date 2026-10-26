@@ -1,7 +1,7 @@
 use crate::statemachine;
 use cangen::{CanMessage, Msg, ToCanFrame};
 use core::fmt::Debug;
-use defmt::warn;
+use defmt::{debug, warn};
 use embassy_stm32::can::{CanRx, CanTx, Frame};
 use embassy_stm32::{Peri, bind_interrupts, can, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -9,7 +9,6 @@ use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Instant, Ticker};
 use ner_can::{ExtFilter, NerCan, StdFilter};
 
-const CAN_RECV_TIMEOUT: Duration = Duration::from_millis(500);
 pub const GRACE_PERIOD_DURATION: Duration = Duration::from_secs(5); // Needs to be public such that state can read it
 
 bind_interrupts!(struct IrqsCan {
@@ -37,8 +36,8 @@ pub static OUTGOING: Channel<ThreadModeRawMutex, Frame, CHANNEL_SIZE> = Channel:
 /// Peripherals the CAN bus is wired to.
 pub struct CanPins {
     pub can: Peri<'static, peripherals::FDCAN2>,
-    pub rx: Peri<'static, peripherals::PB5>,
-    pub tx: Peri<'static, peripherals::PB6>,
+    pub rx: Peri<'static, peripherals::PB12>,
+    pub tx: Peri<'static, peripherals::PB13>,
 }
 pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     let configurator = can::CanConfigurator::new(pins.can, pins.rx, pins.tx, IrqsCan);
@@ -75,7 +74,8 @@ pub async fn can_pulse_task() -> ! {
     loop {
         count += 1;
         msg.with_count(count);
-        crate::can::OUTGOING.send(msg.to_can_frame()).await;
+        debug!("Sending pulse message with count: {}", count);
+        OUTGOING.send(msg.to_can_frame()).await;
         ticker.next().await;
     }
 }

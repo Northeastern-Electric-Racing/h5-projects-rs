@@ -91,8 +91,8 @@ async fn main(spawner: Spawner) -> ! {
 
     let (can_tx_half, can_rx_half) = can::init(can::CanPins {
         can: p.FDCAN2,
-        rx: p.PB5,
-        tx: p.PB6,
+        rx: p.PB12,
+        tx: p.PB13,
     });
     spawner.spawn(
         ner_can::can_tx(
