@@ -20,5 +20,8 @@ embedded-can.workspace = true
 embedded-storage.workspace = true
 panic-probe.workspace = true
 
+[build-dependencies]
+can-bootloader-config = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "2cd89fd80fa536ca22d898935d9b8685af8a2752" }
+
 [lints]
 workspace = true

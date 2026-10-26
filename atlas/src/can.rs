@@ -1,12 +1,12 @@
 //! Transport bootloader command and data frames over classical CAN.
 
 use embassy_stm32::bind_interrupts;
-use embassy_stm32::can::filter::StandardFilterSlot;
+use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
 use embassy_stm32::can::frame::Frame;
 use embassy_stm32::can::{Can, CanConfigurator, IT0InterruptHandler, IT1InterruptHandler};
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_can::Id;
-use ner_can::{NerCan, StdFilter};
+use ner_can::{ExtFilter, NerCan, StdFilter};
 
 use crate::commands::*;
 use crate::config::TX_TIMEOUT_MS;
@@ -37,12 +37,24 @@ impl CanHandler<'static> {
         rx: embassy_stm32::Peri<'static, CanRxPin>,
         tx: embassy_stm32::Peri<'static, CanTxPin>,
     ) -> Self {
-        let mut ner_can = NerCan::init(CanConfigurator::new(fdcan, rx, tx, Irqs))
-            .with_standard_filters(&[StdFilter {
-                slot: StandardFilterSlot::_0,
-                id1: REQUEST_ID,
-                id2: Some(DATA_ID),
-            }]);
+        let mut ner_can = NerCan::init(CanConfigurator::new(fdcan, rx, tx, Irqs));
+        for (id, standard_slot, extended_slot) in [
+            (REQUEST_ID, StandardFilterSlot::_0, ExtendedFilterSlot::_0),
+            (DATA_ID, StandardFilterSlot::_1, ExtendedFilterSlot::_1),
+        ] {
+            ner_can = match id {
+                Id::Standard(id) => ner_can.with_standard_filters(&[StdFilter {
+                    slot: standard_slot,
+                    id1: id.as_raw(),
+                    id2: None,
+                }]),
+                Id::Extended(id) => ner_can.with_extended_filters(&[ExtFilter {
+                    slot: extended_slot,
+                    id1: id.as_raw(),
+                    id2: None,
+                }]),
+            };
+        }
         let config = &mut ner_can.can_configurator;
         // Keep ACKs pending for retry until transmission succeeds or flush times out.
         config.set_config(config.config().set_automatic_retransmit(true));
@@ -64,7 +76,7 @@ impl<'d> CanHandler<'d> {
                 continue;
             };
             let frame = envelope.frame;
-            let Some(id) = standard_id(&frame) else {
+            let Some(id) = data_id(&frame) else {
                 continue;
             };
 
@@ -83,8 +95,8 @@ impl<'d> CanHandler<'d> {
     }
 
     /// Queue a frame; success does not mean it has finished transmitting.
-    pub async fn send(&mut self, id: u16, data: &[u8]) -> bool {
-        let Ok(frame) = Frame::new_standard(id, data) else {
+    pub async fn send(&mut self, id: Id, data: &[u8]) -> bool {
+        let Ok(frame) = Frame::new_data(id, data) else {
             return false;
         };
 
@@ -131,11 +143,7 @@ impl<'d> CanHandler<'d> {
     }
 }
 
-/// Extract an 11-bit ID; extended frames are outside the bootloader protocol.
-pub fn standard_id(frame: &Frame) -> Option<u16> {
-    match frame.id() {
-        Id::Standard(id) => Some(id.as_raw()),
-
-        Id::Extended(_) => None,
-    }
+/// Return the full identifier only for data frames.
+pub fn data_id(frame: &Frame) -> Option<Id> {
+    (!embedded_can::Frame::is_remote_frame(frame)).then_some(*frame.id())
 }

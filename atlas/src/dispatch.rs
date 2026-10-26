@@ -4,7 +4,7 @@ use embassy_boot_stm32::BlockingFirmwareUpdater;
 use embassy_stm32::can::frame::Frame;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::can::{CanHandler, standard_id};
+use crate::can::{CanHandler, data_id};
 use crate::commands::*;
 use crate::handlers::Handlers;
 use crate::types::{Context, Control};
@@ -21,7 +21,7 @@ where
     DFU: NorFlash,
     STATE: NorFlash,
 {
-    if standard_id(frame) != Some(REQUEST_ID) || frame.data().is_empty() {
+    if data_id(frame) != Some(REQUEST_ID) || frame.data().is_empty() {
         return Control::Continue;
     }
 

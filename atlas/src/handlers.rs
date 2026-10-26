@@ -5,7 +5,7 @@ use embassy_stm32::can::frame::Frame;
 use embassy_stm32::flash::WRITE_SIZE;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::can::{CanHandler, standard_id};
+use crate::can::{CanHandler, data_id};
 use crate::commands::*;
 use crate::config::*;
 use crate::flash;
@@ -151,7 +151,7 @@ impl Handlers {
                 return;
             };
 
-            let id = standard_id(&frame);
+            let id = data_id(&frame);
             let payload = frame.data();
 
             if id == Some(DATA_ID) && payload.len() >= 2 {

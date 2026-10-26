@@ -19,6 +19,7 @@ fn main() {
         "Unknown ECU {name}; select bms, vcu, lightning, msb_front, or msb_back"
     );
     println!("cargo:rustc-cfg=ecu=\"{name}\"");
+    can_bootloader_config::generate(&name).unwrap_or_else(|error| panic!("{error}"));
 
     println!("cargo:rustc-link-arg-bins=--nmagic");
     // Resolve link.x's memory include explicitly instead of using dependency search order.

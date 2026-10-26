@@ -2,8 +2,8 @@
 
 CAN bootloader with per-ECU settings, firmware verification, and software
 swap/rollback. All ECU builds use one bootloader implementation and memory layout.
-The CAN bitrate is fixed at build time by `CAN_LINE_BITRATE` in `src/commands.rs`; runtime bitrate changes
-are not supported.
+CAN IDs, frame formats, and bitrate come from Odyssey-Definitions’ `can-bootloader/ecus.json`
+at build time. Runtime bitrate changes are not supported.
 
 ## Layout
 
@@ -32,10 +32,9 @@ From the repository root, add `-p atlas` to `cargo build` or `cargo run`; the
 ECU builds, add `--target-dir ../target/<ecu>-can-bootloader` when running from
 `atlas/` and use the ELF beneath that directory.
 
-The build script sets `cfg(ecu)` from `BOOTLOADER_ECU`. CAN IDs and bitrate live
-in `src/commands.rs`; pins and controller bindings live in `src/main.rs` and
-`src/can.rs`. Keep the flashing host’s `ecus.json` consistent with those settings.
-The firmware build does not read it.
+CAN constants are generated automatically for `BOOTLOADER_ECU`.
+Pins and controller bindings live in `src/main.rs` and `src/can.rs`.
+Use the same `ecus.json` on the flashing host.
 Memory regions are defined directly in `memory.x`; runtime address checks use its
 linker symbols.
 
@@ -76,7 +75,7 @@ bootloader.confirm_boot()?;
 bootloader.handle_frame(&frame)?;
 ```
 
-The helper owns FLASH and only writes the boot-state sector. A matching standard
+The helper owns FLASH and only writes the boot-state sector. A matching
 data frame persists the request and resets; the bootloader answers host commands
 afterward. Flash failures return an error without resetting. Projects that need
 to stop outputs first can check `is_request(&frame)` before calling `handle_frame`.
@@ -89,5 +88,5 @@ the same ECU first, then download the application ELF without a chip erase.
 
 ## Adding an ECU
 
-Add the name to `build.rs`, the CAN IDs to `src/commands.rs`, and the pin mappings
-to `src/main.rs` and `src/can.rs`. Update the host settings in `ecus.json` too.
+Add the ECU to Odyssey-Definitions’ `ecus.json` and boot-entry definitions, then update the
+config dependency. Add its name to `build.rs` and pins to `src/main.rs` and `src/can.rs`.
