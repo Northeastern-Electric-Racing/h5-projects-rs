@@ -92,10 +92,6 @@ async fn main(spawner: Spawner) -> ! {
         tx: p.PB6,
     });
     let mut bootloader = boot_control::Bootloader::new(p.FLASH);
-    // Accept basic startup; device initialization continues in the spawned tasks.
-    bootloader
-        .confirm_boot()
-        .expect("Failed to confirm application startup");
     spawner.spawn(
         ner_can::can_tx(
             can_tx_half,
@@ -108,6 +104,11 @@ async fn main(spawner: Spawner) -> ! {
         ner_can::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
     spawner.spawn(can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
 
     // ADC1 + analog mux

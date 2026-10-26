@@ -173,6 +173,8 @@ async fn main(spawner: Spawner) -> ! {
         tx: p.PB6,
     };
     let mut bootloader = boot_control::Bootloader::new(p.FLASH);
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");

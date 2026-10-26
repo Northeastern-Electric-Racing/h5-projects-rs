@@ -107,6 +107,8 @@ async fn main(spawner: Spawner) -> ! {
             .expect("Failed to spawn ner_can::can_rx()."),
     );
     let mut bootloader = boot_control::Bootloader::new(p.FLASH);
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");
