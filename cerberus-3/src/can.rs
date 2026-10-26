@@ -66,13 +66,11 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
         id2: None,
     };
 
-    // --- CAN bootloader support ---
     const SLOT_6: StdFilter = StdFilter {
         slot: StandardFilterSlot::_6,
         id1: cangen::VcuBootRequest::ID,
         id2: None,
     };
-    // --- End CAN bootloader support ---
 
     const SLOT_1E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_1,
@@ -131,11 +129,9 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
-            // --- CAN bootloader support ---
             Some(Msg::VcuBootRequest(_)) => bootloader
                 .handle_request(frame.data())
                 .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
-            // --- End CAN bootloader support ---
             Some(Msg::CellTemperatures(_)) => {}
             Some(Msg::LightningPulseMessage(_)) => {}
             Some(Msg::FrontWheelRpm(_)) => {}

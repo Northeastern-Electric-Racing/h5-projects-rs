@@ -50,9 +50,7 @@ mod api {
             .add_standard_filter(StandardFilterSlot::_0, rx_ids::DTI_INPUT_VOLTAGE, None)
             .add_standard_filter(StandardFilterSlot::_1, rx_ids::DTI_DC_CURRENT, None)
             .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None)
-            // --- CAN bootloader support ---
             .add_standard_filter(StandardFilterSlot::_2, crate::BOOT_REQUEST_ID, None);
-        // --- End CAN bootloader support ---
 
         let (tx, rx, _props) = can.start();
 
@@ -456,13 +454,11 @@ mod handler {
             let frame = super::channels::INCOMING.receive().await;
 
             match frame.id() {
-                // --- CAN bootloader support ---
                 Id::Standard(id) if id.as_raw() == crate::BOOT_REQUEST_ID => {
                     if !embedded_can::Frame::is_remote_frame(&frame) && bootloader.handle_request(frame.data()).is_err() {
                         defmt::error!("Failed to persist bootloader request");
                     }
                 },
-                // --- End CAN bootloader support ---
                 Id::Extended(id) if id.as_raw() == CHARGER_BOX => {
                     state_machine::charger_frame_received();
                     if let Some(current) = decode_current(frame.data()) {

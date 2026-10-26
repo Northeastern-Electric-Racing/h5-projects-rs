@@ -22,8 +22,8 @@ heapless.workspace = true
 panic-probe.workspace = true
 embedded-can.workspace = true
 #static_cell.workspace = true
-ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
+ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "418f3c64f21b7bacde572e7cea7be95dd6e393c7" }
+cangen.workspace = true
 
 [lints]
 workspace = true

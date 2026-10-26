@@ -54,15 +54,11 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
                 id1: cangen::ImdGeneralInformation::ID,
                 id2: None,
             },
-            // --- CAN bootloader support ---
             StdFilter {
                 slot: can::filter::StandardFilterSlot::_2,
-                id1: embedded_can::Id::Standard(
-                    embedded_can::StandardId::new(crate::BOOT_REQUEST_ID).unwrap(),
-                ),
+                id1: cangen::LightningBootRequest::ID,
                 id2: None,
             },
-            // --- End CAN bootloader support ---
         ])
         .with_extended_filters(&[ExtFilter {
             slot: can::filter::ExtendedFilterSlot::_2,
@@ -96,16 +92,12 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
     loop {
         let frame = INCOMING.receive().await;
         let latest: Option<FaultframeState> = match Msg::decode(&frame) {
-            // --- CAN bootloader support ---
-            _ if matches!(frame.id(), embedded_can::Id::Standard(id) if id.as_raw() == crate::BOOT_REQUEST_ID)
-                && !embedded_can::Frame::is_remote_frame(&frame) =>
-            {
+            Some(Msg::LightningBootRequest(_)) => {
                 if bootloader.handle_request(frame.data()).is_err() {
                     defmt::error!("Failed to persist bootloader request");
                 }
                 None
             }
-            // --- End CAN bootloader support ---
             Some(Msg::ImdGeneralInformation(m)) => {
                 if m.device_error() || m.HV_pos_conn_fail() {
                     Some(FaultframeState::IMDFault)

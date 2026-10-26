@@ -216,21 +216,6 @@ dependencies = [
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
-dependencies = [
- "defmt 1.2.0",
- "embassy-executor",
- "embassy-futures",
- "embassy-stm32",
- "embassy-sync",
- "embassy-time",
- "embedded-can",
- "heapless",
-]
-
-[[package]]
-name = "can-handler"
-version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=418f3c64f21b7bacde572e7cea7be95dd6e393c7#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
 dependencies = [
  "defmt 1.2.0",
@@ -246,34 +231,11 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
-dependencies = [
- "bitfield-struct",
- "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
- "embedded-can",
-]
-
-[[package]]
-name = "cangen"
-version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0#127a2a160233d8a16e71cf2dae7cbd692972edd0"
 dependencies = [
  "bitfield-struct",
- "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0)",
+ "cangen-macro",
  "embedded-can",
-]
-
-[[package]]
-name = "cangen-macro"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
-dependencies = [
- "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
- "heck",
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -281,7 +243,7 @@ name = "cangen-macro"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0#127a2a160233d8a16e71cf2dae7cbd692972edd0"
 dependencies = [
- "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0)",
+ "definition-rs",
  "heck",
  "proc-macro2",
  "quote",
@@ -305,7 +267,7 @@ version = "0.1.0"
 dependencies = [
  "boot-control-stm32h563",
  "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=418f3c64f21b7bacde572e7cea7be95dd6e393c7)",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0)",
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
@@ -458,17 +420,6 @@ dependencies = [
  "darling_core",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "definition-rs"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
-dependencies = [
- "proc-macro2",
- "quote",
- "schemars",
- "serde",
 ]
 
 [[package]]
@@ -1105,8 +1056,8 @@ name = "lightning"
 version = "0.1.0"
 dependencies = [
  "boot-control-stm32h563",
- "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=418f3c64f21b7bacde572e7cea7be95dd6e393c7)",
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
@@ -1168,7 +1119,7 @@ version = "0.1.0"
 dependencies = [
  "boot-control-stm32h563",
  "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=418f3c64f21b7bacde572e7cea7be95dd6e393c7)",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0)",
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
@@ -1499,7 +1450,7 @@ dependencies = [
  "adbms6830b",
  "assign-resources",
  "boot-control-stm32h563",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=127a2a160233d8a16e71cf2dae7cbd692972edd0)",
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",

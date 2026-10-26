@@ -91,13 +91,11 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     });
-    // --- CAN bootloader support ---
     let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");
-    // --- End CAN bootloader support ---
     spawner.spawn(
         ner_can::can_tx(
             can_tx_half,

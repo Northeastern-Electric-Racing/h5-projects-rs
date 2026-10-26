@@ -120,9 +120,7 @@ assign_resources! {
     }
 }
 
-// --- CAN bootloader support ---
 const BOOT_REQUEST_ID: u16 = 0x013;
-// --- End CAN bootloader support ---
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -132,11 +130,9 @@ async fn main(spawner: Spawner) {
 
     hardfault::report_last_reset();
 
-    // --- CAN bootloader support ---
     let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     // Accept basic startup; device initialization continues in the spawned tasks.
     bootloader.confirm_boot().expect("Failed to confirm application startup");
-    // --- End CAN bootloader support ---
     let r = split_resources!(p);
 
     gpios::init(r.gpios);

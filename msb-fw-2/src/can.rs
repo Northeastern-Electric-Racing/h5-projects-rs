@@ -38,9 +38,7 @@ use embassy_sync::channel::Channel;
 /// Frames waiting for a free FDCAN TX buffer.
 const OUTGOING_CAPACITY: usize = 32;
 
-// --- CAN bootloader support ---
 static INCOMING: Channel<ThreadModeRawMutex, Frame, 32> = Channel::new();
-// --- End CAN bootloader support ---
 
 static OUTGOING: Channel<ThreadModeRawMutex, Frame, OUTGOING_CAPACITY> = Channel::new();
 
@@ -53,22 +51,18 @@ pub struct CanResources {
 
 /// Starts FDCAN2 through [`NerCan`] and spawns the CAN tasks.
 pub fn start(spawner: Spawner, r: CanResources, bootloader: boot_control::Bootloader<'static>) {
-    // --- CAN bootloader support ---
     const SLOT_0: StdFilter = StdFilter {
         slot: StandardFilterSlot::_0,
         id1: cangen::MsbFrontBootRequest::ID,
         id2: None,
     };
-    // --- End CAN bootloader support ---
     let (tx, rx, _properties) = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs))
         .with_standard_filters(&[SLOT_0])
         .start();
-    // --- CAN bootloader support ---
     spawner.spawn(
         can_handler::can_rx(rx, INCOMING.dyn_sender()).expect("Failed to spawn CAN receiver"),
     );
-    spawner.spawn(can_rx_processer(bootloader).expect("Failed to spawn CAN processor"));
-    // --- End CAN bootloader support ---
+    spawner.spawn(can_inbox_task(bootloader).expect("Failed to spawn CAN processor"));
 
     spawner.spawn(
         can_handler::can_tx(tx, OUTGOING.dyn_receiver(), OUTGOING.dyn_sender())
@@ -136,9 +130,8 @@ fn strain_gauge_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Fra
         .to_can_frame()
 }
 
-// --- CAN bootloader support ---
 #[embassy_executor::task]
-async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) {
+async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -> ! {
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
@@ -149,4 +142,3 @@ async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) {
         }
     }
 }
-// --- End CAN bootloader support ---

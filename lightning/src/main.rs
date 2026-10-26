@@ -27,11 +27,6 @@ bind_interrupts!(struct IrqsUsart {
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
 
-// --- CAN bootloader support ---
-// Match this ECU's boot-entry ID in ecus.json.
-const BOOT_REQUEST_ID: u16 = 0x043;
-// --- End CAN bootloader support ---
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
     info!("Initializing wheel...");
@@ -111,12 +106,10 @@ async fn main(spawner: Spawner) -> ! {
         ner_can::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
-    // --- CAN bootloader support ---
     let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     bootloader
         .confirm_boot()
         .expect("Failed to confirm application startup");
-    // --- End CAN bootloader support ---
     spawner.spawn(can::can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
     spawner.spawn(can::can_pulse_task().expect("Failed to spawn can::can_pulse_task()."));
 
