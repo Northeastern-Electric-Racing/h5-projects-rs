@@ -1,77 +1,97 @@
 # Atlas CAN bootloader
 
-CAN bootloader with per-ECU settings, firmware verification, and software
+CAN bootloader with per-ECU configuration, firmware verification, and software
 swap/rollback. All ECU builds use one bootloader implementation and memory layout.
 CAN IDs, frame formats, and bitrate come from Odyssey-Definitions’ `can-bootloader/ecus.json`
 at build time. Runtime bitrate changes are not supported.
 
-## Layout
-
-- `src/`: bootloader firmware.
-- `memory.x`: fixed flash/RAM regions and runtime bounds exported as linker symbols.
-- `build.rs`: ECU selection and linker setup.
-
 ## Build and flash
 
-Atlas defaults to BMS, including when building from the workspace root.
-From `atlas/`, override it with `bms`, `vcu`, `lightning`, `msb_front`, or `msb_back`:
+1. From inside the `atlas/` project folder, select an ECU supported by `build.rs`.
 
-```sh
-BOOTLOADER_ECU=bms cargo build --release
-BOOTLOADER_ECU=bms cargo run --release  # Build, flash, and view probe logs.
-```
+2. Build the bootloader:
 
-To build, download, and reset without viewing logs, run from `atlas/`:
+   ```sh
+   BOOTLOADER_ECU=<ecu> cargo build --release
+   ```
 
-```sh
-BOOTLOADER_ECU=bms cargo download
-```
+3. Download the bootloader:
 
-From the repository root, add `-p atlas` to `cargo build` or `cargo run`; the
-`download` alias is available from `atlas/`. To retain multiple
-ECU builds, add `--target-dir ../target/<ecu>-can-bootloader` when running from
-`atlas/` and use the ELF beneath that directory.
+   ```sh
+   BOOTLOADER_ECU=<ecu> cargo download
+   ```
 
-CAN constants are generated automatically for `BOOTLOADER_ECU`.
-Pins and controller bindings live in `src/main.rs` and `src/can.rs`.
+   Use `BOOTLOADER_ECU=<ecu> cargo run --release` to flash and view probe logs instead.
+
 Use the same `ecus.json` on the flashing host.
-Memory regions are defined directly in `memory.x`; runtime address checks use its
-linker symbols.
+
+Probe-rs can still flash applications normally over the debug probe.
+Flash Atlas first, then the application linked with the shared application layout.
+Do not perform a full-chip erase when updating the application, since it also removes Atlas.
 
 ## Update flow
 
-1. Complete any pending swap or rollback.
-2. Start a valid application immediately unless DFU entry was requested.
-3. In update mode, accept the image into DFU storage and verify its CRC and vectors.
-4. Activation records the swap request and resets after the CAN acknowledgement.
-5. The next boot swaps the image into the application region. The application
-   must confirm startup to prevent rollback on a subsequent reset.
+1. Firmware updates begin with a CAN boot-entry request sent to the running application.
+2. Boot-control records the request in flash and resets the MCU. The bootloader
+   clears the request and stays in update mode.
+3. The host transfers the new firmware into DFU storage, leaving the current
+   application intact. The bootloader verifies the image's CRC and startup addresses.
+4. The host requests activation. The bootloader records the pending update,
+   acknowledges the command over CAN, and resets.
+5. The bootloader swaps the new image into the application region and starts it.
+   The application confirms startup through boot-control; otherwise, the bootloader
+   rolls back to the previous image on a subsequent reset.
 
-An invalid application remains in update mode for recovery. A valid application
-must persist a DFU request and reset to enter the bootloader.
-
-The bootloader consumes that request on entry. Communication loss leaves the
-current update session open; resetting before activation starts the existing valid
-application. Retry from the application by requesting entry again. If clearing the
-request fails, the bootloader logs an error and stays in update mode.
+If communication stops before activation, the bootloader stays in update mode.
+Resetting the MCU starts the existing valid application, provided the entry request
+was cleared successfully. If no valid application exists, the bootloader stays in
+update mode to receive firmware. On normal boots without an update request, the
+bootloader starts the valid application immediately.
 
 ## Application integration
 
-The `boot-control` helper handles CAN boot requests and startup confirmation.
-Create it with `boot_control::Bootloader::new(p.FLASH)`. The H563
-helper handles the boot-state partition, scratch buffer, and reset.
-Call `confirm_boot()` after required startup checks. In the receive task, match
-the boot-request ID, reject remote frames, and pass the payload to `handle_request()`.
-Configure CAN and its boot-request filter in the application as usual.
-The fixed boot-request payload is `B0 07 10 AD`.
+Applications use `boot-control` from firmware-rs for boot confirmation and CAN bootloader entry:
 
-Applications use the shared `boot-control/platforms/stm32h563/memory.x` in
-firmware-rs. The platform crate exports its path to application build scripts,
-which copy it into `OUT_DIR` for linking.
-The application helper does not stage firmware or perform swaps. Flash Atlas for
-the same ECU first, then download the application ELF without a chip erase.
+```toml
+[dependencies]
+boot-control.workspace = true
+```
+
+Create a `boot-control` instance using the flash peripheral, confirm startup, and
+pass it to the CAN task:
+
+```rust
+let mut bootloader = boot_control::Bootloader::new(p.FLASH);
+// Confirm basic startup to prevent rollback on the next reset.
+// Device initialization continues in application tasks.
+bootloader
+    .confirm_boot()
+    .expect("Failed to confirm application startup");
+can::start(spawner, can_resources, bootloader);
+```
+
+Calling `confirm_boot()` keeps the new firmware from being rolled back on the next
+reset. The projects call it after basic startup, while device setup continues in tasks.
+
+Add the ECU's boot-request ID to the CAN receive filter. In the receive task, use
+the generated parser to identify the request and pass its data to `boot-control`:
+
+```rust
+match Msg::decode(&frame) {
+    Some(Msg::MsbFrontBootRequest(_)) => bootloader
+        .handle_request(frame.data())
+        .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
+    _ => {}
+}
+```
+
+Use the generated boot-request type for the selected ECU. Boot-control validates the boot-request data,
+saves the boot-entry request, and resets only after a successful state write.
+
+Use the shared application memory layout provided by boot-control in firmware-rs.
 
 ## Adding an ECU
 
-Add the ECU to Odyssey-Definitions’ `ecus.json` and boot-entry definitions, then update the
-config dependency. Add its name to `build.rs` and pins to `src/main.rs` and `src/can.rs`.
+Add the ECU to Odyssey-Definitions’ `ecus.json` and boot-entry definitions in `ajax.json`, then update the
+config dependency. Add its name to `atlas/build.rs` and configure its CAN controller
+and RX/TX pins in `atlas/src/main.rs` and `atlas/src/can.rs`.
