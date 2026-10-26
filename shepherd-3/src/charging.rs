@@ -55,13 +55,8 @@ struct ShortChargeUp {
     current_step: Current, 
 }
 impl ShortChargeUp {
-    fn new() -> Self { Self { deadline: Deadline::expire_in(SHORT_CHARGE_CHECK_DURATION), current: SHORT_CHARGE_START_CURRENT, current_step: SHORT_CHARGE_CURRENT_STEP } }
-    fn with_current(current: Current) -> Self { Self { deadline: Deadline::expire_in(SHORT_CHARGE_CHECK_DURATION), current, current_step: SHORT_CHARGE_CURRENT_STEP } }
-
-    /// Keeps this the same, but schedules a new deadline after `SHORT_CHARGE_CHECK_DURATION`.
-    fn reschedule(&mut self) { 
-        self.deadline = Deadline::expire_in(SHORT_CHARGE_CHECK_DURATION);  
-    }
+    fn new() -> Self { Self { deadline: Deadline::expire_at_beginning_of_time(), current: SHORT_CHARGE_START_CURRENT, current_step: SHORT_CHARGE_CURRENT_STEP } }
+    fn with_current(current: Current) -> Self { Self { deadline: Deadline::expire_at_beginning_of_time(), current, current_step: SHORT_CHARGE_CURRENT_STEP } }
 
     /// Steps down the current, and schedules a new deadline after `SHORT_CHARGE_CHECK_DURATION`.
     fn reschedule_with_step_down(&mut self) { 
@@ -85,9 +80,8 @@ impl ChargeRestoreCache {
             ChargeStage::LongChargeUp(_) => Self::LongChargeUp,
             ChargeStage::ShortChargeUp(h) => Self::ShortChargeUp(h.current),
             ChargeStage::Balance(h) => match h.kind {
-                BalancingKind::Current(current) => Self::ShortChargeUp(current),
-                _ => *self,
-
+                BalancingKind::NoCurrent => Self::ShortChargeUp(BALANCING_ACTIVE_CURRENT),
+                BalancingKind::Current(_) => *self,
             },
             _ => *self,
         }
@@ -305,11 +299,11 @@ impl ChargeStage {
             },
 
             Self::ShortChargeUp(mut h) => {
-                if inputs.exceeded_fault_voltages()                                                         { Self::Fault }
-                else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && (h.current <= SHORT_CHARGE_CURRENT_STEP) { Self::Settle(Settle::new()) }
-                else if inputs.should_we_start_balancing() && inputs.is_balancing_allowed()                 { inputs.appropriate_balancing_phase() /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
-                else if h.deadline.past()                                                                   { if inputs.max_voltage >= MAX_CHARGE_VOLT { h.reschedule_with_step_down(); Self::ShortChargeUp(h) } else { h.reschedule(); Self::ShortChargeUp(h)} }
-                else                                                                                        { self }
+                if inputs.exceeded_fault_voltages()                                                                              { Self::Fault }
+                else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && (h.current <= SHORT_CHARGE_CURRENT_STEP) && h.deadline.past() { Self::Settle(Settle::new()) }
+                else if inputs.should_we_start_balancing() && inputs.is_balancing_allowed()                                      { inputs.appropriate_balancing_phase() /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
+                else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && h.deadline.past()                                             { h.reschedule_with_step_down(); Self::ShortChargeUp(h) }
+                else                                                                                                             { self }
             },
 
             Self::Balance(mut h) => {
@@ -337,31 +331,6 @@ impl ChargeStage {
             Self::Fault => self,
         }
     }   
-
-    /// Routines to be called every tick we are in a state. 
-    /// 
-    /// This is called before the state updates on the tick. So, if a tick results in a state change, this will not be called until the subsequent tick.
-    fn on_tick(&mut self) {
-        match self {
-            Self::LongChargeUp(h) => {
-            },
-
-            Self::ShortChargeUp(h) => {
-                h.deadline
-            },
-
-            Self::Balance(h) => {
-                
-            },
-
-            Self::Settle(h) => {
-                
-            },
-
-            Self::Done => (),
-            Self::Fault => (),
-        }
-    }
 } 
 
 /// The charge machine's state.
@@ -389,7 +358,6 @@ impl Charger {
     pub fn tick(&mut self) {
         let Some((max_ocv, max_voltage, min_ocv, delta_ocv)) = analyzer::analyzer().try_partial_get(|h| (h.data.max_ocv.value(), h.data.max_voltage.value(), h.data.min_ocv.value(), h.data.delta_ocv)) else { return; };
         
-        self.stage.on_tick();
         self.stage = self.stage.tick(Inputs {
             max_ocv,
             max_voltage,
