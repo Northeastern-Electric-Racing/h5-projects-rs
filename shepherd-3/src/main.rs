@@ -24,6 +24,7 @@ pub mod faults;
 pub mod pack;
 pub mod helpers;
 pub mod gpios;
+mod shutdown;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
