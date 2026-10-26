@@ -243,7 +243,7 @@ impl CerberusState {
 
     /// Sets the func state, stops reversing sound
     fn set_func_state(&mut self, new: FuncState) {
-        if self.state == FuncState::Reverse && !new.is_active() && rtds::cancel_rtds().is_err() {
+        if self.state == FuncState::Reverse && new != FuncState::Reverse && rtds::cancel_sounds().is_err() {
             warn!("Failed to stop Reverse Sound")
         }
         self.state = new;

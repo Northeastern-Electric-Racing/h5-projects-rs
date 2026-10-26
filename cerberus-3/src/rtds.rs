@@ -12,7 +12,7 @@ use embassy_stm32::gpio::Output;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 
-use crate::can;
+use crate::{can, shutdown::{self, BmsShutdownState}};
 
 /// how long the rtds sound plays
 const RTDS_DURATION: Duration = Duration::from_millis(1500);
@@ -79,7 +79,7 @@ pub fn start_reverse_rtds() -> Result<(), RtdsError> {
 
 /// stop whatever is playing (rtds or reverse) and go idle,
 /// call when leaving reverse or when shutdown is open
-pub fn cancel_rtds() -> Result<(), RtdsError> {
+pub fn cancel_sounds() -> Result<(), RtdsError> {
     send(RtdsCommand::Cancel)
 }
 
@@ -100,7 +100,7 @@ pub fn is_reversing() -> bool {
 
 struct Rtds {
     pin: Output<'static>,
-    shutdown_closed: fn() -> bool,
+    shutdown_closed: bool,
     state: RtdsState,
     /// when the current state next needs attention. `Instant::MAX` if never (idle)
     deadline: Instant,
@@ -109,7 +109,7 @@ struct Rtds {
 impl Rtds {
     fn set_pin(&mut self) {
         // shutdown open = can't drive, so don't let rtds go off
-        if !(self.shutdown_closed)() {
+        if !(self.shutdown_closed) {
             debug!("RTDS shut down due to shutdown_closed.");
             return;
         }
@@ -189,10 +189,10 @@ impl Rtds {
 ///
 /// `shutdown_closed` gets checked every time we'd turn the pin on, so rtds never plays with shutdown open
 #[embassy_executor::task]
-pub async fn rtds_task(pin: Output<'static>, shutdown_closed: fn() -> bool) {
+pub async fn rtds_task(pin: Output<'static>) {
     let mut rtds = Rtds {
         pin,
-        shutdown_closed,
+        shutdown_closed: shutdown::get_shutdown_state() == BmsShutdownState::Closed,
         state: RtdsState::Idle,
         deadline: Instant::MAX,
     };
