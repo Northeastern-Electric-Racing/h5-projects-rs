@@ -12,7 +12,10 @@ use embassy_stm32::gpio::Output;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 
-use crate::{can, shutdown::{self, BmsShutdownState}};
+use crate::{
+    can,
+    shutdown::{self, BmsShutdownState},
+};
 
 /// how long the rtds sound plays
 const RTDS_DURATION: Duration = Duration::from_millis(1500);

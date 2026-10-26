@@ -24,7 +24,6 @@ mod shutdown;
 mod statemachine;
 
 use crate::can::can_inbox_task;
-use crate::shutdown::BmsShutdownState;
 use crate::shutdown::ShutdownInputs;
 use crate::shutdown::report_shutdown_task;
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
@@ -192,10 +191,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // RTDS
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
-    spawner.spawn(
-        rtds::rtds_task(rtds_pin)
-        .expect("Failed to spawn rtds::rtds_task()."),
-    );
+    spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
