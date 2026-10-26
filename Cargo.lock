@@ -5,17 +5,7 @@ version = 4
 [[package]]
 name = "adbms-register-macros"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.9",
-]
-
-[[package]]
-name = "adbms-register-macros"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79#810be7e0b5a0c0162be26917e0dbce41af545b79"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?rev=ecc5e9d9cca9031e99c1408f2a7e0642d9ff71e9#ecc5e9d9cca9031e99c1408f2a7e0642d9ff71e9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -25,24 +15,26 @@ dependencies = [
 [[package]]
 name = "adbms2950"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79#810be7e0b5a0c0162be26917e0dbce41af545b79"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?rev=ecc5e9d9cca9031e99c1408f2a7e0642d9ff71e9#ecc5e9d9cca9031e99c1408f2a7e0642d9ff71e9"
 dependencies = [
- "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79)",
+ "adbms-register-macros",
  "bitfield-struct",
  "defmt 1.2.0",
  "embassy-time",
+ "embedded-hal 1.0.0",
  "embedded-hal-async",
 ]
 
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?rev=ecc5e9d9cca9031e99c1408f2a7e0642d9ff71e9#ecc5e9d9cca9031e99c1408f2a7e0642d9ff71e9"
 dependencies = [
- "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "adbms-register-macros",
  "bitfield-struct",
  "defmt 1.2.0",
  "embassy-time",
+ "embedded-hal 1.0.0",
  "embedded-hal-async",
 ]
 
@@ -1312,6 +1304,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embedded-can",
+ "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-hal-bus",
  "function_name",

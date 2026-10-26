@@ -10,7 +10,7 @@ use super::precharge;
 use super::soc;
 use crate::broadcast::Broadcast;
 use crate::job_diagnostics::JobDiagnosticsContainer;
-use adbms2950::line::Error;
+use adbms2950::api::Error;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 
 #[cfg(not(feature = "hil"))]
@@ -29,9 +29,8 @@ pub mod alias {
         spi::{Spi, mode::Master},
     };
     #[cfg(not(feature = "hil"))]
-    use embassy_time::Delay;
-    #[cfg(not(feature = "hil"))]
     use embedded_hal_bus::spi::ExclusiveDevice;
+    use crate::helpers::timer_delay::TimerDelay;
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     ///
@@ -40,16 +39,13 @@ pub mod alias {
     #[cfg(feature = "hil")]
     pub type SpiDevice = super::super::hil::HilDevice;
     #[cfg(not(feature = "hil"))]
-    pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
+    pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, TimerDelay>;
 
     /// The error type our `SpiDevice` produces.
     pub type SpiError = <SpiDevice as embedded_hal_async::spi::ErrorType>::Error;
 
-    /// Type alias representing one isoSPI line to our ADBMS2950B.
-    pub type Line = adbms2950::line::Line<SpiDevice>;
-
     /// Type alias for the stateful API over both lines.
-    pub type Api = adbms2950::api::Api<SpiDevice>;
+    pub type Api = adbms2950::api::Api<SpiDevice, TimerDelay>;
 }
 
 /// Holds the ADBMS2950B device api
@@ -60,10 +56,9 @@ struct HvPlate {
 }
 
 impl HvPlate {
-    fn new(r: crate::HvPlateResources) -> Self {
+    fn new(r: crate::HvPlateResources, delay: crate::helpers::timer_delay::TimerDelay) -> Self {
         #[cfg(not(feature = "hil"))]
-        let (line_a, line_b) = {
-            use embassy_time::Delay;
+        let (spi_a, spi_b) = {
             use embedded_hal_bus::spi::ExclusiveDevice;
 
             let mut spi_config = embassy_stm32::spi::Config::default();
@@ -71,20 +66,18 @@ impl HvPlate {
 
             let linea_spi = embassy_stm32::spi::Spi::new(r.linea_spi, r.linea_sck, r.linea_mosi, r.linea_miso, r.linea_tx_dma, r.linea_rx_dma, Irqs, spi_config);
             let linea_cs = embassy_stm32::gpio::Output::new(r.linea_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-            let linea_spi: alias::SpiDevice = ExclusiveDevice::new(linea_spi, linea_cs, Delay).unwrap();
-            let line_a: alias::Line = alias::Line::new(linea_spi);
+            let linea_spi: alias::SpiDevice = ExclusiveDevice::new(linea_spi, linea_cs, delay).unwrap();
 
             let lineb_spi = embassy_stm32::spi::Spi::new(r.lineb_spi, r.lineb_sck, r.lineb_mosi, r.lineb_miso, r.lineb_tx_dma, r.lineb_rx_dma, Irqs, spi_config);
             let lineb_cs = embassy_stm32::gpio::Output::new(r.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-            let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
-            let line_b: alias::Line = alias::Line::new(lineb_spi);
-            (line_a, line_b)
+            let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, delay).unwrap();
+            (linea_spi, lineb_spi)
         };
         #[cfg(feature = "hil")]
-        let (line_a, line_b) = (alias::Line::new(super::hil::HilDevice::new(r)), alias::Line::new(super::hil::HilDevice::disabled()));
+        let (spi_a, spi_b) = (super::hil::HilDevice::new(r), super::hil::HilDevice::disabled());
 
         static API: StaticCell<alias::Api> = StaticCell::new();
-        let api: &'static mut alias::Api = API.init(alias::Api::new(line_a, line_b));
+        let api: &'static mut alias::Api = API.init(alias::Api::new(spi_a, spi_b, delay, delay));
 
         Self { api, recovery_service: isospi_recovery::Service::new(Instant::now()) }
     }
@@ -132,7 +125,7 @@ impl HvPlate {
             {
                 use adbms2950::chip::registers::status::{Status, types::InitializationStatus};
 
-                let deadline = Instant::now() + Duration::from_millis(adbms2950::line::conversion_times::IXADC_INIT_MAX_MS as u64);
+                let deadline = Instant::now() + Duration::from_millis(adbms2950::api::conversion_times::IXADC_INIT_MAX_MS as u64);
 
                 loop {
                     if let Ok(status) = api.read::<Status>().await
@@ -304,7 +297,7 @@ pub mod task {
     }
 
     #[embassy_executor::task]
-    pub async fn hv_plate_task(r: crate::HvPlateResources) {
+    pub async fn hv_plate_task(r: crate::HvPlateResources, delay: crate::helpers::timer_delay::TimerDelay) {
         /// With ACCN = 32 and IXADC_CONVERSION_MS = 1, IVB1ACC is overwritten every 32 ms *nominally*,
         /// but the internal oscillator runs up to 10% fast, so a window can close in 32/1.1 = 29.09 ms.
         /// 25 ms leaves headroom for jitter on top.
@@ -312,7 +305,7 @@ pub mod task {
         const DIAGNOSTIC_PERIOD: Duration = Duration::from_secs(1);
         const DIAGNOSTIC_TICKS: u32 = (DIAGNOSTIC_PERIOD.as_ticks() / PERIOD.as_ticks()) as u32;
 
-        let mut hv_plate = HvPlate::new(r);
+        let mut hv_plate = HvPlate::new(r, delay);
 
         let mut ticker = Ticker::every(PERIOD);
         let mut tick_count: u32 = 0;
