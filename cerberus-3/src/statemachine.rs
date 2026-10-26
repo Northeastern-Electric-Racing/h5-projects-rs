@@ -140,10 +140,6 @@ fn get_torque_limit_percent() -> f32 {
 
 fn set_mcu_fault(_faulted: bool) {}
 
-fn start_reverse_sound() {}
-
-fn stop_reverse_sound() {}
-
 // ---------------------------------------------------------------------------
 // END TEMP functions
 // ---------------------------------------------------------------------------
@@ -217,8 +213,11 @@ impl CerberusState {
                     return Err(());
                 }
 
+                // rtds switches straight to the new sound, even if coming from another active state
                 if new_state == FuncState::Reverse {
-                    start_reverse_sound();
+                    if rtds::start_reverse_rtds().is_err() {
+                        warn!("Failed to start Reverse Sound")
+                    }
                 } else if rtds::sound_rtds().is_err() {
                     warn!("Failed to start Ready to Drive Sound")
                 }
@@ -244,8 +243,8 @@ impl CerberusState {
 
     /// Sets the func state, stops reversing sound
     fn set_func_state(&mut self, new: FuncState) {
-        if self.state == FuncState::Reverse && new != FuncState::Reverse {
-            stop_reverse_sound();
+        if self.state == FuncState::Reverse && !new.is_active() && rtds::cancel_rtds().is_err() {
+            warn!("Failed to stop Reverse Sound")
         }
         self.state = new;
     }

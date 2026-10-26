@@ -1,5 +1,5 @@
 {
   "rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.check.allTargets": false,
-  "rust-analyzer.server.path": "rust-analyzer"
+  "rust-analyzer.server.path": "/home/hacysac/.rustup/toolchains/1.97-aarch64-unknown-linux-gnu/bin/rust-analyzer"
 }

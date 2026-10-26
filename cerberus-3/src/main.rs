@@ -191,7 +191,6 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     // RTDS
-    // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
     spawner.spawn(
         rtds::rtds_task(rtds_pin, || {
