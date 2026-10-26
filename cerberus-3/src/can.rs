@@ -142,11 +142,14 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::SpareEfuseState(_)) => {}
 
             Some(Msg::PrechargeStatus(_)) => {}
-            Some(Msg::RtdsCommandMessage(m)) => {
-                if rtds::send(m.command().into()).is_err() {
-                    debug!("Failed to forward RTDS CAN command");
+            Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
+                Ok(cmd) => {
+                    if rtds::send(cmd).is_err() {
+                        debug!("Failed to forward RTDS CAN command");
+                    }
                 }
-            }
+                Err(byte) => debug!("Unknown message {}", byte),
+            },
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
             Some(Msg::ShutdownAsReadByBms(m)) => {

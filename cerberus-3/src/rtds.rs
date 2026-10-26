@@ -31,18 +31,18 @@ pub(crate) enum RtdsCommand {
     Reverse,
     /// go back to idle (pin off)
     Cancel,
-    /// unrecognized byte from CAN, ignored by the task
-    Unknown(u8),
 }
 
-impl From<u8> for RtdsCommand {
+impl TryFrom<u8> for RtdsCommand {
+    type Error = u8; // the unrecognized byte
+
     /// map the `command` byte from RtdsCommandMessage
-    fn from(byte: u8) -> Self {
+    fn try_from(byte: u8) -> Result<Self, Self::Error> {
         match byte {
-            0 => RtdsCommand::Sound,
-            1 | 3 => RtdsCommand::Cancel,
-            2 => RtdsCommand::Reverse,
-            other => RtdsCommand::Unknown(other),
+            0 => Ok(RtdsCommand::Sound),
+            1 | 3 => Ok(RtdsCommand::Cancel),
+            2 => Ok(RtdsCommand::Reverse),
+            other => Err(other),
         }
     }
 }
@@ -177,9 +177,6 @@ impl Rtds {
                 self.clear_pin();
                 self.set_state(RtdsState::Idle, Instant::MAX);
             }
-            RtdsCommand::Unknown(byte) => {
-                error!("Ignoring unknown RTDS command byte: {}", byte);
-            }
         }
     }
 
@@ -213,7 +210,6 @@ pub async fn rtds_task(pin: Output<'static>) {
     };
     rtds.clear_pin();
 
-    // Ticker (not Timer::after) so handling commands/timeouts doesn't push the CAN period back
     let mut can_ticker = Ticker::every(CAN_SEND_PERIOD);
 
     loop {
