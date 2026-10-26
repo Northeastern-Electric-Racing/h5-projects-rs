@@ -1,6 +1,10 @@
 use crate::can::FaultframeState;
 use crate::can::GRACE_PERIOD_DURATION;
-use crate::hardware::Leds;
+use crate::lights;
+use defmt::{error, warn};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
+
 #[derive(Debug, PartialEq, Eq)]
 enum State {
     Red,
@@ -8,10 +12,6 @@ enum State {
     Startup,
     _Invalid, // Never constructed. Kept for future use
 }
-
-use defmt::{error, warn};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
 
 const QUEUE_SIZE: usize = 24;
 pub static FAULT_QUEUE: Channel<ThreadModeRawMutex, FaultframeState, QUEUE_SIZE> = Channel::new();
@@ -25,7 +25,7 @@ fn handle_transition(from: &mut State, to: State) {
 }
 
 #[embassy_executor::task]
-pub async fn state_machine(mut leds: Leds) -> ! {
+pub async fn statemachine_task(mut leds: lights::Leds) -> ! {
     let mut state: State = State::Startup;
     let mut bms_seen: bool = false;
     let mut imd_seen: bool = false;

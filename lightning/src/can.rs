@@ -1,5 +1,5 @@
-use crate::state_machine;
-use cangen::{CanMessage, Msg};
+use crate::statemachine;
+use cangen::{CanMessage, Msg, ToCanFrame};
 use core::fmt::Debug;
 use defmt::warn;
 use embassy_stm32::can::{CanRx, CanTx, Frame};
@@ -66,10 +66,11 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     (tx, rx)
 }
 
+#[embassy_executor::task]
 pub async fn can_pulse_task() -> ! {
     let mut count: u32 = 0;
     let msg = cangen::LightningPulseMessage::new().with_count(count);
-    let ticker: Ticker = Ticker::every(Duration::from_millis(500));
+    let mut ticker: Ticker = Ticker::every(Duration::from_millis(500));
 
     loop {
         count += 1;
@@ -119,7 +120,7 @@ pub async fn can_inbox_task() -> ! {
         if let Some(f) = latest
             && (Instant::now() - boot_time) > GRACE_PERIOD_DURATION
         {
-            state_machine::FAULT_QUEUE.send(f).await;
+            statemachine::FAULT_QUEUE.send(f).await;
         }
     }
 }

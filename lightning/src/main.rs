@@ -2,11 +2,10 @@
 #![no_main]
 
 mod can;
-mod hardware;
+mod lights;
+mod sensors;
 mod statemachine;
 
-use crate::hardware::Leds;
-use cangen::ToCanFrame;
 use core::fmt::Write;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::{ExceptionFrame, exception};
@@ -110,6 +109,11 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(can::can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
     spawner.spawn(can::can_pulse_task().expect("Failed to spawn can::can_pulse_task()."));
 
+    spawner.spawn(
+        statemachine::statemachine_task(lights::Leds::new(p.PE4, p.PE5))
+            .expect("Failed to spawn state machine"),
+    );
+
     let mut s: String<128> = String::new();
     core::write!(&mut s, "MSB-FW.rs prints in RTT, not UART!\r\n",).unwrap();
     unwrap!(usart.write(s.as_bytes()).await);
@@ -117,11 +121,6 @@ async fn main(spawner: Spawner) -> ! {
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 5000000);
     watchdog.unleash();
     let mut ticker = Ticker::every(Duration::from_millis(500));
-
-    spawner.spawn(
-        state::state_machine::state_machine(Leds::new(p.PE4, p.PE5))
-            .expect("Failed to spawn state machine"),
-    );
 
     loop {
         debug!("I'm not dead yet");
