@@ -1,6 +1,6 @@
-use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
-use embassy_stm32::gpio::{Output, Level};
+use core::cell::RefCell;
+use embassy_stm32::gpio::{Output, Level, Input, Speed, Pull};
 use embassy_sync::blocking_mutex::ThreadModeMutex;
 use embassy_time::{Instant, Duration};
 
@@ -8,6 +8,7 @@ static CIRCUIT_CLOSED: AtomicBool = AtomicBool::new(false);
 
 // variable representing the BMS's contact in the shutdown loop. Low = asserted = loop open.
 static FAULT_PIN: ThreadModeMutex<RefCell<Option<Output<'static>>>> = ThreadModeMutex::new(RefCell::new(None));
+
 const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
 
 // struct for holding the memory between ticks: stable = boolean indicating the debounced output, disagreed_at = the time the disagreement between ticks started.
