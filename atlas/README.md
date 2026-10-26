@@ -57,32 +57,16 @@ request fails, the bootloader logs an error and stays in update mode.
 
 ## Application integration
 
-Add `boot-control.workspace = true` to the application dependencies.
-The workspace aliases the `boot-control-stm32h563` package as `boot-control`.
-The helper lives in `firmware-rs/boot-control`. Initialize CAN
-as usual and allow the application's boot-request ID through its receive filters.
-Pass the CAN ID explicitly, matching the flashing host’s `ecus.json`.
-The helper uses the fixed payload `B0 07 10 AD`.
-The helper does not read that file.
+The `boot-control` helper handles CAN boot requests and startup confirmation.
+Create it with `boot_control::Bootloader::new(p.FLASH, request_id)`. The H563
+helper handles the boot-state partition, scratch buffer, and reset.
+Call `confirm_boot()` after required startup checks and `handle_frame()` from the
+receive task. Configure CAN and its boot-request filter in the application as usual.
+The fixed boot-request payload is `B0 07 10 AD`.
 
-```rust
-let id = embedded_can::Id::Standard(embedded_can::StandardId::new(0x013).unwrap());
-let mut bootloader = boot_control::Bootloader::new(p.FLASH, id);
-// Confirm only after required application initialization and checks succeed.
-bootloader.confirm_boot()?;
-
-// In the existing CAN receive loop; unrelated frames return immediately.
-bootloader.handle_frame(&frame)?;
-```
-
-The helper owns FLASH and only writes the boot-state sector. A matching
-data frame persists the request and resets; the bootloader answers host commands
-afterward. Flash failures return an error without resetting. Projects that need
-to stop outputs first can check `is_request(&frame)` before calling `handle_frame`.
-
-Each application owns a `memory.x` with flash starting at `0x0802E000` and length
-`0xD2000`, matching Atlas's active region. Its build script copies the file into
-`OUT_DIR` and adds that directory to the linker search path.
+Applications use the shared `boot-control/platforms/stm32h563/memory.x` in
+firmware-rs. The platform crate exports its path to application build scripts,
+which copy it into `OUT_DIR` for linking.
 The application helper does not stage firmware or perform swaps. Flash Atlas for
 the same ECU first, then download the application ELF without a chip erase.
 
