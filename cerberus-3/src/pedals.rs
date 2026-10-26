@@ -120,7 +120,7 @@ mod locks {
     }
 
     bitflags!(
-        pub struct Flags: u8 {
+        pub struct LockFlags: u8 {
             const BRAKE_OC = 1 << 1;
             const BRAKE_SC = 1 << 2;
             const ACCEL_OC = 1 << 3;
@@ -132,29 +132,29 @@ mod locks {
     );
 
     impl Locks {
-        fn get_flag(&self) -> Flags {
+        fn get_flag(&self) -> LockFlags {
             match self {
-                Locks::BrakeOc => Flags::BRAKE_OC,
-                Locks::BrakeSc => Flags::BRAKE_SC,
-                Locks::AccelOc => Flags::ACCEL_OC,
-                Locks::AccelSc => Flags::ACCEL_SC,
-                Locks::AccelDiff => Flags::ACCEL_DIFF,
-                Locks::BspdPref => Flags::BSPD_PREF,
-                Locks::BmsNotPrechargedYet => Flags::BMS_NOT_PRECHARGED_YET,
+                Locks::BrakeOc => LockFlags::BRAKE_OC,
+                Locks::BrakeSc => LockFlags::BRAKE_SC,
+                Locks::AccelOc => LockFlags::ACCEL_OC,
+                Locks::AccelSc => LockFlags::ACCEL_SC,
+                Locks::AccelDiff => LockFlags::ACCEL_DIFF,
+                Locks::BspdPref => LockFlags::BSPD_PREF,
+                Locks::BmsNotPrechargedYet => LockFlags::BMS_NOT_PRECHARGED_YET,
             }
         }
     }
 
     #[derive(Clone, Copy)]
     pub(super) struct State {
-        pub(super) drive_locks: Flags,
+        pub(super) drive_locks: LockFlags,
         debouncers: [Option<Instant>; Locks::VARIANT_COUNT],
         pub(super) motor_disabled: bool,
     }
 
     impl State {
         pub(super) const INIT: Self = Self {
-            drive_locks: Flags::empty(),
+            drive_locks: LockFlags::empty(),
             debouncers: [None; Locks::VARIANT_COUNT],
             motor_disabled: false,
         };
@@ -753,6 +753,7 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
 
         if drive_lock.any_locked() {
             dti_set_torque(Torque::new::<newton_meter>(0.0));
+            debug!("Drive locked due to faults: {:?}", drive_lock.drive_locks);
         } else {
             tc_process();
 

@@ -135,6 +135,7 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::ShutdownEfuseState(_)) => {}
             Some(Msg::LvEfuseState(_)) => {}
             Some(Msg::RadfanEfuseState(_)) => {}
+            Some(Msg::FanbattEfuse(_)) => {}
             Some(Msg::PumponeEfuseState(_)) => {}
             Some(Msg::PumptwoEfuseState(_)) => {}
             Some(Msg::BattboxEfuseState(_)) => {}
