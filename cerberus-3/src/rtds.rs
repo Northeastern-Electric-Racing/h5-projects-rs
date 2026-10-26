@@ -32,11 +32,6 @@ fn send_rtds_fault() {
     error!("RTDS_FAULT (placeholder, faults not ported yet).");
 }
 
-// TODO: shutdown isn't ported yet, pass the real one into rtds_task once shutdown exists
-pub fn is_shutdown_closed_placeholder() -> bool {
-    true
-}
-
 static COMMANDS: Channel<ThreadModeRawMutex, RtdsCommand, COMMAND_QUEUE_SIZE> = Channel::new();
 
 // copies of the task state so other tasks can check it without needing the pin

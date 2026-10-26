@@ -8,6 +8,7 @@ ecu = "vcu"
 
 [features]
 disable_reverse = []
+tsms_overide = []
 
 [dependencies]
 boot-control.workspace = true

@@ -1,6 +1,6 @@
 //! CAN bring-up for Cerberus.
 
-use crate::buttons;
+use crate::{buttons, shutdown};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
@@ -39,7 +39,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_1: StdFilter = StdFilter {
         slot: StandardFilterSlot::_1,
         id1: cangen::CellTemperatures::ID,
-        id2: Some(cangen::LightningPulseMessage::ID),
+        id2: None,
     };
 
     const SLOT_2: StdFilter = StdFilter {
@@ -77,7 +77,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_1E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_1,
         id1: cangen::RtdsCommandMessage::ID,
-        id2: None,
+        id2: Some(cangen::LightningPulseMessage::ID),
     };
 
     const SLOT_2E: ExtFilter = ExtFilter {
@@ -111,7 +111,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     };
 
     const SLOT_7E: ExtFilter = ExtFilter {
-        slot: ExtendedFilterSlot::_4,
+        slot: ExtendedFilterSlot::_7,
         id1: cangen::SpareEfuseState::ID,
         id2: None,
     };
@@ -158,7 +158,9 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
             Some(Msg::RtdsCommandMessage(_)) => {}
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
-            Some(Msg::ShutdownAsReadByBms(m)) => debug!("shutdown: {}", m.shutdown_state()),
+            Some(Msg::ShutdownAsReadByBms(m)) => {
+                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
+            }
             Some(_) => debug!("Unknown message"),
             _ => {
                 debug!("failed to parse id")
