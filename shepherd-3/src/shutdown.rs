@@ -58,7 +58,7 @@ impl Debouncer {
 /// Breaks or restores the BMS's link in the shutdown loop.
 ///
 /// `true` pulls PG15 low, which breaks the loop and cuts the pack off the car.
-/// Low is the active state (`compute.c:352`)
+/// Low is the active state
 pub fn set_fault(faulted: bool) {
     let level = if faulted {
         Level::Low // should always be asserted at level low! otherwise loop won't always shut down when a node is opened!
