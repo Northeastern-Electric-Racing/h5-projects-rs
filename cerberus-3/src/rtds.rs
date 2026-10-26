@@ -31,6 +31,20 @@ pub(crate) enum RtdsCommand {
     Reverse,
     /// go back to idle (pin off)
     Cancel,
+    /// unrecognized byte from CAN, ignored by the task
+    Unknown(u8),
+}
+
+impl From<u8> for RtdsCommand {
+    /// map the `command` byte from RtdsCommandMessage
+    fn from(byte: u8) -> Self {
+        match byte {
+            0 => RtdsCommand::Sound,
+            1 | 3 => RtdsCommand::Cancel,
+            2 => RtdsCommand::Reverse,
+            other => RtdsCommand::Unknown(other),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, defmt::Format)]
@@ -162,6 +176,9 @@ impl Rtds {
             RtdsCommand::Cancel => {
                 self.clear_pin();
                 self.set_state(RtdsState::Idle, Instant::MAX);
+            }
+            RtdsCommand::Unknown(byte) => {
+                error!("Ignoring unknown RTDS command byte: {}", byte);
             }
         }
     }

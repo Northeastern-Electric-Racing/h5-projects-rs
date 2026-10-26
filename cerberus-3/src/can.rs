@@ -1,6 +1,6 @@
 //! CAN bring-up for Cerberus.
 
-use crate::{buttons, shutdown};
+use crate::{buttons, rtds, shutdown};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
@@ -142,7 +142,11 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::SpareEfuseState(_)) => {}
 
             Some(Msg::PrechargeStatus(_)) => {}
-            Some(Msg::RtdsCommandMessage(_)) => {}
+            Some(Msg::RtdsCommandMessage(m)) => {
+                if rtds::send(m.command().into()).is_err() {
+                    debug!("Failed to forward RTDS CAN command");
+                }
+            }
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
             Some(Msg::ShutdownAsReadByBms(m)) => {
