@@ -20,8 +20,8 @@ mod buttons;
 mod can;
 mod efuses;
 mod rtds;
-mod statemachine;
 mod shutdown;
+mod statemachine;
 
 use crate::can::can_inbox_task;
 use crate::shutdown::BmsShutdownState;
@@ -185,15 +185,19 @@ async fn main(spawner: Spawner) -> ! {
             imd: p.PE0,
             ckpt: p.PG2,
             inertia_sw: p.PG3,
-            tsms: p.PG9
-        }).expect("Failed to spawn shutdown::report_shutdown_task()."));
+            tsms: p.PG9,
+        })
+        .expect("Failed to spawn shutdown::report_shutdown_task()."),
+    );
 
     // RTDS
     // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
     spawner.spawn(
-        rtds::rtds_task(rtds_pin, ||shutdown::get_shutdown_state()==BmsShutdownState::Closed)
-            .expect("Failed to spawn rtds::rtds_task()."),
+        rtds::rtds_task(rtds_pin, || {
+            shutdown::get_shutdown_state() == BmsShutdownState::Closed
+        })
+        .expect("Failed to spawn rtds::rtds_task()."),
     );
 
     // Watchdog

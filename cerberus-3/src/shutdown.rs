@@ -1,37 +1,33 @@
-use core::sync::atomic::{AtomicBool, Ordering};
 use cangen::ToCanFrame;
-use embassy_stm32::gpio::{Input,Pull};
-use embassy_time::Timer;
+use core::sync::atomic::{AtomicBool, Ordering};
+use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::{Peri, peripherals};
+use embassy_time::Timer;
 
 use crate::can;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BmsShutdownState {
     Shutdown,
-    Closed
+    Closed,
 }
 
 static BMS_SHUTDOWN: AtomicBool = AtomicBool::new(true);
 
 pub fn update_bms_shutdown(state: BmsShutdownState) {
-    BMS_SHUTDOWN.store(
-        state == BmsShutdownState::Shutdown,
-        Ordering::Relaxed,
-    );
+    BMS_SHUTDOWN.store(state == BmsShutdownState::Shutdown, Ordering::Relaxed);
 }
 
 pub fn get_shutdown_state() -> BmsShutdownState {
-    if cfg!(feature = "TSMS_OVERIDE") {  
-        return BmsShutdownState::Closed; 
-    } else {  
-        if BMS_SHUTDOWN.load(Ordering::Relaxed){
-            return BmsShutdownState::Shutdown
+    if cfg!(feature = "TSMS_OVERIDE") {
+        return BmsShutdownState::Closed;
+    } else {
+        if BMS_SHUTDOWN.load(Ordering::Relaxed) {
+            return BmsShutdownState::Shutdown;
+        } else {
+            return BmsShutdownState::Closed;
         }
-        else{
-            return BmsShutdownState::Closed
-        }
-    } 
+    }
 }
 
 pub struct ShutdownInputs {
@@ -43,7 +39,7 @@ pub struct ShutdownInputs {
     pub imd: Peri<'static, peripherals::PE0>,
     pub ckpt: Peri<'static, peripherals::PG2>,
     pub inertia_sw: Peri<'static, peripherals::PG3>,
-    pub tsms: Peri<'static, peripherals::PG9>
+    pub tsms: Peri<'static, peripherals::PG9>,
 }
 
 #[embassy_executor::task]
