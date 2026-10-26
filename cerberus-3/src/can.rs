@@ -10,7 +10,7 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use ner_can::{ExtFilter, NerCan, StdFilter};
+use can_handler::{ExtFilter, NerCan, StdFilter};
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -144,7 +144,7 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::PrechargeStatus(_)) => {}
             Some(Msg::RtdsCommandMessage(_)) => {}
 
-            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
+            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
             Some(Msg::ShutdownAsReadByBms(m)) => {
                 shutdown::update_bms_shutdown(m.shutdown_state().into()).await
             }

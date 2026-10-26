@@ -10,6 +10,7 @@ use embassy_futures::select::{Either, select};
 use embassy_stm32::gpio::Output;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
+use crate::shutdown;
 
 /// how long the rtds sound plays
 const RTDS_DURATION: Duration = Duration::from_millis(1500);
@@ -76,8 +77,8 @@ struct Rtds {
 impl Rtds {
     fn set_pin(&mut self) {
         // shutdown open = can't drive, so don't let rtds go off
-        if !is_shutdown_closed_placeholder() {
-            debug!("RTDS shut down due to shutdown_closed.");
+        if shutdown::get_shutdown_state() == shutdown::BmsShutdownState::Open {
+            debug!("RTDS shut down due to shutdown open.");
             return;
         }
 
