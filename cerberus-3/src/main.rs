@@ -21,9 +21,13 @@ mod can;
 mod efuses;
 mod pedals;
 mod rtds;
+mod shutdown;
 mod statemachine;
 
 use crate::can::can_inbox_task;
+use crate::shutdown::BmsShutdownState;
+use crate::shutdown::ShutdownInputs;
+use crate::shutdown::report_shutdown_task;
 use adc::{Adc1Resources, adc1_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
@@ -177,9 +181,30 @@ async fn main(spawner: Spawner) -> ! {
     // Buttons
     spawner.spawn(buttons::button_task().expect("Failed to spawn buttons::button_task()."));
 
+    // Shutdown monitor
+    spawner.spawn(
+        report_shutdown_task(ShutdownInputs {
+            bms: p.PF6,
+            bots: p.PF7,
+            bspd: p.PF9,
+            hv_c: p.PF10,
+            hvd: p.PF15,
+            imd: p.PE0,
+            ckpt: p.PG2,
+            inertia_sw: p.PG3,
+            tsms: p.PG9,
+        })
+        .expect("Failed to spawn shutdown::report_shutdown_task()."),
+    );
+
     // RTDS
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
-    spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
+    spawner.spawn(
+        rtds::rtds_task(rtds_pin, || {
+            shutdown::get_shutdown_state() == BmsShutdownState::Closed
+        })
+        .expect("Failed to spawn rtds::rtds_task()."),
+    );
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);

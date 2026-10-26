@@ -1,7 +1,6 @@
 //! CAN bring-up for Cerberus.
 
-use crate::buttons;
-use can_handler::{ExtFilter, NerCan, StdFilter};
+use crate::{buttons, shutdown};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
@@ -11,6 +10,7 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use ner_can::{ExtFilter, NerCan, StdFilter};
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -39,7 +39,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_1: StdFilter = StdFilter {
         slot: StandardFilterSlot::_1,
         id1: cangen::CellTemperatures::ID,
-        id2: Some(cangen::LightningPulseMessage::ID),
+        id2: None,
     };
 
     const SLOT_2: StdFilter = StdFilter {
@@ -69,7 +69,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_1E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_1,
         id1: cangen::RtdsCommandMessage::ID,
-        id2: None,
+        id2: Some(cangen::LightningPulseMessage::ID),
     };
 
     const SLOT_2E: ExtFilter = ExtFilter {
@@ -103,7 +103,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     };
 
     const SLOT_7E: ExtFilter = ExtFilter {
-        slot: ExtendedFilterSlot::_4,
+        slot: ExtendedFilterSlot::_7,
         id1: cangen::SpareEfuseState::ID,
         id2: None,
     };
@@ -144,8 +144,10 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::PrechargeStatus(_)) => {}
             Some(Msg::RtdsCommandMessage(_)) => {}
 
-            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
-            Some(Msg::ShutdownAsReadByBms(m)) => debug!("shutdown: {}", m.shutdown_state()),
+            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
+            Some(Msg::ShutdownAsReadByBms(m)) => {
+                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
+            }
             Some(_) => debug!("Unknown message"),
             _ => {
                 debug!("failed to parse id")
