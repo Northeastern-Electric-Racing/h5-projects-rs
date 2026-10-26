@@ -15,18 +15,20 @@ enum State {
 const QUEUE_SIZE: usize = 24;
 pub static FAULT_QUEUE: Channel<ThreadModeRawMutex, FaultframeState, QUEUE_SIZE> = Channel::new();
 
-fn next_state(state: State, event: FaultframeState, in_grace: bool) -> State {
+fn next_state(
+    state: State,
+    event: FaultframeState,
+    awaiting_contact: bool,
+    any_fault: bool,
+) -> State {
     use FaultframeState::*;
 
-    if in_grace {
-        return State::Startup;
-    }
     match (state, event) {
-        // Red is latched: only an explicit reset clears it
+        _ if awaiting_contact => State::Startup,
+        _ if any_fault => State::Red,
         (State::Red, ResetRequested) => State::Green,
         (State::Red, _) => State::Red,
-        (_, BMSFault | IMDFault) => State::Red,
-        (_, BMSOk | IMDOk | ResetRequested) => State::Green,
+        _ => State::Green,
     }
 }
 
@@ -35,6 +37,8 @@ pub async fn statemachine_task(mut leds: lights::Leds) -> ! {
     let mut state: State = State::Startup;
     let mut bms_seen: bool = false;
     let mut imd_seen: bool = false;
+    let mut bms_faulted: bool = false;
+    let mut imd_faulted: bool = false;
 
     // Note that this always waits slightly longer than the grace period
     leds.set_all_off(); // TODO: Change this to set_all_on when lamp check hardware allows
@@ -43,14 +47,24 @@ pub async fn statemachine_task(mut leds: lights::Leds) -> ! {
     leds.set_all_off();
     loop {
         let event = FAULT_QUEUE.receive().await;
-        let awaiting_contact = !(bms_seen && imd_seen);
         match event {
-            FaultframeState::BMSFault | FaultframeState::BMSOk => bms_seen = true,
-            FaultframeState::IMDFault | FaultframeState::IMDOk => imd_seen = true,
+            FaultframeState::BMSFault | FaultframeState::BMSOk => {
+                bms_seen = true;
+                bms_faulted = event == FaultframeState::BMSFault;
+            }
+            FaultframeState::IMDFault | FaultframeState::IMDOk => {
+                imd_seen = true;
+                imd_faulted = event == FaultframeState::IMDFault;
+            }
             FaultframeState::ResetRequested => {}
         }
 
-        let new = next_state(state, event, awaiting_contact);
+        let new = next_state(
+            state,
+            event,
+            !bms_seen || !imd_seen,
+            bms_faulted || imd_faulted,
+        );
         if new != state {
             if state == State::Red {
                 warn!("Fault latch reset: {} -> {}", state, new);
