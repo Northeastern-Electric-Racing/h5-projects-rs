@@ -80,13 +80,13 @@ assign_resources! {
         lineb_tx_dma: GPDMA1_CH6,
         lineb_rx_dma: GPDMA1_CH7,
     }
-    /// Resources for the shutdown circuit.
-    shutdown: ShutdownResources {
-    fault: PG15,
-    ts_minus_sense: PC0,
-    ts_plus_sense: PC3,
-    acc_sense: PB0,
-    tsip_sense: PB1,
+    /// Resources for `gpios` module.
+    gpios: GpiosResources {
+        mcu_fault_pin: PG15,
+        ts_minus_sense_pin: PC0,
+        ts_plus_sense_pin: PC3,
+        acc_sense_pin: PB0,
+        tsip_sense_pin: PB1,
     }
 }
 
@@ -119,13 +119,13 @@ assign_resources! {
         tx_dma: GPDMA1_CH6,
         rx_dma: GPDMA1_CH7,
     }
-    /// Resources for the shutdown circuit.
-    shutdown: ShutdownResources {
-    fault: PG15,
-    ts_minus_sense: PC0,
-    ts_plus_sense: PC3,
-    acc_sense: PB0,
-    tsip_sense: PB1,
+    /// Resources for `gpios` module.
+    gpios: GpiosResources {
+        mcu_fault_pin: PG15,
+        ts_minus_sense_pin: PC0,
+        ts_plus_sense_pin: PC3,
+        acc_sense_pin: PB0,
+        tsip_sense_pin: PB1,
     }
 }
 
