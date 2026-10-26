@@ -147,7 +147,7 @@ pub async fn can_inbox_task() -> ! {
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
             Some(Msg::ShutdownAsReadByBms(m)) => {
-                shutdown::update_bms_shutdown(BmsShutdownState::from(m.shutdown_state())).await
+                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
             }
             Some(_) => debug!("Unknown message"),
             _ => {
