@@ -83,6 +83,10 @@ assign_resources! {
     /// Resources for `gpios` module.
     gpios: GpiosResources {
         mcu_fault_pin: PG15,
+        ts_minus_sense_pin: PC0,
+        ts_plus_sense_pin: PC3,
+        acc_sense_pin: PB0,
+        tsip_sense_pin: PB1,
     }
 }
 
@@ -118,6 +122,10 @@ assign_resources! {
     /// Resources for `gpios` module.
     gpios: GpiosResources {
         mcu_fault_pin: PG15,
+        ts_minus_sense_pin: PC0,
+        ts_plus_sense_pin: PC3,
+        acc_sense_pin: PB0,
+        tsip_sense_pin: PB1,
     }
 }
 

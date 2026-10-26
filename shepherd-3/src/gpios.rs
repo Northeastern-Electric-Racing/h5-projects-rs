@@ -5,7 +5,7 @@ use embassy_sync::{blocking_mutex::CriticalSectionMutex, once_lock::OnceLock};
 use super::GpiosResources;
 use embassy_stm32::{
     Peri,
-    gpio::{AnyPin, Level, Speed, Output},
+    gpio::{AnyPin, Level, Speed, Output, Input, Pull},
 };
 
 pub struct OutputPin {
@@ -75,8 +75,47 @@ impl OutputPin {
     }
 }
 
+pub struct InputPin {
+    pin: CriticalSectionMutex<RefCell<Input<'static>>>,
+}
+impl InputPin {
+    fn new(pin: Peri<'static, AnyPin>, pull: Pull) -> Self {
+        Self {
+            pin: CriticalSectionMutex::new(RefCell::new(Input::new(pin, pull))),
+        }
+    }
+
+    /// Get whether the pin input level is high.
+    pub fn is_high(&self) -> bool {
+        self.pin.lock(|i|
+            // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on InputPin's wrappers,
+            // so there will be no borrows live at this moment.
+            i.borrow().is_high())
+    }
+
+    /// Get whether the pin input level is low.
+    pub fn is_low(&self) -> bool {
+        self.pin.lock(|i|
+            // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on InputPin's wrappers,
+            // so there will be no borrows live at this moment.
+            i.borrow().is_low())
+    }
+
+    /// Get the current pin input level.
+    pub fn level(&self) -> Level {
+        self.pin.lock(|i|
+            // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on InputPin's wrappers,
+            // so there will be no borrows live at this moment.
+            i.borrow().level())
+    }
+}
+
 pub struct Pins {
     pub mcu_fault_pin: OutputPin,
+    pub ts_minus_sense_pin: InputPin,
+    pub ts_plus_sense_pin: InputPin,
+    pub acc_sense_pin: InputPin,
+    pub tsip_sense_pin: InputPin,
 }
 
 pub struct Handle {
@@ -124,6 +163,12 @@ pub fn pins() -> &'static Handle {
 /// This is just for the basic GPIOs we decide to explicitly control here.
 pub fn init(r: GpiosResources) {
     PINS.init(Pins {
-        mcu_fault_pin: OutputPin::new(r.mcu_fault_pin.into(), Level::High, Speed::Low),
+        mcu_fault_pin: OutputPin::new(r.mcu_fault_pin.into(), Level::Low, Speed::Low),
+
+        // The shutdown circuit drives these lines actively, so no internal pull.
+        ts_minus_sense_pin: InputPin::new(r.ts_minus_sense_pin.into(), Pull::None),
+        ts_plus_sense_pin: InputPin::new(r.ts_plus_sense_pin.into(), Pull::None),
+        acc_sense_pin: InputPin::new(r.acc_sense_pin.into(), Pull::None),
+        tsip_sense_pin: InputPin::new(r.tsip_sense_pin.into(), Pull::None),
     })
 }
