@@ -212,7 +212,7 @@ impl CerberusState {
                     return Err(());
                 }
 
-                if shutdown::get_shutdown_state() == BmsShutdownState::Shutdown {
+                if shutdown::get_shutdown_state() == BmsShutdownState::Open {
                     self.set_error(TransitionError::SHUTDOWN_OPEN);
                     return Err(());
                 }

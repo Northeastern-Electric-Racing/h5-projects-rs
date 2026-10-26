@@ -1,6 +1,7 @@
 //! CAN bring-up for Cerberus.
 
-use crate::buttons;
+use crate::shutdown::BmsShutdownState;
+use crate::{buttons, shutdown};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
@@ -145,7 +146,7 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::RtdsCommandMessage(_)) => {}
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
-            Some(Msg::ShutdownAsReadByBms(m)) => debug!("shutdown: {}", m.shutdown_state()),
+            Some(Msg::ShutdownAsReadByBms(m)) => shutdown::update_bms_shutdown(BmsShutdownState::from(m.shutdown_state())).await,
             Some(_) => debug!("Unknown message"),
             _ => {
                 debug!("failed to parse id")
