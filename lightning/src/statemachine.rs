@@ -43,14 +43,14 @@ pub async fn statemachine_task(mut leds: lights::Leds) -> ! {
     leds.set_all_off();
     loop {
         let event = FAULT_QUEUE.receive().await;
-        let in_grace = !(bms_seen && imd_seen);
+        let awaiting_contact = !(bms_seen && imd_seen);
         match event {
             FaultframeState::BMSFault | FaultframeState::BMSOk => bms_seen = true,
             FaultframeState::IMDFault | FaultframeState::IMDOk => imd_seen = true,
             FaultframeState::ResetRequested => {}
         }
 
-        let new = next_state(state, event, in_grace);
+        let new = next_state(state, event, awaiting_contact);
         if new != state {
             if state == State::Red {
                 warn!("Fault latch reset: {} -> {}", state, new);
