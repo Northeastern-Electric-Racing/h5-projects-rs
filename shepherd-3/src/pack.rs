@@ -696,10 +696,10 @@ pub mod analyzer {
 
             let soc_data = crate::hv_plate::soc_data();
             // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly
-            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.shunt_current);
+            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.and_then(|soc| soc.data.shunt_current));
             // u_TODO - switch to use 2950 sense for 27A.
             analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).or(crate::hv_plate::cache().get_voltages().nice().try_partial_get(|n| n.data().ts_voltage));
-            analyzer.soc = soc_data.state_of_charge;
+            analyzer.soc = soc_data.and_then(|soc| soc.data.state_of_charge);
 
             // this whole section is supposed to look pretty similar to the C code just so
             // we make sure we bring everything over correctly.
@@ -870,13 +870,22 @@ pub mod analyzer {
                 }
             }
 
+            // Both signals are scaled 16-bit ints on the wire, so "no estimate" cannot be sent
+            // as NaN the way the monitors below report it.
             let pack_soc = analyzer.soc.map_or(0.0_f32, |soc| soc.get::<ratio>());
-            can::send(PackSocStatus { pack_soc, pack_soc_drift: soc_data.drift }.as_frame()).await;
+            let pack_soc_drift = soc_data.map_or(0.0_f32, |soc| soc.data.drift);
+            can::send(PackSocStatus { pack_soc, pack_soc_drift }.as_frame()).await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
                 defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge, 0.0 to 1.0. NaN until an open-circuit voltage has seeded the count, so a gap in the trace means no estimate rather than an empty pack.", "{=f32}", analyzer.soc.map_or(f32::NAN, |soc| soc.get::<ratio>()));
-                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Gap the last OCV seed found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", soc_data.drift);
+                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Gap the last OCV seed found against the coulomb count, in state of charge. Positive means the OCV read higher. NaN until the estimator has published.", "{=f32}", soc_data.map_or(f32::NAN, |soc| soc.data.drift));
+                defmt_monitor::monitor!(
+                    "AnalyzerDebug/PackSocStatus/soc_age_ms",
+                    desc = "Age of the SoC estimate when the analyzer read it, in ms. Should sit near the estimator's publish period; a climbing value means it has stopped publishing and pack_soc is frozen rather than current. NaN until it publishes once.",
+                    "{=f32}",
+                    soc_data.map_or(f32::NAN, |soc| soc.last_updated.elapsed().as_millis() as f32)
+                );
             }
 
             #[cfg(defmt_monitor)]
@@ -940,7 +949,7 @@ pub mod analyzer {
 
                 // The 2950's own readings, for cross-checking the reported ones against the plate.
                 defmt_monitor::monitor!("AnalyzerDebug/Plate/ts_voltage", desc = "TS voltage off the 2950's own divider behind GPO2, in volts. NaN until the voltages group has been read.", "{=f32}", crate::hv_plate::cache().get_voltages().nice().try_partial_get(|nice| nice.data().ts_voltage.get::<volt>()).unwrap_or(f32::NAN));
-                defmt_monitor::monitor!("AnalyzerDebug/Plate/shunt_current", desc = "Pack current off the 2950's shunt, in amps, discharge-positive. NaN until the estimator has published.", "{=f32}", crate::hv_plate::soc_data().shunt_current.map_or(f32::NAN, |current| current.as_amps()));
+                defmt_monitor::monitor!("AnalyzerDebug/Plate/shunt_current", desc = "Pack current off the 2950's shunt, in amps, discharge-positive. NaN until the estimator has published.", "{=f32}", crate::hv_plate::soc_data().and_then(|soc| soc.data.shunt_current).map_or(f32::NAN, |current| current.as_amps()));
 
                 // OCV snapshot bookkeeping.
                 defmt_monitor::monitor!("AnalyzerDebug/Ocv/is_first_reading", desc = "Whether we are still waiting for the first plausible cell voltage to seed the OCV snapshot.", "{=bool}", analyzer.ocv_is_first_reading);
