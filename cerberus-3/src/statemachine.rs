@@ -4,6 +4,9 @@
 //! Performance, Efficiency, Faulted) and the NERO dash menu position
 //! (`NeroMenu`), and arbitrates transitions between them.
 
+use crate::pedals::{
+    get_accel_pressed, get_brake_pressed, get_launch_control_enabled, get_torque_limit,
+};
 use crate::rtds;
 use crate::shutdown::{self, BmsShutdownState};
 use cangen::ToCanFrame;
@@ -13,6 +16,7 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
+use uom::si::ratio::percent;
 use variant_count::VariantCount;
 
 const STATE_TRANSITION_QUEUE_SIZE: usize = 4;
@@ -112,28 +116,12 @@ bitflags!(
 // TEMP functions, replace later
 // ---------------------------------------------------------------------------
 
-fn accel_pressed() -> bool {
-    false
-}
-
-fn pedals_get_brake_state() -> bool {
-    true
-}
-
-fn get_launch_control() -> bool {
-    false
-}
-
 fn get_traction_control() -> bool {
     false
 }
 
 fn get_mph() -> f32 {
     0.0f32
-}
-
-fn get_torque_limit_percent() -> f32 {
-    100.0f32
 }
 
 fn set_mcu_fault(_faulted: bool) {}
@@ -168,7 +156,7 @@ impl CerberusState {
 
         self.clear_error();
 
-        if accel_pressed() && new_state != FuncState::Faulted {
+        if get_accel_pressed() && new_state != FuncState::Faulted {
             debug!("Accelerator should not be pressed when transitioning state");
             self.set_error(TransitionError::ACCEL_PRESSED);
             return Err(());
@@ -201,7 +189,7 @@ impl CerberusState {
                     return Err(());
                 }
 
-                if !pedals_get_brake_state() {
+                if !get_brake_pressed() {
                     self.set_error(TransitionError::BRAKES_NOT_ENGAGED);
                     return Err(());
                 }
@@ -211,7 +199,6 @@ impl CerberusState {
                     return Err(());
                 }
 
-                // rtds switches straight to the new sound, even if coming from another active state
                 if new_state == FuncState::Reverse {
                     if rtds::start_reverse_rtds().is_err() {
                         warn!("Failed to start Reverse Sound")
@@ -325,11 +312,11 @@ impl CerberusState {
             .with_nero_index(self.nero_menu as u8)
             .with_car_speed(get_mph())
             .with_tsms(shutdown::get_shutdown_state() == BmsShutdownState::Closed)
-            .with_torque_limit_percentage(get_torque_limit_percent())
+            .with_torque_limit_percentage(get_torque_limit().get::<percent>())
             // Same expression as the C (`functional != F_REVERSE`). Verify against
             // the CAN definition if the dash shows reverse inverted.
             .with_reverse(self.state != FuncState::Reverse)
-            .with_launch_control(get_launch_control())
+            .with_launch_control(get_launch_control_enabled())
             .with_functional_state(self.state as u8)
             .with_traction_control(get_traction_control())
             .with_state_transition_error(self.transition_error.bits())

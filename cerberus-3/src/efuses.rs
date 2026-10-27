@@ -1,15 +1,22 @@
+//! efuses
+//! Handles all functions related to efuses
+//! Auto efuses use function pointers and evaluates conditions every loop <br>
+//! The status of an efuse can be polled by calling is_enabled, or is_faulted <br>
+//! The efuse condition can also be updated using update_control_state <br>
+
 use cangen::ToCanFrame;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer};
+use uom::si::ratio::percent;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
 use crate::can;
 
 const V_REF: f32 = 3.3;
-const MAX_TWELVE_BIT_RESOUTION: u16 = 4095;
+const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
 
 /// Discriminants match the `control_state` encoding in the CAN spec.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -110,7 +117,7 @@ impl_efuse_msg!(
     SpareEfuse,
 );
 
-/// Builder pattern for convertering EfuseMsg into a frame
+/// Builder pattern for converting EfuseMsg into a frame
 fn frame_for<M: EfuseMsg>(t: &EfuseTelemetry) -> Frame {
     M::build(t).to_can_frame()
 }
@@ -190,16 +197,20 @@ impl Efuse {
                 Output::new(pins.brake_en, Level::Low, EN_SPEED),
                 Input::new(pins.brake_er, ER_PULL),
                 200.0,
-                EfuseControlState::EfuseOff,
+                EfuseControlState::EfuseAuto,
                 Some(AutoPredicate {
-                    value1: || 0.0,
-                    value2: || 0.0,
-                    operation: PredicateOperation::EQ,
+                    value1: || 0.0, /* pedals brake percentage */
+                    value2: || crate::pedals::constants::PEDAL_BRAKE_THRESH.get::<percent>(),
+                    operation: PredicateOperation::GREATER,
                 }),
                 Some(AutoPredicate {
-                    value1: || 0.0,
-                    value2: || 0.0,
-                    operation: PredicateOperation::EQ,
+                    value1: || 0.0, /* pedals brake threshold */
+                    value2: || {
+                        (crate::pedals::constants::PEDAL_BRAKE_THRESH
+                            - crate::pedals::constants::PEDAL_BRAKE_TURNOFF_THRESH)
+                            .get::<percent>()
+                    },
+                    operation: PredicateOperation::LESS,
                 }),
                 frame_for::<cangen::BrakeEfuse>,
             ),
@@ -328,7 +339,7 @@ impl Efuse {
 
     pub fn get_data(&self, adc_data: &AdcMuxData) -> Option<(f32, f32)> {
         if let Some(data) = adc_data.get_efuse_data(self.efuse_id) {
-            let voltage = data as f32 / MAX_TWELVE_BIT_RESOUTION as f32 * V_REF;
+            let voltage = data as f32 / MAX_TWELVE_BIT_RESOLUTION as f32 * V_REF;
             let current = voltage * self.scale;
             Some((voltage, current))
         } else {
@@ -361,7 +372,7 @@ impl Efuse {
     }
 }
 
-const EFUSE_PERIOD_MS: u64 = 100;
+const EFUSE_PERIOD: Duration = Duration::from_millis(100);
 
 #[embassy_executor::task]
 pub async fn efuse_task(pins: EfusePins) {
@@ -432,6 +443,6 @@ pub async fn efuse_task(pins: EfusePins) {
             can::OUTGOING.send(efuse.to_frame(&adc)).await;
         }
 
-        Timer::after_millis(EFUSE_PERIOD_MS).await;
+        Timer::after(EFUSE_PERIOD).await;
     }
 }

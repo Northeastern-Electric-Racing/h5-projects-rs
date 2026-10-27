@@ -19,6 +19,7 @@ mod adc;
 mod buttons;
 mod can;
 mod efuses;
+mod pedals;
 mod rtds;
 mod shutdown;
 mod statemachine;
@@ -26,9 +27,11 @@ mod statemachine;
 use crate::can::can_inbox_task;
 use crate::shutdown::ShutdownInputs;
 use crate::shutdown::report_shutdown_task;
-use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
+use adc::{Adc1Resources, adc1_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
+use pedals::analog::AdcPedalsResources;
+use pedals::pedals_task;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -91,7 +94,7 @@ async fn main(spawner: Spawner) -> ! {
         tx: p.PB6,
     });
     spawner.spawn(
-        ner_can::can_tx(
+        can_handler::can_tx(
             can_tx_half,
             can::OUTGOING.dyn_receiver(),
             can::OUTGOING.dyn_sender(),
@@ -99,7 +102,7 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn ner_can::can_tx()."),
     );
     spawner.spawn(
-        ner_can::can_rx(can_rx_half, can::INCOMING.dyn_sender())
+        can_handler::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
     spawner.spawn(can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
@@ -126,8 +129,9 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn adc::adc1_task()."),
     );
 
+    // pedals
     spawner.spawn(
-        adc2_task(Adc2Resources {
+        pedals_task(AdcPedalsResources {
             adc: p.ADC2,
             dma: p.GPDMA1_CH4,
             apps1: p.PC2,
@@ -135,7 +139,7 @@ async fn main(spawner: Spawner) -> ! {
             bse1: p.PF13,
             bse2: p.PF14,
         })
-        .expect("Failed to spawn adc2_task()."),
+        .expect("Failed to spawn pedals::pedals_task"),
     );
 
     // eFuses
@@ -167,13 +171,16 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn efuses::efuse_task()."),
     );
 
+    // Statemachine
     spawner.spawn(
         statemachine::statemachine_task()
             .expect("Failed to spawn statemachine::statemachine_task()."),
     );
 
+    // Buttons
     spawner.spawn(buttons::button_task().expect("Failed to spawn buttons::button_task()."));
 
+    // Shutdown monitor
     spawner.spawn(
         report_shutdown_task(ShutdownInputs {
             bms: p.PF6,
