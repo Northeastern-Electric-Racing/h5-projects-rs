@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicBool, AtomicI16, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use defmt::debug;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
@@ -46,7 +46,7 @@ fn queue_fault_placeholder(fault: Fault) {
 const BMS_CAN_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// temperature in centidegrees
-static BATTERY_BOX_TEMP_CENTIDEGREES: AtomicI16 = AtomicI16::new(0);
+static BATTERY_BOX_TEMP_CENTIDEGREES: AtomicU16 = AtomicU16::new(0);
 
 /// default state is false (open/floating)
 static PRECHARGE_CLOSED: AtomicBool = AtomicBool::new(false);
@@ -60,7 +60,7 @@ pub fn get_battery_box_temp() -> Temperature {
 ///sets the battery box temp from a Temperature value
 pub fn set_battery_box_temp(temp: Temperature) {
     let scaled = temp.get::<degree_celsius>() * 100.0; // convert from degrees to centidegrees
-    BATTERY_BOX_TEMP_CENTIDEGREES.store(scaled.round() as i16, Ordering::Relaxed);
+    BATTERY_BOX_TEMP_CENTIDEGREES.store(scaled.round() as u16, Ordering::Relaxed);
 }
 
 pub fn get_precharge_state() -> bool {
