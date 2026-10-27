@@ -5,9 +5,12 @@
 //! The efuse condition can also be updated using update_control_state <br>
 
 use cangen::ToCanFrame;
+use defmt::debug;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
+use embassy_sync::channel::Channel;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_time::{Duration, Timer};
 use uom::si::ratio::percent;
 use variant_count::VariantCount;
@@ -79,6 +82,22 @@ pub struct EfuseTelemetry {
     pub faulted: bool,
     pub enabled: bool,
     pub control_state: EfuseControlState,
+}
+static COMMAND: Channel<ThreadModeRawMutex, EfuseCommand, 11> = Channel::new();
+
+/// requests for can to send to efuses
+pub struct EfuseCommand {
+    pub efuse_id: EfuseId,
+    pub efuse_control_state: EfuseControlState,
+}
+
+impl EfuseCommand {
+    pub fn add_command(efuse_id: EfuseId, efuse_control_state: EfuseControlState) {
+        let efuse_command = EfuseCommand {efuse_id, efuse_control_state};
+        if COMMAND.try_send(efuse_command).is_err() {
+            debug!("EfuseCommand queue full, dropped.");
+        }
+    }
 }
 
 /// Common shape of every `<Name>Efuse` cangen message.
