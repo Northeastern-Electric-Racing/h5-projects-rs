@@ -268,14 +268,13 @@ pub mod task {
         const HV_PLATE_FRESH_DATA_MAX_WAITERS: usize = 10;
         pub static HV_PLATE_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, HV_PLATE_FRESH_DATA_MAX_WAITERS> = Broadcast::new();
 
-        /// Helper info about chip to do coulomb counting properly.
         #[derive(Copy, Clone)]
-        pub struct AccCycle {
-            pub restarted_at: Option<Instant>,
+        pub struct AccWindowStatus {
+            pub chip_restarted_at: Option<Instant>,
             pub fresh: bool,
         }
-        const ACC_DATA_RECEIVERS: usize = 2;
-        pub static ACC_DATA_SIGNAL: Watch<ThreadModeRawMutex, AccCycle, ACC_DATA_RECEIVERS> = Watch::new();
+        const ACC_DATA_RECEIVERS: usize = 1;
+        pub static ACC_WINDOW_SIGNAL: Watch<ThreadModeRawMutex, AccWindowStatus, ACC_DATA_RECEIVERS> = Watch::new();
     }
 
     impl HvPlate {
@@ -330,8 +329,7 @@ pub mod task {
                     false
                 },
             };
-            // Hand the window to `soc_task`
-            signal::ACC_DATA_SIGNAL.sender().send(signal::AccCycle { restarted_at, fresh: snap_ok });
+            signal::ACC_WINDOW_SIGNAL.sender().send(signal::AccWindowStatus { chip_restarted_at: restarted_at, fresh: snap_ok });
 
             let voltage_ok = match hv_plate.job_update_voltage_registers().await {
                 Ok(()) => true,
