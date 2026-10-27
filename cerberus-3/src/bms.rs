@@ -4,9 +4,9 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Ticker};
 use num_traits::Float;
-use uom::si::{
-    f32::ThermodynamicTemperature as Temperature, thermodynamic_temperature::degree_celsius,
-};
+use uom::si::f32::ThermodynamicTemperature as Temperature;
+use uom::si::thermodynamic_temperature::degree_celsius;
+
 
 #[derive(Clone, Copy, defmt::Format)]
 pub(crate) enum PrechargeState {
