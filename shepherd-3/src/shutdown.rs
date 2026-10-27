@@ -16,9 +16,10 @@ pub fn circuit_closed() -> bool {
 
 const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
 
-// struct for holding the memory between ticks: stable = boolean indicating the debounced output, disagreed_at = the time the disagreement between ticks started.
 struct Debouncer {
+    /// a boolean indicating the debounced output
     stable: bool,
+    /// stores the time the disagreement between ticks started
     disagreed_at: Option<Instant>,
 }
 
@@ -31,33 +32,34 @@ impl Debouncer {
         self.stable
     }
 
-    fn update(&mut self, raw: bool, now: Instant) -> Option<bool> {
+    /// given one raw reading, returns `true` only on the tick the debounced value changes
+    /// call `stable()` for the value itself
+    fn update(&mut self, raw: bool, now: Instant) -> bool {
         if raw == self.stable {
             self.disagreed_at = None;
-            return None;
+            return false;
         }
 
         match self.disagreed_at {
             None => {
                 self.disagreed_at = Some(now);
-                return None;
+                return false;
             },
             Some(started) => {
                 if now.duration_since(started) < DEBOUNCE_TIME {
-                    return None;
+                    return false;
                 } else {
                     self.stable = raw;
                     self.disagreed_at = None;
-                    return Some(self.stable);
+                    return true;
                 }
             },
         }
     }
 }
 
-/// Breaks or restores the BMS's link in the shutdown loop.
-///
-/// `true` pulls PG15 low, which breaks the loop and cuts the pack off the car.
+/// Breaks or restores the BMS's link in the shutdown loop
+/// `true` pulls PG15 low, which breaks the loop and cuts the pack off the car
 /// Low is the active state
 pub fn set_fault(faulted: bool) {
     let level = if faulted {
@@ -101,7 +103,7 @@ pub async fn shutdown_task() -> ! {
         let updated_tsip_sense = tsip_sense.update(raw_tsip_sense, now);
         let updated_and_for_all_reads = and_for_all_reads.update(combined, now);
 
-        let changed: bool = updated_ts_minus.is_some() || updated_ts_plus.is_some() || updated_acc_sense.is_some() || updated_tsip_sense.is_some() || updated_and_for_all_reads.is_some();
+        let changed: bool = updated_ts_minus || updated_ts_plus || updated_acc_sense || updated_tsip_sense || updated_and_for_all_reads;
 
         CIRCUIT_CLOSED.store(and_for_all_reads.stable(), Ordering::Relaxed);
 
