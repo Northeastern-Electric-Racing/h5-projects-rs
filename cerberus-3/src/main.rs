@@ -202,7 +202,8 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
 
     // BMS
-    spawner.spawn(bms::bms_can_monitor_task().expect("Failed to spawn bms::bms_can_monitor_task()."));
+    spawner
+        .spawn(bms::bms_can_monitor_task().expect("Failed to spawn bms::bms_can_monitor_task()."));
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);

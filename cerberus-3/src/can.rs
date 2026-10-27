@@ -1,6 +1,7 @@
 //! CAN bring-up for Cerberus.
 
 use crate::{bms, buttons, shutdown};
+use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
@@ -10,7 +11,6 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use can_handler::{ExtFilter, NerCan, StdFilter};
 use uom::si::{
     f32::ThermodynamicTemperature as Temperature, thermodynamic_temperature::degree_celsius,
 };
@@ -159,7 +159,7 @@ pub async fn can_inbox_task() -> ! {
 
             // Dash / driver
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
-            Some(Msg::RtdsCommandMessage(m)) => {}
+            Some(Msg::RtdsCommandMessage(_)) => {}
             Some(Msg::LightningPulseMessage(_)) => {}
 
             Some(_) => debug!("Unknown message"),
