@@ -7,7 +7,6 @@ use num_traits::Float;
 use uom::si::f32::ThermodynamicTemperature as Temperature;
 use uom::si::thermodynamic_temperature::degree_celsius;
 
-
 #[derive(Clone, Copy, defmt::Format)]
 pub(crate) enum PrechargeState {
     Open,
