@@ -2,13 +2,18 @@
 
 use defmt::{debug, warn};
 use embassy_stm32::{
-    bind_interrupts, dma, i2c::{I2c, Master}, mode::Async, Peripherals, peripherals
+    Peripherals, bind_interrupts, dma,
+    i2c::{I2c, Master},
+    mode::Async,
+    peripherals,
 };
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
-use embassy_time::{Delay};
-use embedded_sht3x::{Repeatability::High, Sht3x, Temperature, Status};
+use embassy_time::Delay;
+use embedded_sht3x::{Repeatability::High, Sht3x, Status, Temperature};
 use uom::si::{
-    f32::{ThermodynamicTemperature, Ratio}, ratio::percent, thermodynamic_temperature::degree_celsius
+    f32::{Ratio, ThermodynamicTemperature},
+    ratio::percent,
+    thermodynamic_temperature::degree_celsius,
 };
 
 const SHT30_ADDRESS: u8 = 0x44;
@@ -25,7 +30,7 @@ pub struct TempSensor {
     sensor: embedded_sht3x::Sht3x<I2c<'static, Async, Master>, Delay>,
     i2c_address: u8,
     temperature: ThermodynamicTemperature,
-    humidity: Ratio
+    humidity: Ratio,
 }
 
 impl TempSensor {
@@ -33,8 +38,8 @@ impl TempSensor {
         TEMP_SENSOR.lock(|| {
             let i2c = I2c::new(
                 p.I2C1,
-                p.PB6, //need to update
-                p.PB7, //need to update
+                p.PB6,        //need to update
+                p.PB7,        //need to update
                 p.GPDMA1_CH6, //need to update
                 p.GPDMA1_CH5, //need to update
                 I2cIrqs,
@@ -67,8 +72,7 @@ impl TempSensor {
                                 debug!("Sht30 heater enable failed");
                             }
                         };
-                    }
-                    else if status.intersects(Status::HEATER) && !enable {
+                    } else if status.intersects(Status::HEATER) && !enable {
                         match self.sensor.disable_heater() {
                             Ok(_) => {}
                             Err(_) => {
@@ -88,7 +92,9 @@ impl TempSensor {
         TEMP_SENSOR.lock(|| {
             match self.sensor.single_measurement() {
                 Ok(value) => {
-                    self.temperature = ThermodynamicTemperature::new::<degree_celsius>(value.temperature.celsius().value());
+                    self.temperature = ThermodynamicTemperature::new::<degree_celsius>(
+                        value.temperature.celsius().value(),
+                    );
                     self.humidity = Ratio::new::<percent>(value.relative_humidity.value());
                 }
                 Err(_) => {
@@ -96,6 +102,9 @@ impl TempSensor {
                 }
             };
         });
-        (self.temperature.get::<degree_celsius>(), self.humidity.get::<percent>())
+        (
+            self.temperature.get::<degree_celsius>(),
+            self.humidity.get::<percent>(),
+        )
     }
 }
