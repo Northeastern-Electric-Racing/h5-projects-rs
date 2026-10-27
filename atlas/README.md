@@ -48,47 +48,14 @@ was cleared successfully. If no valid application exists, the bootloader stays i
 update mode to receive firmware. On normal boots without an update request, the
 bootloader starts the valid application immediately.
 
-## Application integration
+## Application integration and flashing over CAN
 
-Applications use `boot-control` from firmware-rs for boot confirmation and CAN bootloader entry:
+Applications use `boot-control` from firmware-rs for boot confirmation, CAN bootloader
+entry, and the shared application memory layout. See the
+[boot-control README](https://github.com/Northeastern-Electric-Racing/firmware-rs/blob/develop/boot-control/README.md).
 
-```toml
-[dependencies]
-boot-control.workspace = true
-```
-
-Create a `boot-control` instance using the flash peripheral, confirm startup, and
-pass it to the CAN task:
-
-```rust
-let mut bootloader = boot_control::Bootloader::new(p.FLASH);
-// Confirm basic startup to prevent rollback on the next reset.
-// Device initialization continues in application tasks.
-bootloader
-    .confirm_boot()
-    .expect("Failed to confirm application startup");
-can::start(spawner, can_resources, bootloader);
-```
-
-Calling `confirm_boot()` keeps the new firmware from being rolled back on the next
-reset. The projects call it after basic startup, while device setup continues in tasks.
-
-Add the ECU's boot-request ID to the CAN receive filter. In the receive task, use
-the generated parser to identify the request and pass its data to `boot-control`:
-
-```rust
-match Msg::decode(&frame) {
-    Some(Msg::MsbFrontBootRequest(_)) => bootloader
-        .handle_request(frame.data())
-        .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
-    _ => {}
-}
-```
-
-Use the generated boot-request type for the selected ECU. Boot-control validates the boot-request data,
-saves the boot-entry request, and resets only after a successful state write.
-
-Use the shared application memory layout provided by boot-control in firmware-rs.
+Flash applications over CAN with the
+[can-flash-cli](https://github.com/Northeastern-Electric-Racing/firmware-rs/blob/develop/utilities/can-flash-cli/README.md).
 
 ## Adding an ECU
 
