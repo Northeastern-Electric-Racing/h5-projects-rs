@@ -1,9 +1,10 @@
 //! CAN bring-up for Cerberus.
 
+use crate::bms::{PrechargeState, set_precharge_state};
 use crate::{bms, buttons, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
-use defmt::debug;
+use defmt::{debug, warn};
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
 use embassy_stm32::can::{
     CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,
@@ -11,9 +12,8 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use uom::si::{
-    f32::ThermodynamicTemperature as Temperature, thermodynamic_temperature::degree_celsius,
-};
+use uom::si::f32::ThermodynamicTemperature as Temperature;
+use uom::si::thermodynamic_temperature::degree_celsius;
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -130,9 +130,13 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::CellTemperatures(m)) => {
                 bms::set_battery_box_temp(Temperature::new::<degree_celsius>(m.avg_val()))
             }
-            Some(Msg::PrechargeStatus(m)) => {
-                bms::set_precharge_state_from_can(m.precharge_status())
-            }
+            Some(Msg::PrechargeStatus(m)) => match PrechargeState::try_from(m.precharge_status()) {
+                Ok(state) => set_precharge_state(state),
+                Err(state) => warn!(
+                    "Received invalid precharge state from CAN message: {}",
+                    state
+                ),
+            },
             Some(Msg::ShutdownAsReadByBms(m)) => {
                 shutdown::update_bms_shutdown(m.shutdown_state().into()).await
             }

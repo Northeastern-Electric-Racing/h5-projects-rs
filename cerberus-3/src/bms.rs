@@ -1,5 +1,5 @@
 use core::sync::atomic::{AtomicBool, AtomicI16, Ordering};
-use defmt::{debug, warn};
+use defmt::debug;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Ticker};
@@ -17,7 +17,7 @@ pub(crate) enum PrechargeState {
 impl TryFrom<u8> for PrechargeState {
     type Error = u8; // the unrecognized byte
 
-    /// decode the raw precharge state byte from CAN (matches the C `precharge_state_t`)
+    /// decode the raw precharge state byte from CAN
     fn try_from(byte: u8) -> Result<Self, Self::Error> {
         match byte {
             0 => Ok(PrechargeState::Open),
@@ -45,9 +45,6 @@ fn queue_fault_placeholder(fault: Fault) {
 /// how long the BMS can go without a DCL message before BmsCanMonitor is queued
 const BMS_CAN_TIMEOUT: Duration = Duration::from_secs(4);
 
-/// centidegrees per degree, matches the CAN wire format (°C × 100)
-const CENTIDEGREES_PER_DEGREE: f32 = 100.0;
-
 /// temperature in centidegrees
 static BATTERY_BOX_TEMP_CENTIDEGREES: AtomicI16 = AtomicI16::new(0);
 
@@ -57,12 +54,12 @@ static PRECHARGE_CLOSED: AtomicBool = AtomicBool::new(false);
 ///gets the battery box temp as a Temperature value
 pub fn get_battery_box_temp() -> Temperature {
     let centidegrees = BATTERY_BOX_TEMP_CENTIDEGREES.load(Ordering::Relaxed);
-    Temperature::new::<degree_celsius>(f32::from(centidegrees) / CENTIDEGREES_PER_DEGREE) // convert from centidegrees to degrees
+    Temperature::new::<degree_celsius>(f32::from(centidegrees) / 100.0) // convert from centidegrees to degrees
 }
 
 ///sets the battery box temp from a Temperature value
 pub fn set_battery_box_temp(temp: Temperature) {
-    let scaled = temp.get::<degree_celsius>() * CENTIDEGREES_PER_DEGREE; // convert from degrees to centidegrees
+    let scaled = temp.get::<degree_celsius>() * 100.0; // convert from degrees to centidegrees
     BATTERY_BOX_TEMP_CENTIDEGREES.store(scaled.round() as i16, Ordering::Relaxed);
 }
 
@@ -78,16 +75,6 @@ pub fn set_precharge_state(state: PrechargeState) {
             queue_fault_placeholder(Fault::PrechargeFloating);
         }
         PrechargeState::Closed => PRECHARGE_CLOSED.store(true, Ordering::Relaxed),
-    }
-}
-
-pub fn set_precharge_state_from_can(raw: u8) {
-    match PrechargeState::try_from(raw) {
-        Ok(state) => set_precharge_state(state),
-        Err(state) => warn!(
-            "Received invalid precharge state from CAN message: {}",
-            state
-        ),
     }
 }
 
