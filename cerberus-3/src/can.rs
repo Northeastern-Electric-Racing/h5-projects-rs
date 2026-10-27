@@ -1,7 +1,6 @@
 //! CAN bring-up for Cerberus.
 
-use crate::{buttons, shutdown};
-use can_handler::{ExtFilter, NerCan, StdFilter};
+use crate::{bms, buttons, shutdown};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
@@ -11,6 +10,10 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use can_handler::{ExtFilter, NerCan, StdFilter};
+use uom::si::{
+    f32::ThermodynamicTemperature as Temperature, thermodynamic_temperature::degree_celsius,
+};
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -39,7 +42,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_1: StdFilter = StdFilter {
         slot: StandardFilterSlot::_1,
         id1: cangen::CellTemperatures::ID,
-        id2: None,
+        id2: Some(cangen::MaxDcCurrentCommand::ID),
     };
 
     const SLOT_2: StdFilter = StdFilter {
@@ -123,13 +126,25 @@ pub async fn can_inbox_task() -> ! {
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
-            Some(Msg::CellTemperatures(_)) => {}
-            Some(Msg::LightningPulseMessage(_)) => {}
+            // BMS
+            Some(Msg::CellTemperatures(m)) => {
+                bms::set_battery_box_temp(Temperature::new::<degree_celsius>(m.avg_val()))
+            }
+            Some(Msg::PrechargeStatus(m)) => {
+                bms::set_precharge_state_from_can(m.precharge_status())
+            }
+            Some(Msg::ShutdownAsReadByBms(m)) => {
+                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
+            }
+            Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
+
+            // Motor controller
             Some(Msg::FrontWheelRpm(_)) => {}
             Some(Msg::TempsFaultCodeStatus(_)) => {}
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
             Some(Msg::CurrentsStatus(_)) => {}
 
+            // Efuses
             Some(Msg::DashboardEfuseState(_)) => {}
             Some(Msg::BrakeEfuseState(_)) => {}
             Some(Msg::ShutdownEfuseState(_)) => {}
@@ -142,13 +157,11 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::McEfuseState(_)) => {}
             Some(Msg::SpareEfuseState(_)) => {}
 
-            Some(Msg::PrechargeStatus(_)) => {}
-            Some(Msg::RtdsCommandMessage(_)) => {}
-
+            // Dash / driver
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
-            Some(Msg::ShutdownAsReadByBms(m)) => {
-                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
-            }
+            Some(Msg::RtdsCommandMessage(m)) => {}
+            Some(Msg::LightningPulseMessage(_)) => {}
+
             Some(_) => debug!("Unknown message"),
             _ => {
                 debug!("failed to parse id")
