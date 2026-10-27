@@ -89,7 +89,7 @@ pub async fn shutdown_task() -> ! {
     loop {
         let now = Instant::now();
 
-        let raw_ts_minus = p.ts_minus_sense_pin.is_high(); // changes from a pin -> bool
+        let raw_ts_minus = p.ts_minus_sense_pin.is_high();
         let raw_ts_plus = p.ts_plus_sense_pin.is_high();
         let raw_acc_sense = p.acc_sense_pin.is_high();
         let raw_tsip_sense = p.tsip_sense_pin.is_high();

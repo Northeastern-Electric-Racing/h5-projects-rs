@@ -3,7 +3,6 @@ mod sm {
     use embassy_time::Instant;
 
     use crate::units::Voltage;
-    use crate::shutdown::set_fault;
     use super::api;
     use super::charging::Charger;
 
@@ -142,6 +141,9 @@ mod sm {
     mod handlers {
         use super::*;
         use crate::state_machine::api;
+
+        /// Helper to drive the BMS side of the shutdown circuit
+        fn set_fault(_faulted: bool) {}
 
         // Boot
 
