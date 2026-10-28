@@ -1,6 +1,6 @@
 //! RTDS (ready to drive sound)
 //!
-//! rtds_task owns the pin. everything else just calls `sound_rtds` / `cancel_rtds` which
+//! rtds_task owns the pin. Everything else just calls `sound_rtds` / `cancel_rtds` which
 //! throw a command on the queue. The task just sleeps until a new command or the deadline is reached.
 
 use core::sync::atomic::{AtomicBool, Ordering};
