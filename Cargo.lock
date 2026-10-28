@@ -171,12 +171,12 @@ dependencies = [
 [[package]]
 name = "boot-control"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=9477d07e74eb26e44cd32f8a53f68441bcc6e015#9477d07e74eb26e44cd32f8a53f68441bcc6e015"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=e42e48fc0bbc655f95076bd261ca3856d32fbb3f#e42e48fc0bbc655f95076bd261ca3856d32fbb3f"
 
 [[package]]
 name = "boot-control-stm32h563"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=9477d07e74eb26e44cd32f8a53f68441bcc6e015#9477d07e74eb26e44cd32f8a53f68441bcc6e015"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=e42e48fc0bbc655f95076bd261ca3856d32fbb3f#e42e48fc0bbc655f95076bd261ca3856d32fbb3f"
 dependencies = [
  "boot-control",
  "cortex-m",
@@ -195,7 +195,7 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "can-bootloader-config"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=9477d07e74eb26e44cd32f8a53f68441bcc6e015#9477d07e74eb26e44cd32f8a53f68441bcc6e015"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=e42e48fc0bbc655f95076bd261ca3856d32fbb3f#e42e48fc0bbc655f95076bd261ca3856d32fbb3f"
 dependencies = [
  "serde_json",
 ]
@@ -218,7 +218,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=9477d07e74eb26e44cd32f8a53f68441bcc6e015#9477d07e74eb26e44cd32f8a53f68441bcc6e015"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=e42e48fc0bbc655f95076bd261ca3856d32fbb3f#e42e48fc0bbc655f95076bd261ca3856d32fbb3f"
 dependencies = [
  "bitfield-struct",
  "cangen-macro",
@@ -228,7 +228,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=9477d07e74eb26e44cd32f8a53f68441bcc6e015#9477d07e74eb26e44cd32f8a53f68441bcc6e015"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=e42e48fc0bbc655f95076bd261ca3856d32fbb3f#e42e48fc0bbc655f95076bd261ca3856d32fbb3f"
 dependencies = [
  "definition-rs",
  "heck",
@@ -414,7 +414,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=9477d07e74eb26e44cd32f8a53f68441bcc6e015#9477d07e74eb26e44cd32f8a53f68441bcc6e015"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=e42e48fc0bbc655f95076bd261ca3856d32fbb3f#e42e48fc0bbc655f95076bd261ca3856d32fbb3f"
 dependencies = [
  "proc-macro2",
  "quote",
