@@ -278,12 +278,14 @@ pub mod analyzer {
                 sanitized_therms: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| ThermState::new())),
 
                 max_sanitized_temp: CriticalCellValue {
-                    value: Temperature::new::<degree_celsius>(f32::MIN), 
-                    chip: ChipId::Chip0, cell: CellId::Cell1,
+                    value: Temperature::new::<degree_celsius>(f32::MIN),
+                    chip: ChipId::Chip0,
+                    cell: CellId::Cell1,
                 },
                 min_sanitized_temp: CriticalCellValue {
-                    value: Temperature::new::<degree_celsius>(f32::MAX), 
-                    chip: ChipId::Chip0, cell: CellId::Cell1,
+                    value: Temperature::new::<degree_celsius>(f32::MAX),
+                    chip: ChipId::Chip0,
+                    cell: CellId::Cell1,
                 },
             }
         }
@@ -291,11 +293,13 @@ pub mod analyzer {
         /// Rejects thermistor samples that are out of range or jump too far, and tracks min/max over only the trusted ones.
         fn sanitize_temps(&mut self, cell_temps: &IndexByChip<IndexByCell<Temperature>>) {
             self.max_sanitized_temp = CriticalCellValue {
-                value: Temperature::new::<degree_celsius>(f32::MIN), chip: ChipId::Chip0, 
+                value: Temperature::new::<degree_celsius>(f32::MIN),
+                chip: ChipId::Chip0,
                 cell: CellId::Cell1,
             };
             self.min_sanitized_temp = CriticalCellValue {
-                value: Temperature::new::<degree_celsius>(f32::MAX), chip: ChipId::Chip0, 
+                value: Temperature::new::<degree_celsius>(f32::MAX),
+                chip: ChipId::Chip0,
                 cell: CellId::Cell1,
             };
 
