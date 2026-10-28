@@ -68,8 +68,6 @@ pub mod analyzer {
     const THERM_FAULT_COUNT_THRESHOLD: u8 = 2;
     /// Max allowed change from the last trusted sample in degrees C
     const TEMP_MAX_DELTA_C: f32 = 5.0;
-    /// Max allowed difference between cells in a segment in degrees C
-    const TEMP_MAX_CELL_TO_CELL_DELTA_C: f32 = 20.0;
     // from bms_config.h in the C code
     const MIN_TEMP: Temperature = Temperature::from_celsius(-40.0);
     const MAX_CELL_TEMP: Temperature = Temperature::from_celsius(60.0);
@@ -299,7 +297,6 @@ pub mod analyzer {
                     let temp = cell_temps[chip][cell];
                     let in_range = temp >= MIN_TEMP && temp <= MAX_CELL_TEMP;
                     let therm = &mut self.sanitized_therms[chip][cell];
-                    let segment_average_temp_sofar = total_seg_temp/valid_seg_temp_count as f32;
 
                     let sample_valid = if therm.last_temp.is_none() && therm.fault_count < THERM_FAULT_COUNT_THRESHOLD {
                         if in_range {
@@ -355,37 +352,6 @@ pub mod analyzer {
                 }
 
                 if chip.is_beta() {
-
-                    // loop through a second time to check for outliers
-                    for cell in CellId::iter() {
-                        let temp = cell_temps[chip][cell];
-                        let therm = &mut self.sanitized_therms[chip][cell];
-                        
-                        // Skip thermistors that aren't currently trusted.
-                        if !therm.valid {
-                            continue;
-                        }
-
-                        // Remove this cell from the reference average.
-                        let other_count = valid_seg_temp_count.saturating_sub(1);
-                        if other_count == 0 {
-                            continue;
-                        }
-                        let other_sum = total_seg_temp - temp.get::<degree_celsius>();
-                        let curr_avg = other_sum / other_count as f32;
-
-                        // Flag readings that differ too much from the other cells.
-                        let delta = temp.get::<degree_celsius>() - curr_avg;
-
-                        if delta.abs() > TEMP_MAX_CELL_TO_CELL_DELTA_C {
-                            therm.record_fault();
-
-                            // Exclude this reading from the running segment average.
-                            total_seg_temp = other_sum;
-                            valid_seg_temp_count = other_count;
-                        }
-                    }
-
                     if valid_seg_temp_count > 0 {
                         self.segment_average_temps[chip.segment()] = Temperature::new::<degree_celsius>(total_seg_temp / valid_seg_temp_count as f32);
                     }
