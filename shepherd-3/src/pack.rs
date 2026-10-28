@@ -66,7 +66,7 @@ pub mod analyzer {
 
     /// Number of consecutive invalid samples before a thermistor is marked invalid.
     const THERM_FAULT_COUNT_THRESHOLD: u8 = 2;
-    /// Max allowed change from the last trusted sample in degrees C.
+    /// Max allowed change from the last trusted sample in degrees C
     const TEMP_MAX_DELTA_C: f32 = 5.0;
     // from bms_config.h in the C code
     const MIN_TEMP: Temperature = Temperature::from_celsius(-40.0);
@@ -75,7 +75,7 @@ pub mod analyzer {
     #[derive(Copy, Clone)]
     pub struct ThermState {
         last_temp: Temperature,
-        pub valid: bool,
+        valid: bool,
         initialized: bool,
         fault_count: u8,
     }
