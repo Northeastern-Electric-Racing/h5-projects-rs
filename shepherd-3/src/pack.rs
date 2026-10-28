@@ -601,9 +601,9 @@ pub mod analyzer {
 
             let soc_data = crate::hv_plate::soc_data();
             // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly
-            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.shunt_current);
+            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.and_then(|soc| soc.data.shunt_current));
             analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get());
-            analyzer.soc = soc_data.state_of_charge;
+            analyzer.soc = soc_data.and_then(|soc| soc.data.state_of_charge);
 
             // this whole section is supposed to look pretty similar to the C code just so
             // we make sure we bring everything over correctly.
@@ -732,13 +732,22 @@ pub mod analyzer {
                 }
             }
 
+            // Both signals are scaled 16-bit ints on the wire, so "no estimate" cannot be sent
+            // as NaN the way the monitors below report it.
             let pack_soc = analyzer.soc.map_or(0.0_f32, |soc| soc.get::<ratio>());
-            can::send(PackSocStatus { pack_soc, pack_soc_drift: soc_data.drift }.as_frame()).await;
+            let pack_soc_drift = soc_data.map_or(0.0_f32, |soc| soc.data.drift);
+            can::send(PackSocStatus { pack_soc, pack_soc_drift }.as_frame()).await;
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
                 defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge, 0.0 to 1.0. NaN until an open-circuit voltage has seeded the count, so a gap in the trace means no estimate rather than an empty pack.", "{=f32}", analyzer.soc.map_or(f32::NAN, |soc| soc.get::<ratio>()));
-                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Gap the last OCV seed found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", soc_data.drift);
+                defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Gap the last OCV seed found against the coulomb count, in state of charge. Positive means the OCV read higher. NaN until the estimator has published.", "{=f32}", soc_data.map_or(f32::NAN, |soc| soc.data.drift));
+                defmt_monitor::monitor!(
+                    "AnalyzerDebug/PackSocStatus/soc_age_ms",
+                    desc = "Age of the SoC estimate when the analyzer read it, in ms. Should sit near the estimator's publish period; a climbing value means it has stopped publishing and pack_soc is frozen rather than current. NaN until it publishes once.",
+                    "{=f32}",
+                    soc_data.map_or(f32::NAN, |soc| soc.last_updated.elapsed().as_millis() as f32)
+                );
             }
 
             #[cfg(defmt_monitor)]
