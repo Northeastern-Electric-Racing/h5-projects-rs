@@ -5,7 +5,6 @@ use crate::efuses::EfuseId::{
     EfusePump2, EfuseRadfan, EfuseShutdown, EfuseSpare,
 };
 use crate::efuses::{EfuseCommand, EfuseControlState};
-use crate::{buttons, shutdown};
 use crate::{buttons, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
