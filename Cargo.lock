@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "adbms-register-macros"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -37,7 +37,7 @@ dependencies = [
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "bitfield-struct",
@@ -84,7 +84,7 @@ name = "atlas"
 version = "0.1.0"
 dependencies = [
  "can-bootloader-config",
- "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2)",
+ "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "cortex-m",
  "cortex-m-rt",
  "crc",
@@ -203,12 +203,14 @@ dependencies = [
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs?branch=can-handler-v2#5b2f5cb04e94e80a3f3eec0e2d3a5cb72d0c72c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
+ "embassy-futures",
  "embassy-stm32",
  "embassy-sync",
+ "embassy-time",
  "embedded-can",
  "heapless",
 ]
@@ -266,7 +268,7 @@ name = "cerberus-3"
 version = "0.1.0"
 dependencies = [
  "boot-control-stm32h563",
- "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=418f3c64f21b7bacde572e7cea7be95dd6e393c7)",
+ "can-handler 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "cangen",
  "cortex-m",
  "cortex-m-rt",
@@ -281,10 +283,12 @@ dependencies = [
  "embassy-time",
  "embedded-can",
  "heapless",
+ "num-traits",
  "panic-probe",
  "rust-mqtt",
  "sht3x-ner",
  "static_cell",
+ "uom",
  "variant_count",
 ]
 
@@ -1183,6 +1187,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -1499,7 +1504,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "sht3x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#418f3c64f21b7bacde572e7cea7be95dd6e393c7"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "defmt 1.2.0",
  "embedded-hal-async",

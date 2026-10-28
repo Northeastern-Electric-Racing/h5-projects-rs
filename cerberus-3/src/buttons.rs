@@ -1,4 +1,4 @@
-use crate::statemachine;
+use crate::{pedals, statemachine};
 use defmt::debug;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
@@ -41,32 +41,28 @@ impl Button {
     }
 }
 
-pub async fn register_press(button: u8) {
+pub fn register_press(button: u8) {
     debug!("Pressed: {}", button);
-    PRESSED.send(Button::from_id(button)).await;
+    debug!("Pressed: {}", button);
+    if PRESSED.try_send(Button::from_id(button)).is_err() {
+        debug!("Button queue full, dropping press {}", button);
+    }
 }
 
 #[embassy_executor::task]
 pub async fn button_task() -> ! {
     loop {
         match PRESSED.receive().await {
-            Button::Escape => {
-                statemachine::set_home_state().await;
-            }
-            Button::Left => {
-                statemachine::decrement_nero_index().await;
-            }
-            Button::Right => {
-                statemachine::increment_nero_index().await;
-            }
-            Button::Enter => {
-                statemachine::select_nero_index().await;
-            }
-            Button::UpRegen => {}
-            Button::DownRegen => {}
-            Button::UpTorque => {}
-            Button::DownTorque => {}
-            Button::ToggleLaunchControl => {}
+            Button::Escape => statemachine::set_home_state().await,
+            Button::Left => statemachine::decrement_nero_index().await,
+            Button::Right => statemachine::increment_nero_index().await,
+            Button::Enter => statemachine::select_nero_index().await,
+
+            Button::UpRegen => pedals::increase_regen_limit(statemachine::get_func_state().await),
+            Button::DownRegen => pedals::decrease_regen_limit(statemachine::get_func_state().await),
+            Button::UpTorque => pedals::increase_torque_limit(),
+            Button::DownTorque => pedals::decrease_torque_limit(),
+            Button::ToggleLaunchControl => pedals::toggle_launch_control(),
             Button::ToggleTractionControl => {}
             Button::Unknown => {}
         }

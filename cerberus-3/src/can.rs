@@ -1,6 +1,7 @@
 //! CAN bring-up for Cerberus.
 
-use crate::{buttons, shutdown};
+use crate::{buttons, rtds, shutdown};
+use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
@@ -10,7 +11,6 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use ner_can::{ExtFilter, NerCan, StdFilter};
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -144,6 +144,7 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
             Some(Msg::ShutdownEfuseState(_)) => {}
             Some(Msg::LvEfuseState(_)) => {}
             Some(Msg::RadfanEfuseState(_)) => {}
+            Some(Msg::FanbattEfuseState(_)) => {}
             Some(Msg::PumponeEfuseState(_)) => {}
             Some(Msg::PumptwoEfuseState(_)) => {}
             Some(Msg::BattboxEfuseState(_)) => {}
@@ -151,9 +152,16 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
             Some(Msg::SpareEfuseState(_)) => {}
 
             Some(Msg::PrechargeStatus(_)) => {}
-            Some(Msg::RtdsCommandMessage(_)) => {}
+            Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
+                Ok(cmd) => {
+                    if rtds::send(cmd).is_err() {
+                        debug!("Failed to forward RTDS CAN command");
+                    }
+                }
+                Err(byte) => debug!("Unknown message {}", byte),
+            },
 
-            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()).await,
+            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
             Some(Msg::ShutdownAsReadByBms(m)) => {
                 shutdown::update_bms_shutdown(m.shutdown_state().into()).await
             }

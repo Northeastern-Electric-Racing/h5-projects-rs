@@ -19,17 +19,19 @@ mod adc;
 mod buttons;
 mod can;
 mod efuses;
+mod pedals;
 mod rtds;
 mod shutdown;
 mod statemachine;
 
 use crate::can::can_inbox_task;
-use crate::shutdown::BmsShutdownState;
 use crate::shutdown::ShutdownInputs;
 use crate::shutdown::report_shutdown_task;
-use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
+use adc::{Adc1Resources, adc1_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
+use pedals::analog::AdcPedalsResources;
+use pedals::pedals_task;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -93,7 +95,7 @@ async fn main(spawner: Spawner) -> ! {
     });
     let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     spawner.spawn(
-        ner_can::can_tx(
+        can_handler::can_tx(
             can_tx_half,
             can::OUTGOING.dyn_receiver(),
             can::OUTGOING.dyn_sender(),
@@ -101,7 +103,7 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn ner_can::can_tx()."),
     );
     spawner.spawn(
-        ner_can::can_rx(can_rx_half, can::INCOMING.dyn_sender())
+        can_handler::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
     // Confirm basic startup to prevent rollback on the next reset.
@@ -133,8 +135,9 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn adc::adc1_task()."),
     );
 
+    // pedals
     spawner.spawn(
-        adc2_task(Adc2Resources {
+        pedals_task(AdcPedalsResources {
             adc: p.ADC2,
             dma: p.GPDMA1_CH4,
             apps1: p.PC2,
@@ -142,7 +145,7 @@ async fn main(spawner: Spawner) -> ! {
             bse1: p.PF13,
             bse2: p.PF14,
         })
-        .expect("Failed to spawn adc2_task()."),
+        .expect("Failed to spawn pedals::pedals_task"),
     );
 
     // eFuses
@@ -174,13 +177,16 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn efuses::efuse_task()."),
     );
 
+    // Statemachine
     spawner.spawn(
         statemachine::statemachine_task()
             .expect("Failed to spawn statemachine::statemachine_task()."),
     );
 
+    // Buttons
     spawner.spawn(buttons::button_task().expect("Failed to spawn buttons::button_task()."));
 
+    // Shutdown monitor
     spawner.spawn(
         report_shutdown_task(ShutdownInputs {
             bms: p.PF6,
@@ -197,18 +203,14 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     // RTDS
-    // shutdown isn't ported so is_shutdown_closed_placeholder just returns false for now
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
-    spawner.spawn(
-        rtds::rtds_task(rtds_pin, || {
-            shutdown::get_shutdown_state() == BmsShutdownState::Closed
-        })
-        .expect("Failed to spawn rtds::rtds_task()."),
-    );
+    spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
     watchdog.unleash();
+
+    let _can_fault = Output::new(p.PG15, Level::High, Speed::Low);
 
     loop {
         debug!("Status: Alive");

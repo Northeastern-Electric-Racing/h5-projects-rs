@@ -677,6 +677,7 @@ pub mod consts {
 }
 
 /// adbms6830b temperature scale (microcelsius resolution).
+#[allow(clippy::disallowed_types)]
 mod microcelcius_unit {
     uom::unit! {
         system: uom::si;
@@ -688,6 +689,7 @@ mod microcelcius_unit {
 pub use microcelcius_unit::microcelcius;
 
 /// adbms2950 temperature scale (millicelsius resolution).
+#[allow(clippy::disallowed_types)]
 mod millicelcius_unit {
     uom::unit! {
         system: uom::si;

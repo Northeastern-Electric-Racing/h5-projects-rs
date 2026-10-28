@@ -6,7 +6,7 @@ use embassy_stm32::can::frame::Frame;
 use embassy_stm32::can::{Can, CanConfigurator, IT0InterruptHandler, IT1InterruptHandler};
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_can::Id;
-use ner_can::{ExtFilter, NerCan, StdFilter};
+use can_handler::{ExtFilter, NerCan, StdFilter};
 
 use crate::commands::*;
 use crate::config::TX_TIMEOUT_MS;
@@ -43,14 +43,14 @@ impl CanHandler<'static> {
             (DATA_ID, StandardFilterSlot::_1, ExtendedFilterSlot::_1),
         ] {
             ner_can = match id {
-                Id::Standard(id) => ner_can.with_standard_filters(&[StdFilter {
+                Id::Standard(_) => ner_can.with_standard_filters(&[StdFilter {
                     slot: standard_slot,
-                    id1: id.as_raw(),
+                    id1: id,
                     id2: None,
                 }]),
-                Id::Extended(id) => ner_can.with_extended_filters(&[ExtFilter {
+                Id::Extended(_) => ner_can.with_extended_filters(&[ExtFilter {
                     slot: extended_slot,
-                    id1: id.as_raw(),
+                    id1: id,
                     id2: None,
                 }]),
             };
