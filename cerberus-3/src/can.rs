@@ -126,7 +126,6 @@ pub async fn can_inbox_task() -> ! {
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
-            // BMS
             Some(Msg::CellTemperatures(m)) => {
                 bms::set_battery_box_temp(Temperature::new::<degree_celsius>(m.avg_val()))
             }
@@ -142,13 +141,11 @@ pub async fn can_inbox_task() -> ! {
             }
             Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
 
-            // Motor controller
             Some(Msg::FrontWheelRpm(_)) => {}
             Some(Msg::TempsFaultCodeStatus(_)) => {}
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
             Some(Msg::CurrentsStatus(_)) => {}
 
-            // Efuses
             Some(Msg::DashboardEfuseState(_)) => {}
             Some(Msg::BrakeEfuseState(_)) => {}
             Some(Msg::ShutdownEfuseState(_)) => {}
@@ -161,7 +158,6 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::McEfuseState(_)) => {}
             Some(Msg::SpareEfuseState(_)) => {}
 
-            // Dash / driver
             Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
                 Ok(cmd) => {
                     if rtds::send(cmd).is_err() {
@@ -170,7 +166,6 @@ pub async fn can_inbox_task() -> ! {
                 }
                 Err(byte) => debug!("Unknown message {}", byte),
             },
-
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
             Some(Msg::LightningPulseMessage(_)) => {}
 
