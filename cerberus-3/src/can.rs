@@ -1,6 +1,6 @@
 //! CAN bring-up for Cerberus.
 
-use crate::{buttons, shutdown};
+use crate::{buttons, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -135,7 +135,7 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::ShutdownEfuseState(_)) => {}
             Some(Msg::LvEfuseState(_)) => {}
             Some(Msg::RadfanEfuseState(_)) => {}
-            Some(Msg::FanbattEfuse(_)) => {}
+            Some(Msg::FanbattEfuseState(_)) => {}
             Some(Msg::PumponeEfuseState(_)) => {}
             Some(Msg::PumptwoEfuseState(_)) => {}
             Some(Msg::BattboxEfuseState(_)) => {}
@@ -143,7 +143,14 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::SpareEfuseState(_)) => {}
 
             Some(Msg::PrechargeStatus(_)) => {}
-            Some(Msg::RtdsCommandMessage(_)) => {}
+            Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
+                Ok(cmd) => {
+                    if rtds::send(cmd).is_err() {
+                        debug!("Failed to forward RTDS CAN command");
+                    }
+                }
+                Err(byte) => debug!("Unknown message {}", byte),
+            },
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
             Some(Msg::ShutdownAsReadByBms(m)) => {
