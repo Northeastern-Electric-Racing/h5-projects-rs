@@ -1,7 +1,7 @@
 //! CAN bring-up for Cerberus.
 
-use crate::bms::{self, PrechargeState};
-use crate::{buttons, shutdown};
+use crate::bms::{PrechargeState, set_precharge_state};
+use crate::{bms, buttons, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::{debug, warn};
@@ -161,11 +161,17 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::McEfuseState(_)) => {}
             Some(Msg::SpareEfuseState(_)) => {}
 
-            Some(Msg::PrechargeStatus(_)) => {}
-            Some(Msg::RtdsCommandMessage(_)) => {}
+            // Dash / driver
+            Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
+                Ok(cmd) => {
+                    if rtds::send(cmd).is_err() {
+                        debug!("Failed to forward RTDS CAN command");
+                    }
+                }
+                Err(byte) => debug!("Unknown message {}", byte),
+            },
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
-            Some(Msg::RtdsCommandMessage(_)) => {}
             Some(Msg::LightningPulseMessage(_)) => {}
 
             Some(_) => debug!("Unknown message"),
