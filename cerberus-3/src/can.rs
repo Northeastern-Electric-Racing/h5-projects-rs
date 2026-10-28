@@ -4,7 +4,7 @@ use crate::bms::{PrechargeState, set_precharge_state};
 use crate::{bms, buttons, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
-use defmt::{debug, warn};
+use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
 use embassy_stm32::can::{
     CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,
@@ -131,7 +131,7 @@ pub async fn can_inbox_task() -> ! {
             }
             Some(Msg::PrechargeStatus(m)) => match PrechargeState::try_from(m.precharge_status()) {
                 Ok(state) => set_precharge_state(state),
-                Err(state) => warn!(
+                Err(state) => debug!(
                     "Received invalid precharge state from CAN message: {}",
                     state
                 ),
@@ -161,7 +161,7 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
                 Ok(cmd) => {
                     if rtds::send(cmd).is_err() {
-                        debug!("Failed to forward RTDS CAN command");
+                        debug!("Failed to forward RTDS CAN command")
                     }
                 }
                 Err(byte) => debug!("Unknown message {}", byte),
