@@ -115,6 +115,8 @@ impl EfuseCommand {
             if COMMAND.try_send(efuse_command).is_err() {
                 debug!("EfuseCommand queue full, dropped.");
             }
+        } else {
+            debug!("Unexpected efuse control state: {}", efuse_control_state);
         }
     }
 
@@ -418,17 +420,15 @@ const EFUSE_PERIOD: Duration = Duration::from_millis(100);
 
 #[embassy_executor::task]
 pub async fn efuse_task(pins: EfusePins) {
-    let mut _efuses: [Efuse; _] = Efuse::init_all(pins);
+    let mut efuses: [Efuse; _] = Efuse::init_all(pins);
 
     loop {
         while let Ok(command) = COMMAND.try_receive() {
-            for efuse in &mut _efuses {
-                if efuse.get_id() == command.get_id() {
-                    efuse.update_control_state(command.efuse_control_state);
-                }
+            if let Some(efuse) = efuses.get_mut(command.get_id() as usize) {
+                efuse.update_control_state(command.efuse_control_state);
             }
         }
-        for efuse in &mut _efuses {
+        for efuse in &mut efuses {
             match efuse.get_control_state() {
                 EfuseControlState::EfuseOff => efuse.disable(),
                 EfuseControlState::EfuseOn => efuse.enable(),
@@ -488,7 +488,7 @@ pub async fn efuse_task(pins: EfusePins) {
         let adc = adc::data().await;
 
         // send out CAN message for each EFUSE
-        for efuse in &_efuses {
+        for efuse in &efuses {
             can::OUTGOING.send(efuse.to_frame(&adc)).await;
         }
 

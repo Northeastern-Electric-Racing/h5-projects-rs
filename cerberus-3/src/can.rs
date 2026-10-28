@@ -1,10 +1,7 @@
 //! CAN bring-up for Cerberus.
 
-use crate::efuses::EfuseId::{
-    EfuseBattbox, EfuseBrake, EfuseDashboard, EfuseFanbatt, EfuseLV, EfuseMC, EfusePump1,
-    EfusePump2, EfuseRadfan, EfuseShutdown, EfuseSpare,
-};
 use crate::efuses::EfuseCommand;
+use crate::efuses::EfuseId::*;
 use crate::{buttons, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
