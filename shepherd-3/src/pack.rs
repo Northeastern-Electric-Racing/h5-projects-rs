@@ -74,20 +74,14 @@ pub mod analyzer {
 
     #[derive(Copy, Clone)]
     pub struct ThermState {
-        last_temp: Temperature,
+        last_temp: Option<Temperature>,
         valid: bool,
-        initialized: bool,
         fault_count: u8,
     }
 
     impl ThermState {
         fn new() -> Self {
-            Self {
-                last_temp: Temperature::new::<degree_celsius>(0.0),
-                valid: false,
-                initialized: false,
-                fault_count: 0,
-            }
+            Self { last_temp: None, valid: false, fault_count: 0 }
         }
 
         fn record_fault(&mut self) {
@@ -304,10 +298,9 @@ pub mod analyzer {
                     let in_range = temp >= MIN_TEMP && temp <= MAX_CELL_TEMP;
                     let therm = &mut self.sanitized_therms[chip][cell];
 
-                    let sample_valid = if !therm.initialized && therm.fault_count < THERM_FAULT_COUNT_THRESHOLD {
+                    let sample_valid = if therm.last_temp.is_none() && therm.fault_count < THERM_FAULT_COUNT_THRESHOLD {
                         if in_range {
-                            therm.last_temp = temp;
-                            therm.initialized = true;
+                            therm.last_temp = Some(temp);
                             therm.valid = true;
                             therm.fault_count = 0;
                             true
@@ -322,13 +315,21 @@ pub mod analyzer {
                         therm.record_fault();
                         false
                     } else {
-                        let delta = temp.get::<degree_celsius>() - therm.last_temp.get::<degree_celsius>();
-                        if delta > TEMP_MAX_DELTA_C || delta < -TEMP_MAX_DELTA_C {
-                            // Sudden jump from the last trusted value
-                            therm.record_fault();
-                            false
+                        if let Some(last_temp) = therm.last_temp {
+                            let delta = temp.get::<degree_celsius>() - last_temp.get::<degree_celsius>();
+                            if delta > TEMP_MAX_DELTA_C || delta < -TEMP_MAX_DELTA_C {
+                                // Sudden jump from the last trusted value
+                                therm.record_fault();
+                                false
+                            } else {
+                                therm.last_temp = Some(temp);
+                                therm.fault_count = 0;
+                                true
+                            }
                         } else {
-                            therm.last_temp = temp;
+                            // No previous temperature exists; initialize it.
+                            therm.last_temp = Some(temp);
+                            therm.valid = true;
                             therm.fault_count = 0;
                             true
                         }
