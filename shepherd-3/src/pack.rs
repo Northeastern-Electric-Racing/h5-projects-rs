@@ -195,7 +195,7 @@ pub mod analyzer {
         /// Voltage of pack
         pub pack_voltage: Voltage,
 
-        /// Per-thermistor trust state for the sanitizer.
+        /// Per-cell trust state for the sanitizer.
         pub sanitized_therms: IndexByChip<IndexByCell<ThermState>>,
     }
     impl Analyzer {
