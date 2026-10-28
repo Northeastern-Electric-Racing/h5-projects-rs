@@ -1,9 +1,13 @@
 //! CAN bring-up for Cerberus.
 
+use crate::efuses::EfuseId::{
+    EfuseBattbox, EfuseBrake, EfuseDashboard, EfuseFanbatt, EfuseLV, EfuseMC, EfusePump1,
+    EfusePump2, EfuseRadfan, EfuseShutdown, EfuseSpare,
+};
+use crate::efuses::{EfuseCommand, EfuseControlState};
 use crate::{buttons, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
-use cangen::Msg::BrakeEfuse;
 use defmt::debug;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
 use embassy_stm32::can::{
@@ -12,8 +16,6 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use crate::efuses::{EfuseCommand, EfuseControlState};
-use crate::efuses::EfuseId::{EfuseBattbox, EfuseBrake, EfuseDashboard, EfuseFanbatt, EfuseLV, EfuseMC, EfusePump1, EfusePump2, EfuseRadfan, EfuseShutdown, EfuseSpare};
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -133,17 +135,19 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
             Some(Msg::CurrentsStatus(_)) => {}
 
-            Some(Msg::DashboardEfuseState(m)) => {EfuseCommand::add_command(EfuseDashboard, m.state())}
-            Some(Msg::BrakeEfuseState(m)) => {EfuseCommand::add_command(EfuseBrake, m.state())}
-            Some(Msg::ShutdownEfuseState(m)) => {EfuseCommand::add_command(EfuseShutdown, m.state())}
-            Some(Msg::LvEfuseState(m)) => {EfuseCommand::add_command(EfuseLV, m.state())}
-            Some(Msg::RadfanEfuseState(m)) => {EfuseCommand::add_command(EfuseRadfan, m.state())}
-            Some(Msg::FanbattEfuseState(m)) => {EfuseCommand::add_command(EfuseFanbatt, m.state())}
-            Some(Msg::PumponeEfuseState(m)) => {EfuseCommand::add_command(EfusePump1, m.state())}
-            Some(Msg::PumptwoEfuseState(m)) => {EfuseCommand::add_command(EfusePump2, m.state())}
-            Some(Msg::BattboxEfuseState(m)) => {EfuseCommand::add_command(EfuseBattbox, m.state())}
-            Some(Msg::McEfuseState(m)) => {EfuseCommand::add_command(EfuseMC, m.state())}
-            Some(Msg::SpareEfuseState(m)) => {EfuseCommand::add_command(EfuseSpare, m.state())}
+            Some(Msg::DashboardEfuseState(m)) => {
+                EfuseCommand::add_command(EfuseDashboard, m.state())
+            }
+            Some(Msg::BrakeEfuseState(m)) => EfuseCommand::add_command(EfuseBrake, m.state()),
+            Some(Msg::ShutdownEfuseState(m)) => EfuseCommand::add_command(EfuseShutdown, m.state()),
+            Some(Msg::LvEfuseState(m)) => EfuseCommand::add_command(EfuseLV, m.state()),
+            Some(Msg::RadfanEfuseState(m)) => EfuseCommand::add_command(EfuseRadfan, m.state()),
+            Some(Msg::FanbattEfuseState(m)) => EfuseCommand::add_command(EfuseFanbatt, m.state()),
+            Some(Msg::PumponeEfuseState(m)) => EfuseCommand::add_command(EfusePump1, m.state()),
+            Some(Msg::PumptwoEfuseState(m)) => EfuseCommand::add_command(EfusePump2, m.state()),
+            Some(Msg::BattboxEfuseState(m)) => EfuseCommand::add_command(EfuseBattbox, m.state()),
+            Some(Msg::McEfuseState(m)) => EfuseCommand::add_command(EfuseMC, m.state()),
+            Some(Msg::SpareEfuseState(m)) => EfuseCommand::add_command(EfuseSpare, m.state()),
 
             Some(Msg::PrechargeStatus(_)) => {}
             Some(Msg::RtdsCommandMessage(_)) => {}

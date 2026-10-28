@@ -9,15 +9,14 @@ use defmt::debug;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
-use embassy_sync::channel::Channel;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use uom::si::ratio::percent;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
 use crate::can;
-use crate::efuses::EfuseControlState::{EfuseAuto, EfuseOff, EfuseOn};
 
 const V_REF: f32 = 3.3;
 const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
@@ -28,7 +27,7 @@ const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
 pub enum EfuseControlState {
     EfuseOn = 0,   // Hard set on
     EfuseAuto = 1, // Hard set off
-    EfuseOff = 2, // Turns on and off under a specific predicate condition
+    EfuseOff = 2,  // Turns on and off under a specific predicate condition
 }
 
 impl TryFrom<u8> for EfuseControlState {
@@ -109,11 +108,18 @@ pub struct EfuseCommand {
 impl EfuseCommand {
     pub fn add_command(efuse_id: EfuseId, efuse_control_state: u8) {
         if let Ok(efuse_control_state) = EfuseControlState::try_from(efuse_control_state) {
-            let efuse_command = EfuseCommand {efuse_id, efuse_control_state};
+            let efuse_command = EfuseCommand {
+                efuse_id,
+                efuse_control_state,
+            };
             if COMMAND.try_send(efuse_command).is_err() {
                 debug!("EfuseCommand queue full, dropped.");
             }
         }
+    }
+
+    pub fn get_id(&self) -> EfuseId {
+        self.efuse_id
     }
 }
 
@@ -415,6 +421,13 @@ pub async fn efuse_task(pins: EfusePins) {
     let mut _efuses: [Efuse; _] = Efuse::init_all(pins);
 
     loop {
+        while let Ok(command) = COMMAND.try_receive() {
+            for efuse in &mut _efuses {
+                if efuse.get_id() == command.get_id() {
+                    efuse.update_control_state(command.efuse_control_state);
+                }
+            }
+        }
         for efuse in &mut _efuses {
             match efuse.get_control_state() {
                 EfuseControlState::EfuseOff => efuse.disable(),
