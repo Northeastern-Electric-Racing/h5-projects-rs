@@ -2,7 +2,8 @@
 pub mod analog_sensor;
 pub mod bind_interrupts;
 pub mod can;
-pub mod hdc2021;
+// pub mod hdc2021;
+pub mod imu;
 pub mod load_cell;
 pub mod magnetometer;
 pub mod multiplexor_handler;
@@ -11,4 +12,3 @@ pub mod steering_angle;
 pub mod strain_guage;
 pub mod thermocouple;
 pub mod wheel_speed;
-// pub mod imu;

@@ -8,7 +8,6 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 
-// TODO: needed again when the magnetometer / IMU are re-enabled.
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{self, Spi};
 // use embassy_stm32::i2c::{self, I2c};
@@ -17,12 +16,13 @@ use embassy_time::Delay;
 use embassy_time::Timer;
 use embedded_hal_bus::spi::ExclusiveDevice;
 
-// use embedded_hal_bus::spi::ExclusiveDevice;
 use msb_fw_2::bind_interrupts::Irqs;
 use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
-use msb_fw_2::{load_cell, magnetometer, shock_pot, steering_angle, strain_guage, thermocouple}; //,hdc2021,magnetometer, , imu}; 
+use msb_fw_2::{
+    imu, load_cell, magnetometer, shock_pot, steering_angle, strain_guage, thermocouple,
+}; //,hdc2021,magnetometer, , imu}; 
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -100,29 +100,28 @@ async fn main(spawner: Spawner) -> ! {
         u19_d4: p.PF12,
     };
 
-    spawner.spawn(
-        multiplexor_handler::mux_scan_task(mux_resources)
-            .expect("Failed to spawn multiplexor_handler::mux_scan_task()."),
-    );
-    spawner
-        .spawn(shock_pot::shock_pot_task().expect("Failed to spawn shock_pot::shock_pot_task()."));
-    spawner.spawn(
-        steering_angle::steering_angle_task()
-            .expect("Failed to spawn steering_angle::steering_angle_task()."),
-    );
-    spawner.spawn(
-        strain_guage::strain_gauge_task()
-            .expect("Failed to spawn strain_guage::strain_gauge_task()."),
-    );
-    spawner
-        .spawn(load_cell::load_cell_task().expect("Failed to spawn load_cell::load_cell_task()."));
-    spawner.spawn(
-        thermocouple::thermocouple_task()
-            .expect("Failed to spawn thermocouple::thermocouple_task()."),
-    );
+    // spawner.spawn(
+    //     multiplexor_handler::mux_scan_task(mux_resources)
+    //         .expect("Failed to spawn multiplexor_handler::mux_scan_task()."),
+    // );
+    // spawner
+    //     .spawn(shock_pot::shock_pot_task().expect("Failed to spawn shock_pot::shock_pot_task()."));
+    // spawner.spawn(
+    //     steering_angle::steering_angle_task()
+    //         .expect("Failed to spawn steering_angle::steering_angle_task()."),
+    // );
+    // spawner.spawn(
+    //     strain_guage::strain_gauge_task()
+    //         .expect("Failed to spawn strain_guage::strain_gauge_task()."),
+    // );
+    // spawner
+    //     .spawn(load_cell::load_cell_task().expect("Failed to spawn load_cell::load_cell_task()."));
+    // spawner.spawn(
+    //     thermocouple::thermocouple_task()
+    //         .expect("Failed to spawn thermocouple::thermocouple_task()."),
+    // );
 
     // magnetometer on SPI2
-
     let mut spi2_config = spi::Config::default();
     spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
     spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
@@ -140,22 +139,31 @@ async fn main(spawner: Spawner) -> ! {
     let mag_cs = Output::new(p.PA11, Level::High, Speed::VeryHigh);
     let mag_spi = ExclusiveDevice::new(spi2, mag_cs, Delay)
         .expect("Failed to create SPI device for magnetometer");
-    spawner.spawn(
-        magnetometer::magnetometer_task(mag_spi)
-            .expect("Failed to spawn magnetometer::magnetometer_task()."),
+    // spawner.spawn(
+    //     magnetometer::magnetometer_task(mag_spi)
+    //         .expect("Failed to spawn magnetometer::magnetometer_task()."),
+    // );
+
+    // imu on SPI1
+    let mut spi1_config = spi::Config::default();
+    spi1_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
+    spi1_config.frequency = Hertz(1_000_000); // 1 MHz,
+    let spi1 = Spi::new(
+        p.SPI1,
+        p.PG11,
+        p.PD7,
+        p.PA6,
+        p.GPDMA1_CH4,
+        p.GPDMA1_CH5,
+        Irqs,
+        spi1_config,
     );
+    let imu_cs = Output::new(p.PA4, Level::High, Speed::VeryHigh);
+    let imu_spi =
+        ExclusiveDevice::new(spi1, imu_cs, Delay).expect("Failed to create SPI device for IMU");
+    spawner.spawn(imu::imu_task(imu_spi).expect("Failed to spawn imu::imu_task()."));
 
-    // its driver is still WIP
-    // // imu on SPI1
-    // let mut spi1_config = spi::Config::default();
-    // spi1_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
-    // spi1_config.frequency = Hertz(1_000_000); // 1 MHz,
-    // let spi1 = Spi::new(p.SPI1, p.PG11, p.PD7, p.PA6, p.GPDMA1_CH4, p.GPDMA1_CH5, spi1_config);
-    // let imu_cs = Output::new(p.PA4, Level::High, Speed::VeryHigh);
-    // let imu_spi = ExclusiveDevice::new(spi1, imu_cs, Delay).expect("Failed to create SPI device for IMU");
-    // spawner.spawn(imu::imu_task(imu_spi).expect("Failed to spawn imu::imu_task()."));
-
-    // // HDC2021 on I2C1 -> hardware issues, low resistance b/w two pull up resistors
+    // // HDC2021 on I2C1 -> hardware issues, shorted
     // let mut i2c1_config = i2c::Config::default();
     // i2c1_config.frequency = Hertz::khz(100); // standard mode
     // let i2c1 = I2c::new(
@@ -176,10 +184,10 @@ async fn main(spawner: Spawner) -> ! {
         right_timer: p.TIM15,
         right_pin: p.PC12,
     };
-    spawner.spawn(
-        wheel_speed::wheel_speed_task(wheel_speed_resources)
-            .expect("Failed to spawn wheel_speed::wheel_speed_task()."),
-    );
+    // spawner.spawn(
+    //     wheel_speed::wheel_speed_task(wheel_speed_resources)
+    //         .expect("Failed to spawn wheel_speed::wheel_speed_task()."),
+    // );
 
     let can_resources = CanResources {
         can: p.FDCAN2,
