@@ -17,6 +17,7 @@ use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
 use crate::can;
+use crate::efuses::EfuseControlState::{EfuseAuto, EfuseOff, EfuseOn};
 
 const V_REF: f32 = 3.3;
 const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
@@ -27,7 +28,21 @@ const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
 pub enum EfuseControlState {
     EfuseOn = 0,   // Hard set on
     EfuseAuto = 1, // Hard set off
-    EfuseOff = 2,  // Turns on and off under a specific predicate condition
+    EfuseOff = 2, // Turns on and off under a specific predicate condition
+}
+
+impl TryFrom<u8> for EfuseControlState {
+    type Error = u8; // an unrecognized state number (not 0, 1, or 2)
+
+    /// method for converting from u8 -> EfuseControlState enum
+    fn try_from(control_state: u8) -> Result<EfuseControlState, Self::Error> {
+        match control_state {
+            0 => Ok(EfuseControlState::EfuseOn),
+            1 => Ok(EfuseControlState::EfuseAuto),
+            2 => Ok(EfuseControlState::EfuseOff),
+            other => Err(other),
+        }
+    }
 }
 
 /// ENUM for all Efuses on the car
@@ -92,10 +107,12 @@ pub struct EfuseCommand {
 }
 
 impl EfuseCommand {
-    pub fn add_command(efuse_id: EfuseId, efuse_control_state: EfuseControlState) {
-        let efuse_command = EfuseCommand {efuse_id, efuse_control_state};
-        if COMMAND.try_send(efuse_command).is_err() {
-            debug!("EfuseCommand queue full, dropped.");
+    pub fn add_command(efuse_id: EfuseId, efuse_control_state: u8) {
+        if let Ok(efuse_control_state) = EfuseControlState::try_from(efuse_control_state) {
+            let efuse_command = EfuseCommand {efuse_id, efuse_control_state};
+            if COMMAND.try_send(efuse_command).is_err() {
+                debug!("EfuseCommand queue full, dropped.");
+            }
         }
     }
 }
