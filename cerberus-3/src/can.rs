@@ -1,4 +1,7 @@
-//! CAN bring-up for Cerberus.
+//! Handles the CAN bus, including initialization and
+//! parsing of incoming messages. The CAN bus is
+//! used to communicate with the BMS, Lightning, and
+//! other devices on the vehicle.
 
 use crate::bms::{PrechargeState, set_precharge_state};
 use crate::{bms, buttons, efuses, lightning, rtds, shutdown};

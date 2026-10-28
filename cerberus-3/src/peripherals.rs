@@ -1,4 +1,5 @@
 //! Contains temperature sensor and imu
+//! and sends their data to the CAN bus.
 
 use cangen::ToCanFrame;
 use defmt::{debug, warn};

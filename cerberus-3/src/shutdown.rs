@@ -1,3 +1,6 @@
+//! This module handles the shutdown pins and reports their state over CAN.
+//! Additionally, it tracks the shutdown state as reported by the BMS and provides a function to query it.
+
 use cangen::ToCanFrame;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_stm32::gpio::{Input, Pull};

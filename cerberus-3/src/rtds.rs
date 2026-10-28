@@ -1,7 +1,7 @@
-//! RTDS (ready to drive sound)
+//! RTDS (ready to drive sound) <br>
 //!
-//! rtds_task owns the pin. Everything else just calls `sound_rtds` / `cancel_rtds` which
-//! throw a command on the queue. The task just sleeps until a new command or the deadline is reached.
+//! Use `rtds::send(RtdsCommand)` to send commands to the RTDS task,
+//! either creating a 1.5 second sound or a continuous beep.
 
 use core::sync::atomic::{AtomicBool, Ordering};
 

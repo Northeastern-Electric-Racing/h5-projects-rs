@@ -1,6 +1,7 @@
-//! pedals
-//! handles all pedals related functions <br>
-//! ie, drive locks, torque and regen calls
+//! Handles the pedal sensors and drive locks.
+//! Also contains the drive mode dispatcher that
+//! determines how to handle the torque and regen
+//! values based on the current drive mode.
 
 use crate::pedals::constants::{
     MAX_REGEN, PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH, REGEN_STEP_SIZE,

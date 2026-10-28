@@ -1,3 +1,6 @@
+//! This module handles the button presses and calls the appropriate
+//! functions in the pedals and statemachine modules.
+
 use crate::{pedals, statemachine};
 use defmt::debug;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
