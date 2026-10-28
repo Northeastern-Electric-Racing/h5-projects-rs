@@ -64,6 +64,40 @@ pub mod analyzer {
         ANALYZER.set(AnalyzerHolder { data: analyzer, last_updated: Instant::now() })
     }
 
+    /// Number of consecutive invalid samples before a thermistor is marked invalid.
+    const THERM_FAULT_COUNT_THRESHOLD: u8 = 2;
+    /// Max allowed change from the last trusted sample in degrees C.
+    const TEMP_MAX_DELTA_C: f32 = 5.0;
+    // from bms_config.h in the C code
+    const MIN_TEMP: Temperature = Temperature::from_celsius(-40.0);
+    const MAX_CELL_TEMP: Temperature = Temperature::from_celsius(60.0);
+
+    #[derive(Copy, Clone)]
+    pub struct ThermState {
+        last_temp: Temperature,
+        pub valid: bool,
+        initialized: bool,
+        fault_count: u8,
+    }
+
+    impl ThermState {
+        fn new() -> Self {
+            Self {
+                last_temp: Temperature::new::<degree_celsius>(0.0),
+                valid: false,
+                initialized: false,
+                fault_count: 0,
+            }
+        }
+
+        fn record_fault(&mut self) {
+            self.fault_count = self.fault_count.saturating_add(1);
+            if self.fault_count >= THERM_FAULT_COUNT_THRESHOLD {
+                self.valid = false;
+            }
+        }
+    }
+
     #[derive(Copy, Clone)]
     pub struct CriticalCellValue<T> {
         /// The critical value being stored here.
@@ -166,6 +200,12 @@ pub mod analyzer {
 
         /// Voltage of pack
         pub pack_voltage: Voltage,
+
+        /// Per-thermistor trust state for the sanitizer.
+        pub sanitized_therms: IndexByChip<IndexByCell<ThermState>>,
+        /// Max/min cell temps considering only trusted thermistors.
+        pub max_sanitized_temp: CriticalCellValue<Temperature>,
+        pub min_sanitized_temp: CriticalCellValue<Temperature>,
     }
     impl Analyzer {
         pub fn new() -> Self {
@@ -234,6 +274,77 @@ pub mod analyzer {
                 ts_voltage: None,
                 soc: None,
                 last_settled_at: None,
+
+                sanitized_therms: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| ThermState::new())),
+
+                max_sanitized_temp: CriticalCellValue {
+                    value: Temperature::new::<degree_celsius>(f32::MIN), 
+                    chip: ChipId::Chip0, cell: CellId::Cell1,
+                },
+                min_sanitized_temp: CriticalCellValue {
+                    value: Temperature::new::<degree_celsius>(f32::MAX), 
+                    chip: ChipId::Chip0, cell: CellId::Cell1,
+                },
+            }
+        }
+
+        /// Rejects thermistor samples that are out of range or jump too far, and tracks min/max over only the trusted ones.
+        fn sanitize_temps(&mut self, cell_temps: &IndexByChip<IndexByCell<Temperature>>) {
+            self.max_sanitized_temp = CriticalCellValue {
+                value: Temperature::new::<degree_celsius>(f32::MIN), chip: ChipId::Chip0, 
+                cell: CellId::Cell1,
+            };
+            self.min_sanitized_temp = CriticalCellValue {
+                value: Temperature::new::<degree_celsius>(f32::MAX), chip: ChipId::Chip0, 
+                cell: CellId::Cell1,
+            };
+
+            for chip in ChipId::iter() {
+                for cell in CellId::iter() {
+                    let temp = cell_temps[chip][cell];
+                    let in_range = temp >= MIN_TEMP && temp <= MAX_CELL_TEMP;
+                    let therm = &mut self.sanitized_therms[chip][cell];
+
+                    let sample_valid = if !therm.initialized && therm.fault_count < THERM_FAULT_COUNT_THRESHOLD {
+                        // Only initialize thermistors that haven't faulted out during startup.
+                        if in_range {
+                            therm.last_temp = temp;
+                            therm.initialized = true;
+                            therm.valid = true;
+                            therm.fault_count = 0;
+                            true
+                        } else {
+                            therm.record_fault();
+                            false
+                        }
+                    } else if !therm.valid {
+                        // Invalid thermistors do not recover automatically.
+                        false
+                    } else if !in_range {
+                        therm.record_fault();
+                        false
+                    } else {
+                        let delta = temp.get::<degree_celsius>() - therm.last_temp.get::<degree_celsius>();
+                        if delta > TEMP_MAX_DELTA_C || delta < -TEMP_MAX_DELTA_C {
+                            // Sudden jump from the last trusted value.
+                            therm.record_fault();
+                            false
+                        } else {
+                            therm.last_temp = temp;
+                            therm.fault_count = 0;
+                            true
+                        }
+                    };
+
+                    if sample_valid {
+                        if temp > self.max_sanitized_temp.value() {
+                            self.max_sanitized_temp = CriticalCellValue { value: temp, chip, cell };
+                        }
+                        if temp < self.min_sanitized_temp.value() {
+                            self.min_sanitized_temp = CriticalCellValue { value: temp, chip, cell };
+                        }
+                    }
+                }
             }
         }
     }
@@ -612,6 +723,7 @@ pub mod analyzer {
             analyzer.calc_cell_voltages(&cell_voltages);
             analyzer.calc_open_cell_voltage();
             analyzer.calc_pack_voltage_stats().await;
+            analyzer.sanitize_temps(&cell_temps);
 
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
@@ -622,8 +734,6 @@ pub mod analyzer {
             }
 
             update(*analyzer);
-
-            // u_TODO - i'm pretty sure we can just move the stuff in `cell_temp_sanitizer.c` directly into the analyzer task. there doesn't seem to be a reason to have it in its own task like the C code. so we should add that here (after the analyzer is done)
 
             can::send(
                 CellVoltage {
