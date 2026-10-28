@@ -6,6 +6,7 @@ use crate::efuses::EfuseId::{
 };
 use crate::efuses::{EfuseCommand, EfuseControlState};
 use crate::{buttons, shutdown};
+use crate::{buttons, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -150,7 +151,14 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::SpareEfuseState(m)) => EfuseCommand::add_command(EfuseSpare, m.state()),
 
             Some(Msg::PrechargeStatus(_)) => {}
-            Some(Msg::RtdsCommandMessage(_)) => {}
+            Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
+                Ok(cmd) => {
+                    if rtds::send(cmd).is_err() {
+                        debug!("Failed to forward RTDS CAN command");
+                    }
+                }
+                Err(byte) => debug!("Unknown message {}", byte),
+            },
 
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
             Some(Msg::ShutdownAsReadByBms(m)) => {
