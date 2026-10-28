@@ -299,6 +299,7 @@ pub mod analyzer {
                     let temp = cell_temps[chip][cell];
                     let in_range = temp >= MIN_TEMP && temp <= MAX_CELL_TEMP;
                     let therm = &mut self.sanitized_therms[chip][cell];
+                    let segment_average_temp_sofar = total_seg_temp/valid_seg_temp_count as f32;
 
                     let sample_valid = if therm.last_temp.is_none() && therm.fault_count < THERM_FAULT_COUNT_THRESHOLD {
                         if in_range {
@@ -354,11 +355,12 @@ pub mod analyzer {
                 }
 
                 if chip.is_beta() {
+
                     // loop through a second time to check for outliers
                     for cell in CellId::iter() {
                         let temp = cell_temps[chip][cell];
                         let therm = &mut self.sanitized_therms[chip][cell];
-
+                        
                         // Skip thermistors that aren't currently trusted.
                         if !therm.valid {
                             continue;
