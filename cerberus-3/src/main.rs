@@ -209,6 +209,8 @@ async fn main(spawner: Spawner) -> ! {
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
     watchdog.unleash();
 
+    let _can_fault = Output::new(p.PG15, Level::High, Speed::Low);
+
     loop {
         debug!("Status: Alive");
         watchdog.pet();

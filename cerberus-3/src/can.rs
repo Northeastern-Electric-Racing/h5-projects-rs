@@ -1,7 +1,7 @@
 //! CAN bring-up for Cerberus.
 
-use crate::bms::{PrechargeState, set_precharge_state};
-use crate::{bms, buttons, shutdown};
+use crate::bms::{self, PrechargeState};
+use crate::{buttons, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::{debug, warn};
@@ -154,14 +154,16 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::ShutdownEfuseState(_)) => {}
             Some(Msg::LvEfuseState(_)) => {}
             Some(Msg::RadfanEfuseState(_)) => {}
-            Some(Msg::FanbattEfuse(_)) => {}
+            Some(Msg::FanbattEfuseState(_)) => {}
             Some(Msg::PumponeEfuseState(_)) => {}
             Some(Msg::PumptwoEfuseState(_)) => {}
             Some(Msg::BattboxEfuseState(_)) => {}
             Some(Msg::McEfuseState(_)) => {}
             Some(Msg::SpareEfuseState(_)) => {}
 
-            // Dash / driver
+            Some(Msg::PrechargeStatus(_)) => {}
+            Some(Msg::RtdsCommandMessage(_)) => {}
+
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
             Some(Msg::RtdsCommandMessage(_)) => {}
             Some(Msg::LightningPulseMessage(_)) => {}
