@@ -20,6 +20,7 @@ use embassy_time::{Duration, Instant};
 use crate::units::{Voltage, Current};
 use crate::helpers::deadline::Deadline;
 use crate::pack::analyzer;
+use crate::helpers::snapshot_cell::{SnapshotCell, LazySnapshotCell};
 
 // How long a `LongChargeUp` session should last before expiring.
 const LONG_CHARGE_DURATION: Duration = Duration::from_secs(15 * 60);
@@ -334,7 +335,7 @@ impl ChargeStage {
 } 
 
 /// The charge machine's state.
-#[derive(Default)]
+#[derive(Copy, Clone)]
 pub struct Charger {
     stage: ChargeStage,
     cache: ChargeRestoreCache,
@@ -342,15 +343,23 @@ pub struct Charger {
     /// Current that we should be requesting from the charger right now. If this is `None`, we shouldn't be requesting any current from the charger.
     current: Option<Current>,
 }
+impl Default for Charger {
+    fn default() -> Self {
+        Self {
+            stage: ChargeStage::LongChargeUp(LongChargeUp::new()),
+            cache: ChargeRestoreCache::LongChargeUp,
+            current: None,
+        }
+    }
+}
 
 impl Charger {
     pub const fn stage(&self) -> ChargeStage {
         self.stage
     }
 
-    /// Starts the algorithm over. Called from `init_charging`, so re-entering `Charging`
-    /// always begins a fresh bulk phase rather than resuming a stale one.
-    pub fn restart(&mut self) {
+    /// Resets charging to the first charge stage.
+    pub fn reset(&mut self) {
         *self = Charger::default()
     }
 
@@ -368,5 +377,66 @@ impl Charger {
 
         self.cache.update_from_chargestage(self.stage);
         self.current = self.stage.current_we_should_request();
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum ChargerConnected {
+    /// We have not received a ping from the charger in a bit, so we consider it disconnected.
+    Disconnected,
+    /// We have received a ping from the charger somewhat recently, so we consider it
+    /// connected. The inner `Instant` indicates the time at which that ping was received.
+    Connected(Instant),
+}
+impl ChargerConnected {
+    /// Check if charger connected heartbeat has expired.
+    fn tick(self) -> Self {
+        /// If we don't recieve the charger message within this timeout we assume it is disconnected.
+        const CHARGER_SILENCE_TIMEOUT: Duration = Duration::from_secs(5);
+
+        match self {
+            ChargerConnected::Disconnected => { self },
+            ChargerConnected::Connected(last_ping) => {
+                if Instant::now().saturating_duration_since(last_ping) >= CHARGER_SILENCE_TIMEOUT { ChargerConnected::Disconnected }
+                else { self }
+            },
+        }
+    }
+
+    /// To be called when a charger message comes in.
+    fn alert_ping() -> Self { ChargerConnected::Connected(Instant::now()) }
+
+    const fn is_connected(&self) -> bool { matches!(*self, ChargerConnected::Connected(..)) }
+}
+
+static CHARGER_CONNECTED: SnapshotCell<ChargerConnected> = SnapshotCell::new(ChargerConnected::Disconnected);
+static CHARGE_STATE: LazySnapshotCell<Charger> = LazySnapshotCell::new(Charger::default);
+
+/// Indicates if the charger is connected or not.
+pub fn is_charger_connected() -> bool { CHARGER_CONNECTED.read().is_connected() }
+/// To be called when a charger message comes in.
+pub fn alert_charger_received() { CHARGER_CONNECTED.set(ChargerConnected::alert_ping()); }
+/// Resets the charge state. To be called by the state machine when charging is entered.
+pub fn reset_charge_state() { CHARGE_STATE.partial_set(|h| h.reset() );}
+
+/// Charger task.
+#[embassy_executor::task]
+pub async fn charger_task() -> ! {
+    use embassy_time::Ticker;
+    use crate::state_machine;
+
+    const TICK_PERIOD_MS: u64 = 20;
+
+    let mut ticker = Ticker::every(Duration::from_millis(TICK_PERIOD_MS));
+
+    loop {
+        CHARGER_CONNECTED.partial_set(|h| *h = h.tick() );
+
+        // Only advance the charging stage statemachine if the overall BMS state is `Charging`.
+        if state_machine::state().is_charging() {
+            CHARGE_STATE.partial_set(|h| h.tick() );
+        }
+
+        ticker.next().await;
     }
 }

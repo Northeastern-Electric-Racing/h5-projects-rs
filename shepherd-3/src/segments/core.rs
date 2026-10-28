@@ -494,13 +494,13 @@ pub mod jobs {
             // even though these are S voltages we don't need to use SNAP since we are manually polling here
 
             self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOnOddOff, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
-            cache::CACHE.update__s_voltages_ow_even_on(self.service.api()).await?;
+            cache::CACHE.update_s_voltages_ow_even_on(self.service.api()).await?;
             self.service.api().adsv_autoconvert(AutoAcquisition::SingleShot, OpenWire::EvenOffOddOn, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
-            cache::CACHE.update__s_voltages_ow_odd_on(self.service.api()).await?;
+            cache::CACHE.update_s_voltages_ow_odd_on(self.service.api()).await?;
 
             // Unless we are not charging, restart continuous redundant conversions (since that is what we
             // normally use outside of this function when we aren't charging).
-            if !crate::state_machine::bms_state().is_charging() {
+            if !crate::state_machine_old::bms_state().is_charging() {
                 self.service.api().command(commands::adc::adsv(Acquisition::Continuous, OpenWire::OffForAll)).await.map_err(UpdateError::PollError)?;
             }
 

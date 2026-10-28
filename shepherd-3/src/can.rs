@@ -446,7 +446,7 @@ mod handler {
     #[embassy_executor::task]
     pub async fn can_rx_processer() -> ! {
         use super::rx_ids::*;
-        use crate::{pack, state_machine};
+        use crate::{pack, state_machine_old, charging};
         use embedded_can::Id;
 
         loop {
@@ -454,7 +454,7 @@ mod handler {
 
             match frame.id() {
                 Id::Extended(id) if id.as_raw() == CHARGER_BOX => {
-                    state_machine::charger_frame_received();
+                    charging::alert_charger_received();
                     if let Some(current) = decode_current(frame.data()) {
                         pack::analyzer::store_can_pack_current(current);
                     }
@@ -462,12 +462,12 @@ mod handler {
                         pack::analyzer::store_can_ts_voltage(voltage);
                     }
                 },
-                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !state_machine::charger_connected() => {
+                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !state_machine_old::charger_connected() => {
                     if let Some(current) = decode_current(frame.data()) {
                         pack::analyzer::store_can_pack_current(current);
                     }
                 },
-                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !state_machine::charger_connected() => {
+                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !state_machine_old::charger_connected() => {
                     if let Some(voltage) = decode_dti_voltage(frame.data()) {
                         pack::analyzer::store_can_ts_voltage(voltage);
                     }
