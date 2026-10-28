@@ -1,6 +1,7 @@
 //! CAN bring-up for Cerberus.
 
-use crate::{buttons, rtds, shutdown};
+use crate::bms::{PrechargeState, set_precharge_state};
+use crate::{bms, buttons, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -11,6 +12,8 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use uom::si::f32::ThermodynamicTemperature as Temperature;
+use uom::si::thermodynamic_temperature::degree_celsius;
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -39,7 +42,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_1: StdFilter = StdFilter {
         slot: StandardFilterSlot::_1,
         id1: cangen::CellTemperatures::ID,
-        id2: None,
+        id2: Some(cangen::MaxDcCurrentCommand::ID),
     };
 
     const SLOT_2: StdFilter = StdFilter {
@@ -123,8 +126,21 @@ pub async fn can_inbox_task() -> ! {
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
-            Some(Msg::CellTemperatures(_)) => {}
-            Some(Msg::LightningPulseMessage(_)) => {}
+            Some(Msg::CellTemperatures(m)) => {
+                bms::set_battery_box_temp(Temperature::new::<degree_celsius>(m.avg_val()))
+            }
+            Some(Msg::PrechargeStatus(m)) => match PrechargeState::try_from(m.precharge_status()) {
+                Ok(state) => set_precharge_state(state),
+                Err(state) => debug!(
+                    "Received invalid precharge state from CAN message: {}",
+                    state
+                ),
+            },
+            Some(Msg::ShutdownAsReadByBms(m)) => {
+                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
+            }
+            Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
+
             Some(Msg::FrontWheelRpm(_)) => {}
             Some(Msg::TempsFaultCodeStatus(_)) => {}
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
@@ -142,20 +158,17 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::McEfuseState(_)) => {}
             Some(Msg::SpareEfuseState(_)) => {}
 
-            Some(Msg::PrechargeStatus(_)) => {}
             Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
                 Ok(cmd) => {
                     if rtds::send(cmd).is_err() {
-                        debug!("Failed to forward RTDS CAN command");
+                        debug!("Failed to forward RTDS CAN command")
                     }
                 }
                 Err(byte) => debug!("Unknown message {}", byte),
             },
-
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
-            Some(Msg::ShutdownAsReadByBms(m)) => {
-                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
-            }
+            Some(Msg::LightningPulseMessage(_)) => {}
+
             Some(_) => debug!("Unknown message"),
             _ => {
                 debug!("failed to parse id")
