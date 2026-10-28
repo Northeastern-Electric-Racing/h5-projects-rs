@@ -1,12 +1,12 @@
 //! Transport bootloader command and data frames over classical CAN.
 
+use can_handler::{ExtFilter, NerCan, StdFilter};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
 use embassy_stm32::can::frame::Frame;
 use embassy_stm32::can::{Can, CanConfigurator, IT0InterruptHandler, IT1InterruptHandler};
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_can::Id;
-use can_handler::{ExtFilter, NerCan, StdFilter};
 
 use crate::commands::*;
 use crate::config::TX_TIMEOUT_MS;
