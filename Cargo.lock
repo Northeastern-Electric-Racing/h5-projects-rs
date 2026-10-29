@@ -28,7 +28,7 @@ version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79#810be7e0b5a0c0162be26917e0dbce41af545b79"
 dependencies = [
  "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79)",
- "bitfield-struct",
+ "bitfield-struct 0.13.0",
  "defmt 1.2.0",
  "embassy-time",
  "embedded-hal-async",
@@ -40,7 +40,7 @@ version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
 dependencies = [
  "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
- "bitfield-struct",
+ "bitfield-struct 0.13.0",
  "defmt 1.2.0",
  "embassy-time",
  "embedded-hal-async",
@@ -91,8 +91,22 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5deb64efa5bd81e31fcd1938615a6d98c82eafcbcd787162b6f63b91d6bac5b3"
 dependencies = [
- "rustc_version",
+ "rustc_version 0.2.3",
 ]
+
+[[package]]
+name = "bisync"
+version = "0.3.1"
+source = "git+https://github.com/JM4ier/bisync?rev=be3a0a6#be3a0a6255a0af592e66be8614a149151f67fdf5"
+dependencies = [
+ "bisync_macros",
+]
+
+[[package]]
+name = "bisync_macros"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d21f40d350a700f6aa107e45fb26448cf489d34794b2ba4522181dc9f1173af6"
 
 [[package]]
 name = "bit_field"
@@ -105,6 +119,17 @@ name = "bitfield"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46afbd2983a5d5a7bd740ccb198caf5b82f45c40c09c0eed36052d91cb92e719"
+
+[[package]]
+name = "bitfield-struct"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2be5a46ba01b60005ae2c51a36a29cfe134bcacae2dd5cedcd4615fbaad1494b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "bitfield-struct"
@@ -164,7 +189,7 @@ name = "cangen"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
- "bitfield-struct",
+ "bitfield-struct 0.13.0",
  "cangen-macro",
  "embedded-can",
 ]
@@ -405,6 +430,27 @@ checksum = "214e79c85b13a733762150567c988c580cbf1ecdc07805a0478fe8ca2c8380c7"
 dependencies = [
  "critical-section",
  "defmt 1.2.0",
+]
+
+[[package]]
+name = "derive_more"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
+dependencies = [
+ "derive_more-impl",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "rustc_version 0.4.1",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -842,6 +888,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "half"
+version = "1.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b43ede17f21864e81be2fa654110bf1e793774238d86ef8555c37e6519c0403"
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -928,6 +980,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "lis2mdl-ner"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lis2mdl-ner#18f959c633f6be90a30150eddcc9030857bd092c"
+dependencies = [
+ "defmt 1.2.0",
+ "embedded-hal-async",
+ "lis2mdl-rs",
+ "st-mems-bus",
+]
+
+[[package]]
+name = "lis2mdl-rs"
+version = "2.0.0"
+source = "git+https://github.com/STMicroelectronics/lis2mdl-rs.git?branch=main#b50828099aa1079802732b9f42df504e5a704d23"
+dependencies = [
+ "bisync",
+ "bitfield-struct 0.10.1",
+ "derive_more",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "st-mem-bank-macro",
+ "st-mems-bus",
+]
+
+[[package]]
 name = "litrs"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -950,6 +1027,33 @@ dependencies = [
  "scoped-tls",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "lsm6dsv-ner"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lsm6dsv-ner#d6cdd4b04618ca914c865613930e82bf795076f9"
+dependencies = [
+ "defmt 1.2.0",
+ "embedded-hal-async",
+ "lsm6dsv16x-rs",
+ "st-mems-bus",
+]
+
+[[package]]
+name = "lsm6dsv16x-rs"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2d4f1ffdca07fcadf6585bcc68702211d2b99f36863f4544c4e0f6f07f74aa9"
+dependencies = [
+ "bisync",
+ "bitfield-struct 0.10.1",
+ "derive_more",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "half",
+ "st-mem-bank-macro",
+ "st-mems-bus",
 ]
 
 [[package]]
@@ -983,8 +1087,11 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
+ "embedded-hal-bus",
  "hdc2021-ner",
  "heapless",
+ "lis2mdl-ner",
+ "lsm6dsv-ner",
  "panic-probe",
  "static_cell",
 ]
@@ -1158,7 +1265,16 @@ version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 dependencies = [
- "semver",
+ "semver 0.9.0",
+]
+
+[[package]]
+name = "rustc_version"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+dependencies = [
+ "semver 1.0.28",
 ]
 
 [[package]]
@@ -1225,6 +1341,12 @@ checksum = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
 dependencies = [
  "semver-parser",
 ]
+
+[[package]]
+name = "semver"
+version = "1.0.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "semver-parser"
@@ -1347,6 +1469,28 @@ name = "smallvec"
 version = "1.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
+
+[[package]]
+name = "st-mem-bank-macro"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9521292ae7c821e1a03bea6291a9bb6c8f744c56f5952cc3e8c1c632a872297b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "st-mems-bus"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc4e334a8bc732d12f9089350847d9986005f04ebf2e65a83fdc45a6e6296471"
+dependencies = [
+ "bisync",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+]
 
 [[package]]
 name = "stable_deref_trait"
