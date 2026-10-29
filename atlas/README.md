@@ -29,6 +29,15 @@ Probe-rs can still flash applications normally over the debug probe.
 Flash Atlas first, then the application linked with the shared application layout.
 Do not perform a full-chip erase when updating the application, since it also removes Atlas.
 
+## Memory layout
+
+Atlas's `memory.x` divides flash into these regions:
+
+- `FLASH`: the bootloader.
+- `ACTIVE`: the running application.
+- `DFU`: the new firmware received over CAN, staged until activation swaps it into `ACTIVE`.
+- `BOOTLOADER_STATE`: boot and update flags shared by Atlas and the application.
+
 ## Update flow
 
 1. Firmware updates begin with a CAN boot-entry request sent to the running application.
@@ -52,7 +61,7 @@ bootloader starts the valid application immediately.
 
 Applications use `boot-control` from firmware-rs for boot confirmation, CAN bootloader
 entry, and the shared application memory layout. See the
-[boot-control README](https://github.com/Northeastern-Electric-Racing/firmware-rs/blob/develop/boot-control/README.md).
+[boot-control README](https://github.com/Northeastern-Electric-Racing/firmware-rs/blob/develop/platform/boot-control/README.md).
 
 Flash applications over CAN with the
 [can-flash-cli](https://github.com/Northeastern-Electric-Racing/firmware-rs/blob/develop/utilities/can-flash-cli/README.md).
