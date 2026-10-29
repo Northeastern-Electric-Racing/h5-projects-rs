@@ -1,11 +1,17 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::debug;
-use embassy_stm32::gpio::Output;
+use embassy_stm32::{Peri, bind_interrupts, gpio::{Input, Output, Pull}, interrupt, peripherals};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 
 use defmt::info;
 use embassy_stm32::{exti::ExtiInput, mode::Async};
 use embassy_time::Timer;
+
+bind_interrupts!(
+    struct Irqs {
+        EXTI2 => embassy_stm32::exti::InterruptHandler<interrupt::typelevel::EXTI2>;
+    }
+);
 
 #[derive(Clone, Copy)]
 struct LedState {
@@ -71,7 +77,8 @@ pub async fn led_task(mut red: Output<'static>, mut green: Output<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn user_button_task(mut button: ExtiInput<'static, Async>) {
+pub async fn user_button_task(mut pin: Peri<'static, peripherals::PE2>, mut ext: Peri<'static, peripherals::EXTI2>) {
+    let mut button = ExtiInput::new(pin, ext, Pull::Up, Irqs);
     loop {
         button.wait_for_falling_edge().await;
         user_button_pressed(); 
