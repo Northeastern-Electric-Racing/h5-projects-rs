@@ -42,4 +42,9 @@ impl<T: PartialOrd> Hysteresis<T> {
             if self.active { true } else { false }
         }
     }
+
+    /// If this Hysteresis is currently active.
+    /// 
+    /// Note: This state could be stale depending on the last time you called `update()`. So you should probably consider that when calling this.
+    pub fn active(&self) -> bool { self.active }
 }

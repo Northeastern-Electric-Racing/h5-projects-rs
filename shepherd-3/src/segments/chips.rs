@@ -688,18 +688,132 @@ pub mod gpios {
         calc_temp(&res)
     }
 
+    pub mod onboard_therms {
+        use super::*;
+
+        #[repr(usize)]
+        #[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum OnboardThermIndex {
+            ThermAlphaBalancingBank,
+            ThermChips,
+            ThermBetaBalancingBank,
+        }
+
+        /// Wonderful wrapper type to allow you to index by `OnboardThermIndex`.
+        /// 
+        /// We really really really should have a macro for this
+        #[derive(Copy, Clone, Debug)]
+        pub struct IndexByOnboardTherm<T> {
+            data: [T; OnboardThermIndex::COUNT],
+        }
+        pub type ThermIds = core::iter::Copied<core::slice::Iter<'static, OnboardThermIndex>>;
+        pub type Iter<'borrow, T> = core::iter::Zip<ThermIds, core::slice::Iter<'borrow, T>>;
+        pub type IterMut<'borrow, T> = core::iter::Zip<ThermIds, core::slice::IterMut<'borrow, T>>;
+        pub type IntoIter<T> = core::iter::Zip<ThermIds, core::array::IntoIter<T, { OnboardThermIndex::COUNT }>>;
+
+        impl<T> IndexByOnboardTherm<T> {
+            /// Creates a new `IndexByChip` directly from an array.
+            pub const fn new(data: [T; OnboardThermIndex::COUNT]) -> Self {
+                Self { data }
+            }
+
+            /// Retrives the data for `therm`.
+            pub const fn get(&self, therm: OnboardThermIndex) -> &T {
+                let i: usize = therm as usize;
+                &self.data[i]
+            }
+
+            /// Retrives the data for `therm`.
+            ///
+            /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
+            pub const fn therm(&self, therm: OnboardThermIndex) -> &T {
+                self.get(therm)
+            }
+
+            /// Retrieves a mutable reference to the data for `chip`.
+            pub const fn get_mut(&mut self, therm: OnboardThermIndex) -> &mut T {
+                let i: usize = therm as usize;
+                &mut self.data[i]
+            }
+
+            pub fn from_fn(mut f: impl FnMut(OnboardThermIndex) -> T) -> Self {
+                Self { data: core::array::from_fn(|i| f(OnboardThermIndex::VARIANTS[i])) }
+            }
+
+            pub fn iter(&self) -> Iter<'_, T> {
+                OnboardThermIndex::VARIANTS.iter().copied().zip(self.data.iter())
+            }
+
+            pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+                OnboardThermIndex::VARIANTS.iter().copied().zip(self.data.iter_mut())
+            }
+
+            /// Converts this back into its inner array.
+            pub fn into_array(self) -> [T; OnboardThermIndex::COUNT] {
+                self.data
+            }
+        }
+
+        impl<T: Copy> IndexByOnboardTherm<T> {
+            /// Creates a new `IndexByChip` by initializing every element to `value`.
+            pub const fn from_value(value: T) -> Self {
+                Self { data: [value; OnboardThermIndex::COUNT] }
+            }
+        }
+
+        impl<T> core::ops::Index<OnboardThermIndex> for IndexByOnboardTherm<T> {
+            type Output = T;
+
+            fn index(&self, index: OnboardThermIndex) -> &Self::Output {
+                &self.get(index)
+            }
+        }
+
+        impl<T> core::ops::IndexMut<OnboardThermIndex> for IndexByOnboardTherm<T> {
+            fn index_mut(&mut self, index: OnboardThermIndex) -> &mut Self::Output {
+                let i: usize = index as usize;
+                &mut self.data[i]
+            }
+        }
+
+        impl<T> IntoIterator for IndexByOnboardTherm<T> {
+            type Item = (OnboardThermIndex, T);
+            type IntoIter = IntoIter<T>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                OnboardThermIndex::VARIANTS.iter().copied().zip(self.data)
+            }
+        }
+
+        impl<'borrow, T> IntoIterator for &'borrow IndexByOnboardTherm<T> {
+            type Item = (OnboardThermIndex, &'borrow T);
+            type IntoIter = Iter<'borrow, T>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.iter()
+            }
+        }
+
+        impl<'borrow, T> IntoIterator for &'borrow mut IndexByOnboardTherm<T> {
+            type Item = (OnboardThermIndex, &'borrow mut T);
+            type IntoIter = IterMut<'borrow, T>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.iter_mut()
+            }
+        }
+    }
+    use onboard_therms::*;
+
     /// Struct that represents the GPIO voltages, but converted into temperatures.
     ///
     /// The layout of this struct and the temperature calculations are based on the comment near the top of this module.
     pub struct ThermistorTemperatures {
         /// Temperatures for each cell. Note that some of the temperatures will be the same between some of the cells because some of the cells share the same thermistor.
         pub cell_temperatures: IndexByCell<Temperature>,
-        /// First on-board temperature.
-        pub on_board_temp_1: Temperature,
-        /// Second on-board temperature.
-        pub on_board_temp_2: Temperature,
-        /// Third on-board temperature.
-        pub on_board_temp_3: Temperature,
+        /// On board temps.
+        pub on_board_temps: IndexByOnboardTherm<Temperature>,
     }
     impl ThermistorTemperatures {
         /// Gets the cell temperature for `cell`.
@@ -731,9 +845,13 @@ pub mod gpios {
 
                     CellId::Cell13 => calc_cell_temp(gpios.get(GpioId::Gpio10)),
                 }),
-                on_board_temp_1: calc_cell_temp(gpios.get(GpioId::Gpio3)),
-                on_board_temp_2: calc_cell_temp(gpios.get(GpioId::Gpio4)),
-                on_board_temp_3: calc_cell_temp(gpios.get(GpioId::Gpio5)),
+                on_board_temps: IndexByOnboardTherm::from_fn(|therm| {
+                    match therm {
+                        OnboardThermIndex::ThermAlphaBalancingBank => calc_cell_temp(gpios.get(GpioId::Gpio3)),
+                        OnboardThermIndex::ThermChips => calc_cell_temp(gpios.get(GpioId::Gpio4)),
+                        OnboardThermIndex::ThermBetaBalancingBank => calc_cell_temp(gpios.get(GpioId::Gpio5)),
+                    }
+                }),
             }
         }
     }

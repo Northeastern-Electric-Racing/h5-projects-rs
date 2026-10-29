@@ -17,10 +17,13 @@ pub mod connected {
 }
 
 use embassy_time::{Duration, Instant};
-use crate::units::{Voltage, Current};
+use crate::units::{Voltage, Current, Temperature};
 use crate::helpers::deadline::Deadline;
 use crate::pack::analyzer;
 use crate::helpers::snapshot_cell::{SnapshotCell, LazySnapshotCell};
+use crate::helpers::hysteresis::Hysteresis;
+use crate::segments::IndexByChip;
+use crate::segments::ChipId;
 
 mod state {
     use super::*;
@@ -451,6 +454,19 @@ impl RequestedPwm {
 static PWM_DUTY_CYCLE_CONFIG: SnapshotCell<RequestedPwm> = SnapshotCell::new(RequestedPwm::default());
 static CHARGER_CONNECTED: SnapshotCell<ChargerConnected> = SnapshotCell::new(ChargerConnected::Disconnected);
 static CHARGE_STATE: LazySnapshotCell<Charger> = LazySnapshotCell::new(Charger::default);
+
+/// Persistent state for balancing.
+pub struct BalancingThermalState {
+    chip_die_too_hot: IndexByChip<Hysteresis<Temperature>>,
+    chip_onboard_therm_too_hot: IndexByChip<Hysteresis<Temperature>>,
+    balancing_resistor_too_hot: IndexByChip<Hysteresis<Temperature>>,
+}
+impl BalancingThermalState {
+    /// If balancing is blocked or not for `chip`.
+    pub fn balance_blocked(&self, chip: ChipId) -> bool {
+        self.chip_die_too_hot[chip].active() || self.chip_onboard_therm_too_hot[chip].active() || self.balancing_resistor_too_hot[chip].active()
+    }
+}
 
 /// Gets current PWM duty cycle config.
 pub fn get_pwm_duty_cycle() -> PwmDutyCycleConfig { PWM_DUTY_CYCLE_CONFIG.read().inner() }
