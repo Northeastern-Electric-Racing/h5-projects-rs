@@ -27,11 +27,8 @@ name = "adbms2950"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79#810be7e0b5a0c0162be26917e0dbce41af545b79"
 dependencies = [
- "adbms-register-macros",
- "bitfield-struct 0.13.0",
- "defmt 1.1.1",
  "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=810be7e0b5a0c0162be26917e0dbce41af545b79)",
- "bitfield-struct",
+ "bitfield-struct 0.13.0",
  "defmt 1.2.0",
  "embassy-time",
  "embedded-hal-async",
@@ -42,13 +39,8 @@ name = "adbms6830b"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
 dependencies = [
- "adbms6830b-macros",
- "arbitrary-int",
- "bitfield-struct 0.13.0",
- "defmt 1.1.1",
- "device-driver",
  "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
- "bitfield-struct",
+ "bitfield-struct 0.13.0",
  "defmt 1.2.0",
  "embassy-time",
  "embedded-hal-async",
@@ -198,33 +190,8 @@ version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
 dependencies = [
  "bitfield-struct 0.13.0",
- "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af)",
- "bitfield-struct",
  "cangen-macro",
  "embedded-can",
-]
-
-[[package]]
-name = "cangen"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=45c9c098e9f729812cfbe101cc7d9747759f0a2e#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
-dependencies = [
- "bitfield-struct 0.13.0",
- "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=45c9c098e9f729812cfbe101cc7d9747759f0a2e)",
- "embedded-can",
-]
-
-[[package]]
-name = "cangen-macro"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af#2226d9a858cc40f3be02ec79a9a070f300b390af"
-dependencies = [
- "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=2226d9a858cc40f3be02ec79a9a070f300b390af)",
- "heck",
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -462,7 +429,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "214e79c85b13a733762150567c988c580cbf1ecdc07805a0478fe8ca2c8380c7"
 dependencies = [
  "critical-section",
- "defmt 1.1.1",
+ "defmt 1.2.0",
 ]
 
 [[package]]
@@ -484,47 +451,6 @@ dependencies = [
  "quote",
  "rustc_version 0.4.1",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "device-driver"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2e4547bd66511372d2a38ac3c1b2892c7ebf83cf0d5411c3406e496c85a1d96"
-dependencies = [
- "device-driver-macros",
- "embedded-io 0.6.1",
- "embedded-io-async 0.6.1",
-]
-
-[[package]]
-name = "device-driver-generation"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f0170a2ef7fb5a74029c3edcaff07a0d44dbfac3d9dcfbb06fc696f890bb877"
-dependencies = [
- "anyhow",
- "askama",
- "bitvec",
- "convert_case",
- "dd-manifest-tree",
- "itertools",
- "prettyplease",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "device-driver-macros"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "176dbf719ece32afb641bf50d2d1881411ad1677aec6c8bf42011a7c279d97ff"
-dependencies = [
- "device-driver-generation",
- "proc-macro2",
- "syn 2.0.119",
- "defmt 1.2.0",
 ]
 
 [[package]]
@@ -962,6 +888,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "half"
+version = "1.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b43ede17f21864e81be2fa654110bf1e793774238d86ef8555c37e6519c0403"
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1052,7 +984,7 @@ name = "lis2mdl-ner"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lis2mdl-ner#18f959c633f6be90a30150eddcc9030857bd092c"
 dependencies = [
- "defmt 1.1.1",
+ "defmt 1.2.0",
  "embedded-hal-async",
  "lis2mdl-rs",
  "st-mems-bus",
@@ -1098,6 +1030,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "lsm6dsv-ner"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lsm6dsv-ner#d6cdd4b04618ca914c865613930e82bf795076f9"
+dependencies = [
+ "defmt 1.2.0",
+ "embedded-hal-async",
+ "lsm6dsv16x-rs",
+ "st-mems-bus",
+]
+
+[[package]]
+name = "lsm6dsv16x-rs"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2d4f1ffdca07fcadf6585bcc68702211d2b99f36863f4544c4e0f6f07f74aa9"
+dependencies = [
+ "bisync",
+ "bitfield-struct 0.10.1",
+ "derive_more",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "half",
+ "st-mem-bank-macro",
+ "st-mems-bus",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1132,6 +1091,7 @@ dependencies = [
  "hdc2021-ner",
  "heapless",
  "lis2mdl-ner",
+ "lsm6dsv-ner",
  "panic-probe",
  "static_cell",
 ]
