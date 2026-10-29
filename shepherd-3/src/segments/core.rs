@@ -500,7 +500,7 @@ pub mod jobs {
 
             // Unless we are not charging, restart continuous redundant conversions (since that is what we
             // normally use outside of this function when we aren't charging).
-            if !crate::state_machine_old::bms_state().is_charging() {
+            if !crate::state_machine::state().is_charging() {
                 self.service.api().command(commands::adc::adsv(Acquisition::Continuous, OpenWire::OffForAll)).await.map_err(UpdateError::PollError)?;
             }
 

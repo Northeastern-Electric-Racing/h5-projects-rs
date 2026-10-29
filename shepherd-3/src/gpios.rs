@@ -10,7 +10,7 @@ use embassy_stm32::{
     Peri, gpio::{AnyPin, Level, Speed, Output},
 };
 
-struct OutputPin {
+pub struct OutputPin {
     pin: CriticalSectionMutex<RefCell<Output<'static>>>,
 }
 impl OutputPin {
@@ -84,7 +84,7 @@ impl OutputPin {
     }
 }
 
-struct Pins {
+pub struct Pins {
     pub mcu_fault_pin: OutputPin,
 }
 

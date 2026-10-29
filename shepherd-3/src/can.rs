@@ -205,6 +205,18 @@ pub mod types {
             frame.to_can_frame()
         }
     }
+
+    pub struct BmsChargeMessageSend {
+        pub charge_volts: f32,
+        pub charge_current: f32,
+        pub enable_charging: u8,
+    }
+    impl BmsChargeMessageSend {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BmsChargeMessageSend::new().with_charge_volts(self.charge_volts).with_charge_current(self.charge_current).with_enable_charging(self.enable_charging);
+            frame.to_can_frame()
+        }
+    }
 }
 
 /// Interrupt config and diagnostics.
@@ -446,7 +458,7 @@ mod handler {
     #[embassy_executor::task]
     pub async fn can_rx_processer() -> ! {
         use super::rx_ids::*;
-        use crate::{pack, state_machine_old, charging};
+        use crate::{pack, charging};
         use embedded_can::Id;
 
         loop {
@@ -462,12 +474,12 @@ mod handler {
                         pack::analyzer::store_can_ts_voltage(voltage);
                     }
                 },
-                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !state_machine_old::charger_connected() => {
+                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !charging::is_charger_connected() => {
                     if let Some(current) = decode_current(frame.data()) {
                         pack::analyzer::store_can_pack_current(current);
                     }
                 },
-                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !state_machine_old::charger_connected() => {
+                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !charging::is_charger_connected() => {
                     if let Some(voltage) = decode_dti_voltage(frame.data()) {
                         pack::analyzer::store_can_ts_voltage(voltage);
                     }

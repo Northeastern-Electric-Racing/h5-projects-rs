@@ -19,7 +19,6 @@ pub mod units;
 pub mod broadcast;
 pub mod job_diagnostics;
 pub mod debug;
-pub mod state_machine_old;
 pub mod faults;
 pub mod pack;
 pub mod helpers;

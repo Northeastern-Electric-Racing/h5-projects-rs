@@ -1,7 +1,6 @@
 use crate::{
     helpers::deadline::Deadline,
-    state_machine_old::{BmsState},
-    state_machine_old,
+    state_machine::{BmsState},
     segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
     units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm},
 };
@@ -295,7 +294,7 @@ pub mod analyzer {
         /// register depending on if we are charging or not. Also has to do some post-processing corrections for 25A specifically (since this was in TSECU-Shepherd code).
         /// This doesn't modify anything in the cache itself (since that's raw reads), this just initializes (and post-processes) the Analyzer's cell voltage data.
         fn calc_cell_voltages(&mut self, cell_voltages: &IndexByChip<IndexByCell<Voltage>>) {
-            let state = state_machine_old::bms_state();
+            let state = crate::state_machine::state();
 
             for chip in ChipId::iter() {
                 // Constants and comments from TSECU-Shepherd
@@ -418,7 +417,7 @@ pub mod analyzer {
 
                 // Update cell voltage too high fault
                 // (note: the separate CellChargeVoltageTooHigh fault from TSECU-Shepherd is combined with CellVoltageTooHigh now, they just check different values depending on state)
-                let max = if crate::state_machine_old::bms_state().is_charging() { Voltage::from_volts(4.193) } else { Voltage::from_volts(4.2) };
+                let max = if crate::state_machine::state().is_charging() { Voltage::from_volts(4.193) } else { Voltage::from_volts(4.2) };
                 if self.max_ocv.value() > max {
                     faults::queue(FaultCommand::CellVoltageTooHigh(PassFailAction::NotifyBad)).await;
                 } else {
@@ -549,7 +548,7 @@ pub mod analyzer {
             units::{degree_celsius, volt},
         };
         use crate::segments;
-        use crate::state_machine_old::{BmsState};
+        use crate::state_machine::{BmsState};
 
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
@@ -579,7 +578,7 @@ pub mod analyzer {
             segments_freshdata_subscription.wait().await;
 
             // Get cell voltages depending on if we are charging or not.
-            let cell_voltages = match state_machine_old::bms_state() {
+            let cell_voltages = match crate::state_machine::state() {
                 // If we are charging, get normal cell voltages.
                 BmsState::Charging => *normal_cell_voltages.get().data(),
                 // If we are not charging, get filtered cell voltages.

@@ -38,7 +38,7 @@ impl BmsState {
             BmsState::Charging => {
                 if faults::are_critical_faults_active()  { BmsState::Faulted } 
                 else if charging::is_charger_connected() { BmsState::Charging } 
-                else                                     { BmsState::Ready }
+                else                                     { BmsState::Charging } // we shouldn't go back to READY after in charging even if the charger isn't connected
             },
 
             BmsState::Faulted => {
