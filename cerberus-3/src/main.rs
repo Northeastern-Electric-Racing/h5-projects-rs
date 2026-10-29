@@ -19,8 +19,8 @@ mod adc;
 mod buttons;
 mod can;
 mod efuses;
-mod peripherals;
 mod pedals;
+mod peripherals;
 mod rtds;
 mod shutdown;
 mod statemachine;
@@ -207,7 +207,7 @@ async fn main(spawner: Spawner) -> ! {
         })
         .expect("Failed to spawn peripherals::peripherals_task()."),
     );
-  
+
     // RTDS
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
     spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
