@@ -12,6 +12,7 @@ pub async fn segments_debug() {
     use segments::{SEGMENTS_FRESH_DATA_SIGNAL, ChipId, ChipKind, CellId};
     use crate::units::{degree_celsius, volt};
     use crate::can;
+    use crate::pack;
 
     // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
     let mut subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
@@ -23,6 +24,9 @@ pub async fn segments_debug() {
     let status_c_ready = segments::cache().get_status_c().nice().ready().await;
     let s_voltages_ready = segments::cache().get_s_voltages().nice().ready().await;
     let _fault_counts = segments::cache().get_fault_counts();
+
+    // Wait until the analyzer has been written to at least once.
+    let analyzer = pack::analyzer::analyzer().ready().await;
 
     loop {
         // Run one loop of this task every time new Segments data arrives.
@@ -36,6 +40,8 @@ pub async fn segments_debug() {
         let pwm = pwm_ready.get();
         let status_c = status_c_ready.get();
         let _s_voltages = s_voltages_ready.get();
+
+        let ow = analyzer.partial_get(|inner| inner.data.ow_fault);
 
         // Iterate through every chip and send data over CAN.
         #[cfg(true)]
@@ -59,14 +65,14 @@ pub async fn segments_debug() {
                                     cell_a: cell_a.as_u8(),
                                     discharging_a: pwm.cell(cell_a).is_balancing(),
                                     cvs_a: cvs.cell(cell_a).is_set(),
-                                    ow_a: false,
+                                    ow_a: ow[chip][cell_a],
 
                                     // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
                                     voltage_b: cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
                                     cell_b: cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
                                     discharging_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
-                                    cvs_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
-                                    ow_b: false,
+                                    cvs_b: cell_b.map(|cell_b| cvs.cell(cell_b).is_set()).unwrap_or(false),
+                                    ow_b: cell_b.map(|cell_b| ow[chip][cell_b]).unwrap_or(false),
                                 }
                                 .as_frame(),
                             ) {
@@ -88,14 +94,14 @@ pub async fn segments_debug() {
                                     cell_a: cell_a.as_u8(),
                                     discharging_a: pwm.cell(cell_a).is_balancing(),
                                     cvs_a: cvs.cell(cell_a).is_set(),
-                                    ow_a: false,
+                                    ow_a: ow[chip][cell_a],
 
                                     // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
                                     voltage_b: cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
                                     cell_b: cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
                                     discharging_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
-                                    cvs_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
-                                    ow_b: false,
+                                    cvs_b: cell_b.map(|cell_b| cvs.cell(cell_b).is_set()).unwrap_or(false),
+                                    ow_b: cell_b.map(|cell_b| ow[chip][cell_b]).unwrap_or(false),
                                 }
                                 .as_frame(),
                             ) {
@@ -176,8 +182,6 @@ pub async fn faults_queuer_2() {
 }
 
 /// Task that sends out debug HV plate data.
-/// Lowk sends way too much stuff but we can use it for verification of life for now.
-#[cfg(not(feature = "hil"))]
 #[embassy_executor::task]
 pub async fn hv_plate_debug() {
     use crate::hv_plate::{self, HV_PLATE_FRESH_DATA_SIGNAL};
@@ -189,6 +193,7 @@ pub async fn hv_plate_debug() {
 
     let current_voltage_ready = hv_plate::cache().get_current_voltage().nice().ready().await;
     let voltages_ready = hv_plate::cache().get_voltages().nice().ready().await;
+    #[cfg(not(feature = "hil"))]
     let accumulated_ready = hv_plate::cache().get_accumulated().nice().ready().await;
     let flag_ready = hv_plate::cache().get_flag().nice().ready().await;
     let aux_ready = hv_plate::cache().get_aux().nice().ready().await;
@@ -203,6 +208,7 @@ pub async fn hv_plate_debug() {
         let current_voltage = *current_voltage_ready.get().data();
         let voltages = *voltages_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
+        #[cfg(not(feature = "hil"))]
         let accumulated = *accumulated_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
         let flag = *flag_ready.get().data();
@@ -234,11 +240,11 @@ pub async fn hv_plate_debug() {
             defmt_monitor::monitor!("HvPlate/TsVoltage", desc = "Tractive system voltage, in volts.", "{=f32}", voltages.ts_voltage.get::<volt>());
             defmt_monitor::monitor!("HvPlate/ShuntTemperature", desc = "Shunt thermistor temperature, in celsius.", "{=f32}", voltages.shunt_temperature.get::<degree_celsius>());
 
-            // Coulomb counting. The sums are running totals this firmware never clears, so a
-            // consumer integrates by diffing against its own previous value; the conversion
-            // count says how many samples each sum covers.
-            defmt_monitor::monitor!("HvPlate/Accumulated/CurrentSumMicrovolts", desc = "Summed shunt voltage across ACCN conversions, in microvolts. A running total, never reset here.", "{=i32}", accumulated.current_sum_microvolts);
-            defmt_monitor::monitor!("HvPlate/Accumulated/BattSumMicrovolts", desc = "Summed BATT-tap voltage across ACCN conversions, in microvolts.", "{=i32}", accumulated.batt_sum_microvolts);
+            #[cfg(not(feature = "hil"))]
+            {
+                defmt_monitor::monitor!("HvPlate/Accumulated/CurrentSumMicrovolts", desc = "Summed shunt voltage across ACCN conversions, in microvolts. A running total, never reset here.", "{=i32}", accumulated.current_sum_microvolts);
+                defmt_monitor::monitor!("HvPlate/Accumulated/BattSumMicrovolts", desc = "Summed BATT-tap voltage across ACCN conversions, in microvolts.", "{=i32}", accumulated.batt_sum_microvolts);
+            }
             defmt_monitor::monitor!("HvPlate/Accumulated/I1Cnt", desc = "I1ADC conversion counter. Says how many conversions the accumulator sums cover.", "{=u16}", flag.i1cnt);
             defmt_monitor::monitor!("HvPlate/Accumulated/I2Cnt", desc = "I2ADC conversion counter.", "{=u8}", flag.i2cnt);
 

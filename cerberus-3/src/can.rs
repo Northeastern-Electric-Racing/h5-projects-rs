@@ -1,12 +1,16 @@
 //! CAN bring-up for Cerberus.
 
+use crate::{buttons, rtds, shutdown};
+use can_handler::{ExtFilter, NerCan, StdFilter};
+use cangen::{CanMessage, Msg};
+use defmt::debug;
+use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
 use embassy_stm32::can::{
     CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,
 };
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use ner_can::NerCan;
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -32,7 +36,130 @@ pub struct CanPins {
 pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     let configurator = CanConfigurator::new(pins.can, pins.rx, pins.tx, Irqs);
 
-    let (tx, rx, _props) = NerCan::init(configurator).start();
+    const SLOT_1: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_1,
+        id1: cangen::CellTemperatures::ID,
+        id2: None,
+    };
+
+    const SLOT_2: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_2,
+        id1: cangen::FrontWheelRpm::ID,
+        id2: Some(cangen::TempsFaultCodeStatus::ID),
+    };
+
+    const SLOT_3: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_3,
+        id1: cangen::ErpmDutyInputVoltageStatus::ID,
+        id2: Some(cangen::CurrentsStatus::ID),
+    };
+
+    const SLOT_4: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_4,
+        id1: cangen::PrechargeStatus::ID,
+        id2: Some(cangen::WheelButtons::ID),
+    };
+
+    const SLOT_5: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_5,
+        id1: cangen::ShutdownAsReadByBms::ID,
+        id2: None,
+    };
+
+    const SLOT_1E: ExtFilter = ExtFilter {
+        slot: ExtendedFilterSlot::_1,
+        id1: cangen::RtdsCommandMessage::ID,
+        id2: Some(cangen::LightningPulseMessage::ID),
+    };
+
+    const SLOT_2E: ExtFilter = ExtFilter {
+        slot: ExtendedFilterSlot::_2,
+        id1: cangen::DashboardEfuseState::ID,
+        id2: Some(cangen::BrakeEfuseState::ID),
+    };
+
+    const SLOT_3E: ExtFilter = ExtFilter {
+        slot: ExtendedFilterSlot::_3,
+        id1: cangen::ShutdownEfuseState::ID,
+        id2: Some(cangen::LvEfuseState::ID),
+    };
+
+    const SLOT_4E: ExtFilter = ExtFilter {
+        slot: ExtendedFilterSlot::_4,
+        id1: cangen::RadfanEfuseState::ID,
+        id2: Some(cangen::FanbattEfuseState::ID),
+    };
+
+    const SLOT_5E: ExtFilter = ExtFilter {
+        slot: ExtendedFilterSlot::_5,
+        id1: cangen::PumponeEfuseState::ID,
+        id2: Some(cangen::PumptwoEfuseState::ID),
+    };
+
+    const SLOT_6E: ExtFilter = ExtFilter {
+        slot: ExtendedFilterSlot::_6,
+        id1: cangen::BattboxEfuseState::ID,
+        id2: Some(cangen::McEfuseState::ID),
+    };
+
+    const SLOT_7E: ExtFilter = ExtFilter {
+        slot: ExtendedFilterSlot::_7,
+        id1: cangen::SpareEfuseState::ID,
+        id2: None,
+    };
+
+    let can = NerCan::init(configurator)
+        .with_standard_filters(&[SLOT_1, SLOT_2, SLOT_3, SLOT_4, SLOT_5])
+        .with_extended_filters(&[
+            SLOT_1E, SLOT_2E, SLOT_3E, SLOT_4E, SLOT_5E, SLOT_6E, SLOT_7E,
+        ]);
+    let (tx, rx, _props) = can.start();
 
     (tx, rx)
+}
+
+#[embassy_executor::task]
+pub async fn can_inbox_task() -> ! {
+    loop {
+        let frame = INCOMING.receive().await;
+        match Msg::decode(&frame) {
+            Some(Msg::CellTemperatures(_)) => {}
+            Some(Msg::LightningPulseMessage(_)) => {}
+            Some(Msg::FrontWheelRpm(_)) => {}
+            Some(Msg::TempsFaultCodeStatus(_)) => {}
+            Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
+            Some(Msg::CurrentsStatus(_)) => {}
+
+            Some(Msg::DashboardEfuseState(_)) => {}
+            Some(Msg::BrakeEfuseState(_)) => {}
+            Some(Msg::ShutdownEfuseState(_)) => {}
+            Some(Msg::LvEfuseState(_)) => {}
+            Some(Msg::RadfanEfuseState(_)) => {}
+            Some(Msg::FanbattEfuseState(_)) => {}
+            Some(Msg::PumponeEfuseState(_)) => {}
+            Some(Msg::PumptwoEfuseState(_)) => {}
+            Some(Msg::BattboxEfuseState(_)) => {}
+            Some(Msg::McEfuseState(_)) => {}
+            Some(Msg::SpareEfuseState(_)) => {}
+
+            Some(Msg::PrechargeStatus(_)) => {}
+            Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
+                Ok(cmd) => {
+                    if rtds::send(cmd).is_err() {
+                        debug!("Failed to forward RTDS CAN command");
+                    }
+                }
+                Err(byte) => debug!("Unknown message {}", byte),
+            },
+
+            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
+            Some(Msg::ShutdownAsReadByBms(m)) => {
+                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
+            }
+            Some(_) => debug!("Unknown message"),
+            _ => {
+                debug!("failed to parse id")
+            }
+        }
+    }
 }

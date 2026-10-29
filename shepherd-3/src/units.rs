@@ -409,7 +409,7 @@ pub use ratios::*;
 /// Operator overloading for the wrapper types.
 pub mod ops {
     use super::*;
-    use core::ops::{Add, Sub, Mul, Div, AddAssign, SubAssign, MulAssign, DivAssign};
+    use core::ops::{Add, Sub, Mul, Div, Neg, AddAssign, SubAssign, MulAssign, DivAssign};
 
     /// Implemented by every wrapper type.
     pub trait Wrapper: Copy {
@@ -521,6 +521,26 @@ pub mod ops {
     wrapper_ops!(ResistancePerLength, UomResistancePerLength);
     wrapper_ops!(Length, UomLength);
     wrapper_ops!(Ratio, UomRatio);
+
+    /// Forwards negation operations
+    macro_rules! forward_neg_op {
+        ($wrapper:ident, $inner:ty) => {
+            impl Neg for $wrapper
+            where
+                $inner: Neg<Output = $inner>,
+            {
+                type Output = Self;
+                fn neg(self) -> Self {
+                    Self::from_inner(self.as_inner().neg())
+                }
+            }
+        };
+    }
+
+    // Only the quantities where a sign means something
+    forward_neg_op!(Voltage, UomVoltage);
+    forward_neg_op!(Current, UomCurrent);
+    forward_neg_op!(Ratio, UomRatio);
 }
 
 /// Module for `const fn` constructors for certain units.
@@ -657,6 +677,7 @@ pub mod consts {
 }
 
 /// adbms6830b temperature scale (microcelsius resolution).
+#[allow(clippy::disallowed_types)]
 mod microcelcius_unit {
     uom::unit! {
         system: uom::si;
@@ -668,6 +689,7 @@ mod microcelcius_unit {
 pub use microcelcius_unit::microcelcius;
 
 /// adbms2950 temperature scale (millicelsius resolution).
+#[allow(clippy::disallowed_types)]
 mod millicelcius_unit {
     uom::unit! {
         system: uom::si;

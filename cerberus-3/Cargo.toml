@@ -1,7 +1,11 @@
 [package]
 edition = "2024"
-name = "cerberus"
+name = "cerberus-3"
 version = "0.1.0"
+
+[features]
+disable_reverse = []
+tsms_overide = []
 
 [dependencies]
 cortex-m.workspace = true
@@ -21,9 +25,15 @@ static_cell.workspace = true
 embassy-net.workspace = true
 rust-mqtt.workspace = true
 sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", version = "0.1.0" }
-ner-can = { package = "can-handler", git = "https://github.com/Northeastern-Electric-Racing/firmware-rs", branch = "can-handler-v2" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "2226d9a858cc40f3be02ec79a9a070f300b390af" }
+cangen.workspace = true
+can-handler.workspace = true
+num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 variant_count = "1.2.1"
+uom = {
+    version = "0.38",
+    default-features = false,
+    features = ["si", "f32", "autoconvert"]
+}
 
 [lints.clippy]
 enum_variant_names = "allow"

@@ -30,7 +30,7 @@ bitfield-struct = "0.13"
 assign-resources = "0.5.0"
 
 can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "45c9c098e9f729812cfbe101cc7d9747759f0a2e" }
+cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 
 embassy-net = { version = "0.9.1", features = ["udp", "tcp", "medium-ethernet", "ipv4", "icmp-ping-reply", "defmt"] }
 rust-mqtt = { version = "0.5",default-features = false, features = ["defmt", "bump", "v5"]}
