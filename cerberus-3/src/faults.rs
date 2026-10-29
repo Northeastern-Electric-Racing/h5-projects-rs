@@ -24,18 +24,18 @@ pub enum Fault {
 
 impl Fault {
     pub fn is_critical(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Fault::CAN_OUTGOING_FAULT
-            | Fault::CAN_INCOMING_FAULT
-            | Fault::BMS_CAN_MONITOR_FAULT
-            | Fault::LIGHTNING_CAN_MONITOR_FAULT
-            | Fault::PRECHARGE_FLOATING_FAULT
-            | Fault::MOTOR_TEMP_SENSOR_FAULT => true,
-            _ => false,
-        }
+                | Fault::CAN_INCOMING_FAULT
+                | Fault::BMS_CAN_MONITOR_FAULT
+                | Fault::LIGHTNING_CAN_MONITOR_FAULT
+                | Fault::PRECHARGE_FLOATING_FAULT
+                | Fault::MOTOR_TEMP_SENSOR_FAULT
+        )
     }
     fn as_bitmap_component(&self) -> u32 {
-        1 << (self.clone() as u32)
+        1 << (*self as u32)
     }
 }
 
