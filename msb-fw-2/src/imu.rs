@@ -13,7 +13,7 @@ use embassy_stm32::spi::Spi;
 use embassy_stm32::spi::mode::Master;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
-use embassy_time::{Delay, Duration, Ticker};
+use embassy_time::{Delay, Duration, Ticker, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use lsm6dsv_ner::{AccelRange, Config, DataRate, GyroRange, ImuReading, Lsm6dsv};
 
@@ -41,7 +41,20 @@ pub static IMU_DATA: Watch<ThreadModeRawMutex, ImuReading, MAX_RECEIVERS> = Watc
 
 #[embassy_executor::task]
 pub async fn imu_task(spi: ImuSpi) {
+    Timer::after_millis(20).await;   // let the IMU finish booting after power-up
     let mut imu = Lsm6dsv::new(spi, Delay);
+    // Keep retrying instead of giving up, so the bus stays alive for debugging.
+    loop {
+        match imu.init(CONFIG).await {
+            Ok(()) => break,
+            Err(e) => {
+                defmt::error!("LSM6DSV init failed: {} (retrying)", e);
+                Timer::after_millis(100).await;
+            }
+        }
+    }
+    defmt::info!("LSM6DSV initialised: {}", CONFIG);
+
     if let Err(e) = imu.init(CONFIG).await {
         defmt::error!("LSM6DSV init failed: {} (check SPI wiring/mode)", e);
         return;

@@ -139,10 +139,10 @@ async fn main(spawner: Spawner) -> ! {
     let mag_cs = Output::new(p.PA11, Level::High, Speed::VeryHigh);
     let mag_spi = ExclusiveDevice::new(spi2, mag_cs, Delay)
         .expect("Failed to create SPI device for magnetometer");
-    // spawner.spawn(
-    //     magnetometer::magnetometer_task(mag_spi)
-    //         .expect("Failed to spawn magnetometer::magnetometer_task()."),
-    // );
+    spawner.spawn(
+        magnetometer::magnetometer_task(mag_spi)
+            .expect("Failed to spawn magnetometer::magnetometer_task()."),
+    );
 
     // imu on SPI1
     let mut spi1_config = spi::Config::default();

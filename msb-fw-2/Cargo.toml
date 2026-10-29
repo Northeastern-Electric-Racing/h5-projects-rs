@@ -22,7 +22,7 @@ panic-probe.workspace = true
 static_cell.workspace = true
 hdc2021-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "hdc2021-ner" }
 lis2mdl-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "lis2mdl-ner" }
-# lsm6dsv-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "lsm6dsv-ner" }
+lsm6dsv-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "lsm6dsv-ner" }
 
 
 
