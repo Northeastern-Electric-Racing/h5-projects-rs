@@ -100,26 +100,26 @@ async fn main(spawner: Spawner) -> ! {
         u19_d4: p.PF12,
     };
 
-    // spawner.spawn(
-    //     multiplexor_handler::mux_scan_task(mux_resources)
-    //         .expect("Failed to spawn multiplexor_handler::mux_scan_task()."),
-    // );
-    // spawner
-    //     .spawn(shock_pot::shock_pot_task().expect("Failed to spawn shock_pot::shock_pot_task()."));
-    // spawner.spawn(
-    //     steering_angle::steering_angle_task()
-    //         .expect("Failed to spawn steering_angle::steering_angle_task()."),
-    // );
-    // spawner.spawn(
-    //     strain_guage::strain_gauge_task()
-    //         .expect("Failed to spawn strain_guage::strain_gauge_task()."),
-    // );
-    // spawner
-    //     .spawn(load_cell::load_cell_task().expect("Failed to spawn load_cell::load_cell_task()."));
-    // spawner.spawn(
-    //     thermocouple::thermocouple_task()
-    //         .expect("Failed to spawn thermocouple::thermocouple_task()."),
-    // );
+    spawner.spawn(
+        multiplexor_handler::mux_scan_task(mux_resources)
+            .expect("Failed to spawn multiplexor_handler::mux_scan_task()."),
+    );
+    spawner
+        .spawn(shock_pot::shock_pot_task().expect("Failed to spawn shock_pot::shock_pot_task()."));
+    spawner.spawn(
+        steering_angle::steering_angle_task()
+            .expect("Failed to spawn steering_angle::steering_angle_task()."),
+    );
+    spawner.spawn(
+        strain_guage::strain_gauge_task()
+            .expect("Failed to spawn strain_guage::strain_gauge_task()."),
+    );
+    spawner
+        .spawn(load_cell::load_cell_task().expect("Failed to spawn load_cell::load_cell_task()."));
+    spawner.spawn(
+        thermocouple::thermocouple_task()
+            .expect("Failed to spawn thermocouple::thermocouple_task()."),
+    );
 
     // magnetometer on SPI2
     let mut spi2_config = spi::Config::default();
@@ -184,10 +184,10 @@ async fn main(spawner: Spawner) -> ! {
         right_timer: p.TIM15,
         right_pin: p.PC12,
     };
-    // spawner.spawn(
-    //     wheel_speed::wheel_speed_task(wheel_speed_resources)
-    //         .expect("Failed to spawn wheel_speed::wheel_speed_task()."),
-    // );
+    spawner.spawn(
+        wheel_speed::wheel_speed_task(wheel_speed_resources)
+            .expect("Failed to spawn wheel_speed::wheel_speed_task()."),
+    );
 
     let can_resources = CanResources {
         can: p.FDCAN2,
