@@ -29,6 +29,7 @@ cangen.workspace = true
 can-handler.workspace = true
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 variant_count = "1.2.1"
+embedded-sht3x = "0.2.0"
 uom = {
     version = "0.38",
     default-features = false,

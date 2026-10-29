@@ -20,11 +20,13 @@ mod buttons;
 mod can;
 mod efuses;
 mod pedals;
+mod peripherals;
 mod rtds;
 mod shutdown;
 mod statemachine;
 
 use crate::can::can_inbox_task;
+use crate::peripherals::I2C2Resources;
 use crate::shutdown::ShutdownInputs;
 use crate::shutdown::report_shutdown_task;
 use adc::{Adc1Resources, adc1_task};
@@ -194,6 +196,16 @@ async fn main(spawner: Spawner) -> ! {
             tsms: p.PG9,
         })
         .expect("Failed to spawn shutdown::report_shutdown_task()."),
+    );
+
+    // Peripherals (temp sensor)
+    spawner.spawn(
+        peripherals::peripherals_task(I2C2Resources {
+            i2c: p.I2C2,
+            scl: p.PF1, //need to update
+            sda: p.PF0, //need to update
+        })
+        .expect("Failed to spawn peripherals::peripherals_task()."),
     );
 
     // RTDS
