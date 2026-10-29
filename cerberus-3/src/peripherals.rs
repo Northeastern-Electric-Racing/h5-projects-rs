@@ -1,64 +1,43 @@
-//! Periphal device structs
+//! Peripheral device structs
+//!
+//! Contains temperature sensor and imu
 
+use cangen::ToCanFrame;
 use defmt::{debug, warn};
-use embassy_stm32::{
-    Peripherals, bind_interrupts, dma,
-    i2c::{I2c, Master},
-    mode::Async,
-    peripherals,
-};
+use embassy_stm32::Peri;
+use embassy_stm32::i2c::{I2c, Master};
+use embassy_stm32::mode::Blocking;
+use embassy_stm32::peripherals;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
-use embassy_time::Delay;
-use embedded_sht3x::{Repeatability::High, Sht3x, Status, Temperature};
-use uom::si::{
-    f32::{Ratio, ThermodynamicTemperature},
-    ratio::percent,
-    thermodynamic_temperature::degree_celsius,
-};
+use embassy_time::{Delay, Duration, Ticker};
+use embedded_sht3x::{Repeatability::Medium, Sht3x, Status, Temperature};
+use uom::si::f32::{Ratio, ThermodynamicTemperature};
+use uom::si::ratio::percent;
+use uom::si::thermodynamic_temperature::degree_celsius;
 
 const SHT30_ADDRESS: u8 = 0x44;
+const TEMP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 static TEMP_SENSOR: CriticalSectionRawMutex = CriticalSectionRawMutex::new();
 
-bind_interrupts!(struct I2cIrqs {
-    GPDMA1_CHANNEL5 => dma::InterruptHandler<peripherals::GPDMA1_CH5>; //need to update
-    GPDMA1_CHANNEL6 => dma::InterruptHandler<peripherals::GPDMA1_CH6>; //need to update
-    I2C1_EV => embassy_stm32::i2c::EventInterruptHandler<peripherals::I2C1>;
-    I2C1_ER => embassy_stm32::i2c::ErrorInterruptHandler<peripherals::I2C1>;
-});
+pub struct I2C2Resources {
+    pub i2c: Peri<'static, peripherals::I2C2>,
+    pub scl: Peri<'static, peripherals::PF1>, // need to update
+    pub sda: Peri<'static, peripherals::PF0>, // need to update
+}
 
-pub struct TempSensor {
-    sensor: embedded_sht3x::Sht3x<I2c<'static, Async, Master>, Delay>,
+pub struct TempSensor<'a> {
+    sensor: embedded_sht3x::Sht3x<&'a mut I2c<'static, Blocking, Master>, Delay>,
     i2c_address: u8,
     temperature: ThermodynamicTemperature,
     humidity: Ratio,
 }
 
-impl TempSensor {
-    pub fn sht30_init(&mut self, p: Peripherals, address: u8) {
+impl TempSensor<'_> {
+    pub fn sht30_init(&mut self) {
         TEMP_SENSOR.lock(|| {
-            let i2c = I2c::new(
-                p.I2C1,
-                p.PB6,        //need to update
-                p.PB7,        //need to update
-                p.GPDMA1_CH6, //need to update
-                p.GPDMA1_CH5, //need to update
-                I2cIrqs,
-                embassy_stm32::i2c::Config::default(),
-            );
-
-            match Sht3x::new(i2c, SHT30_ADDRESS, Delay) {
-                Ok(sensor_init) => {
-                    self.sensor = sensor_init;
-                    self.sensor.repeatability = High;
-                }
-                Err(_) => {
-                    warn!("Sht30 init error occured");
-                }
-            }
-            self.i2c_address = address;
-            self.temperature = ThermodynamicTemperature::new::<degree_celsius>(0.0);
-            self.humidity = Ratio::new::<percent>(0.0);
+            self.sensor.repeatability = Medium;
         });
+        self.tempsensor_get_temperature_and_humidity(); //get initial reading
     }
 
     pub fn tempsensor_toggle_heater(&mut self, enable: bool) {
@@ -82,7 +61,7 @@ impl TempSensor {
                     }
                 }
                 Err(_) => {
-                    debug!("Sht30 status error occured");
+                    debug!("Sht30 status error occurred");
                 }
             };
         });
@@ -106,5 +85,54 @@ impl TempSensor {
             self.temperature.get::<degree_celsius>(),
             self.humidity.get::<percent>(),
         )
+    }
+}
+
+#[embassy_executor::task]
+pub async fn peripherals_task(i2c_resources: I2C2Resources) {
+    let mut ticker = Ticker::every(TEMP_POLL_INTERVAL);
+
+    let mut i2c = I2c::new_blocking(
+        i2c_resources.i2c,
+        i2c_resources.scl,
+        i2c_resources.sda,
+        embassy_stm32::i2c::Config::default(),
+    );
+
+    //initialization will loop until successful
+    let sensor_init = loop {
+        match Sht3x::new(&mut i2c, SHT30_ADDRESS, Delay) {
+            Ok(s) => break s,
+            Err(_) => {
+                warn!("Sht30 init failed, retrying");
+            }
+        }
+        ticker.next().await;
+    };
+
+    let mut temp_sensor: TempSensor = TempSensor {
+        sensor: sensor_init,
+        i2c_address: SHT30_ADDRESS,
+        temperature: ThermodynamicTemperature::new::<degree_celsius>(0.0),
+        humidity: Ratio::new::<percent>(0.0),
+    };
+    temp_sensor.sht30_init();
+
+    loop {
+        ticker.next().await;
+
+        let temp_humidity_reading = temp_sensor.tempsensor_get_temperature_and_humidity();
+        if temp_humidity_reading == (0.0, 0.0) {
+            continue;
+        }
+
+        crate::can::OUTGOING
+            .send(
+                cangen::TemperatureSensor::new()
+                    .with_vcu_temperature(temp_humidity_reading.0)
+                    .with_vcu_humidity(temp_humidity_reading.1)
+                    .to_can_frame(),
+            )
+            .await;
     }
 }

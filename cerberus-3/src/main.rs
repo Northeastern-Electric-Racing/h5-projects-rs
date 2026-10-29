@@ -24,6 +24,7 @@ mod rtds;
 mod statemachine;
 
 use crate::can::can_inbox_task;
+use crate::peripherals::I2C2Resources;
 use adc::{Adc1Resources, Adc2Resources, adc1_task, adc2_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
@@ -178,6 +179,15 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(
         rtds::rtds_task(rtds_pin, rtds::is_shutdown_closed_placeholder)
             .expect("Failed to spawn rtds::rtds_task()."),
+    );
+
+    spawner.spawn(
+        peripherals::peripherals_task(I2C2Resources {
+            i2c: p.I2C2,
+            scl: p.PF1, //need to update
+            sda: p.PF0, //need to update
+        })
+        .expect("Failed to spawn peripherals::peripherals_task()."),
     );
 
     // Watchdog
