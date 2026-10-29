@@ -11,7 +11,9 @@ pub mod analyzer {
     use embassy_time::Instant;
     use embassy_sync::blocking_mutex::ThreadModeMutex;
     use core::cell::Cell;
-    use crate::helpers::snapshot_cell::SnapshotCell;
+    use crate::helpers::startup_cell::{StartupCell, UnwriteableStartupCell};
+    use crate::faults;
+    use crate::faults::{FaultCommand, PassFailAction};
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
     #[derive(Copy, Clone)]
@@ -23,7 +25,7 @@ pub mod analyzer {
     }
 
     /// The most recently published analyzer data.
-    static ANALYZER: SnapshotCell<Option<AnalyzerHolder>> = SnapshotCell::new(None);
+    static ANALYZER: StartupCell<AnalyzerHolder> = StartupCell::new();
 
     /// What other nodes report about the pack over CAN.
     struct ReportedOverCan {
@@ -50,16 +52,16 @@ pub mod analyzer {
         REPORTED_DATA.lock(|reported| reported.ts_voltage.set(Some(voltage)));
     }
 
-    /// Copies out the analyzer data.
+    /// Gets a handle to the most recently published analyzer data.
     ///
-    /// If the analyzer data hasn't been updated yet, this returns `None`.
-    pub fn analyzer() -> Option<AnalyzerHolder> {
-        ANALYZER.take_snapshot()
+    /// The cell stays empty until the analyzer task publishes for the first time.
+    pub fn analyzer() -> &'static UnwriteableStartupCell<AnalyzerHolder> {
+        ANALYZER.to_unwriteable()
     }
 
     /// Publishes a copy of `analyzer` for other tasks to read.
     fn update(analyzer: Analyzer) {
-        ANALYZER.set(Some(AnalyzerHolder { data: analyzer, last_updated: Instant::now() }))
+        ANALYZER.set(AnalyzerHolder { data: analyzer, last_updated: Instant::now() })
     }
 
     #[derive(Copy, Clone)]
@@ -111,106 +113,12 @@ pub mod analyzer {
         }
     }
 
-    /// Analyzer's comprehensive view of chip data taken from the cache. This represents data for a single chip.
-    ///
-    /// This isn't 100% analgous to the `chipdata_t` struct from TSECU-Shep. This is meant
-    /// to be the stuff for Analyzer that can be taken directly from the cache (but doesn't incldue anything it has to calculate itself).
-    #[derive(Copy, Clone)]
-    #[allow(dead_code)]
-    pub struct ChipData {
-        pub cell_temp: IndexByCell<Temperature>,
-        pub cell_voltages: IndexByCell<Voltage>,
-        pub s_cell_voltages: IndexByCell<Voltage>,
-        pub s_cell_ow_even_on: IndexByCell<Voltage>,
-        pub s_cell_ow_odd_on: IndexByCell<Voltage>,
-
-        pub on_board_temp_1: Temperature,
-        pub on_board_temp_2: Temperature,
-        pub on_board_temp_3: Temperature,
-
-        pub die_temp: Temperature,
-
-        pub is_balancing: IndexByCell<bool>,
-        pub cs_fault: IndexByCell<bool>,
-
-        pub vpv: Voltage,
-        pub vmv: Voltage,
-        pub v_res: Voltage,
-        pub vref2: Voltage,
-        pub v_analog: Voltage,
-        pub v_digital: Voltage,
-    }
-    impl ChipData {
-        /// Creates a new `ChipData` with new cache data.
-        ///
-        /// If the cache hasn't been updated yet (probably meaning we very recently booted), this
-        /// will return Err(()).
-        pub async fn new() -> IndexByChip<Self> {
-            let cache = crate::segments::cache();
-
-            let redundant_aux = *cache.get_redundant_aux().nice().ready().await.get().data();
-            let aux = *cache.get_aux().nice().ready().await.get().data();
-            let status_a = *cache.get_status_a().nice().ready().await.get().data();
-            let status_b = *cache.get_status_b().nice().ready().await.get().data();
-            let status_c = *cache.get_status_c().nice().ready().await.get().data();
-            let s_voltages = *cache.get_s_voltages().nice().ready().await.get().data();
-            let pwm = *cache.get_pwm().nice().ready().await.get().data();
-
-            let s_voltages_ow_even_on;
-            let s_voltages_ow_odd_on;
-            #[cfg(not(feature = "hil"))]
-            {
-                s_voltages_ow_even_on = *cache.get_s_voltages_ow_even_on().nice().ready().await.get().data();
-                s_voltages_ow_odd_on = *cache.get_s_voltages_ow_odd_on().nice().ready().await.get().data();
-            }
-            #[cfg(feature = "hil")]
-            {
-                s_voltages_ow_even_on = IndexByChip::from_fn(|_| IndexByCell::from_value(Voltage::from_volts(0.)));
-                s_voltages_ow_odd_on = IndexByChip::from_fn(|_| IndexByCell::from_value(Voltage::from_volts(0.)));
-            }
-
-            // Get cell voltagse, either from `cell_voltages` or `filtered_cell_voltages` depending on if we're charging or not
-            let cell_voltages = match state_machine::bms_state() {
-                BmsState::Charging => *cache.get_cell_voltages().nice().ready().await.get().data(),
-
-                _ => *cache.get_filtered_cell_voltages().nice().ready().await.get().data(),
-            };
-
-            IndexByChip::from_fn(|chip| {
-                let temps = redundant_aux[chip].to_temps();
-
-                Self {
-                    cell_temp: temps.cell_temperatures,
-                    cell_voltages: cell_voltages[chip],
-                    s_cell_voltages: s_voltages[chip],
-                    s_cell_ow_even_on: s_voltages_ow_even_on[chip],
-                    s_cell_ow_odd_on: s_voltages_ow_odd_on[chip],
-                    on_board_temp_1: temps.on_board_temp_1,
-                    on_board_temp_2: temps.on_board_temp_2,
-                    on_board_temp_3: temps.on_board_temp_3,
-                    die_temp: status_a[chip].itmp,
-                    is_balancing: pwm[chip].map_ref(|cfg| cfg.is_balancing()),
-                    cs_fault: status_c[chip].cell_channel_comparison_faults.map_ref(|cfg| cfg.is_set()),
-                    vpv: aux[chip].vpv,
-                    vmv: aux[chip].vmv,
-                    v_res: status_b[chip].vres,
-                    vref2: status_a[chip].vref2,
-                    v_analog: status_b[chip].va,
-                    v_digital: status_b[chip].vd,
-                }
-            })
-        }
-    }
-
     /// 6 consoles 10 computers
     #[derive(Copy, Clone)]
     #[allow(dead_code)]
     pub struct Analyzer {
-        /// Data directly from the ADBMS6830B chips.
-        pub chip_data: IndexByChip<ChipData>,
+        pub corrected_cell_voltages: IndexByChip<IndexByCell<Voltage>>,
 
-        // Stuff that was on `chipdata_t` in the C code but wasn't moved over to `ChipData` in the Rust code
-        // because it is a calculated value rather than something taken directly from the chips
         pub cell_resistance: IndexByChip<IndexByCell<Resistance>>,
         pub open_cell_voltage: IndexByChip<IndexByCell<Voltage>>,
         pub ow_fault: IndexByChip<IndexByCell<bool>>,
@@ -260,11 +168,9 @@ pub mod analyzer {
         pub pack_voltage: Voltage,
     }
     impl Analyzer {
-        /// Creates a new Analyzer with `chip_data`, and blank data for all the
-        /// derived values.
-        pub fn new(chip_data: IndexByChip<ChipData>) -> Self {
+        pub fn new() -> Self {
             Self {
-                chip_data,
+                corrected_cell_voltages: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| Voltage::new::<volt>(f32::MIN))),
 
                 cell_resistance: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| Resistance::new::<ohm>(f32::MIN))),
                 open_cell_voltage: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| Voltage::new::<volt>(f32::MIN))),
@@ -333,7 +239,7 @@ pub mod analyzer {
     }
 
     impl Analyzer {
-        fn calc_pack_temps(&mut self) {
+        fn calc_pack_temps(&mut self, cell_temp: &IndexByChip<IndexByCell<Temperature>>, die_temp: &IndexByChip<Temperature>) {
             // Reset the last cycle's critical values.
             self.max_temp = CriticalCellValue {
                 value: Temperature::new::<degree_celsius>(f32::MIN),
@@ -355,7 +261,7 @@ pub mod analyzer {
 
             for chip in ChipId::iter() {
                 for cell in CellId::iter() {
-                    let temp: Temperature = self.chip_data[chip].cell_temp[cell];
+                    let temp: Temperature = cell_temp[chip][cell];
 
                     if temp > self.max_temp.value() {
                         self.max_temp = CriticalCellValue { value: temp, chip, cell }
@@ -375,7 +281,7 @@ pub mod analyzer {
                     total_seg_temp = 0_f32;
                 }
 
-                let die_temp: Temperature = self.chip_data[chip].die_temp;
+                let die_temp: Temperature = die_temp[chip];
 
                 if self.max_chiptemp.value() < die_temp {
                     self.max_chiptemp = CriticalChipValue { value: die_temp, chip }
@@ -388,7 +294,7 @@ pub mod analyzer {
         /// Doesn't really actually do that much calculating. Basically just moves data into `self.cell_voltages`, choosing the source
         /// register depending on if we are charging or not. Also has to do some post-processing corrections for 25A specifically (since this was in TSECU-Shepherd code).
         /// This doesn't modify anything in the cache itself (since that's raw reads), this just initializes (and post-processes) the Analyzer's cell voltage data.
-        fn calc_cell_voltages(&mut self) {
+        fn calc_cell_voltages(&mut self, cell_voltages: &IndexByChip<IndexByCell<Voltage>>) {
             let state = state_machine::bms_state();
 
             for chip in ChipId::iter() {
@@ -423,7 +329,8 @@ pub mod analyzer {
                 };
 
                 // I*R is the way
-                self.chip_data[chip].cell_voltages[cell] += curr_bal * res;
+                self.corrected_cell_voltages[chip][cell] = cell_voltages[chip][cell];
+                self.corrected_cell_voltages[chip][cell] += curr_bal * res;
             }
         }
 
@@ -431,7 +338,7 @@ pub mod analyzer {
         ///
         /// ### WARNING
         /// This should be called after `open_cell_voltage` has been initialized with actual stuff.
-        pub fn calc_pack_voltage_stats(&mut self) {
+        pub async fn calc_pack_voltage_stats(&mut self) {
             // Reset the last cycle's critical values.
             self.max_voltage = CriticalCellValue {
                 value: Voltage::new::<volt>(f32::MIN),
@@ -462,23 +369,23 @@ pub mod analyzer {
 
             for chip in ChipId::iter() {
                 for cell in CellId::iter() {
-                    if self.chip_data[chip].cell_voltages[cell] > self.max_voltage.value() {
-                        self.max_voltage = CriticalCellValue { value: self.chip_data[chip].cell_voltages[cell], chip, cell }
+                    if self.corrected_cell_voltages[chip][cell] > self.max_voltage.value() {
+                        self.max_voltage = CriticalCellValue { value: self.corrected_cell_voltages[chip][cell], chip, cell }
                     }
 
                     if self.open_cell_voltage[chip][cell] > self.max_ocv.value() {
                         self.max_ocv = CriticalCellValue { value: self.open_cell_voltage[chip][cell], chip, cell }
                     }
 
-                    if self.chip_data[chip].cell_voltages[cell] < self.min_voltage.value() {
-                        self.min_voltage = CriticalCellValue { value: self.chip_data[chip].cell_voltages[cell], chip, cell }
+                    if self.corrected_cell_voltages[chip][cell] < self.min_voltage.value() {
+                        self.min_voltage = CriticalCellValue { value: self.corrected_cell_voltages[chip][cell], chip, cell }
                     }
 
                     if self.open_cell_voltage[chip][cell] < self.min_ocv.value() {
                         self.min_ocv = CriticalCellValue { value: self.open_cell_voltage[chip][cell], chip, cell }
                     }
 
-                    total_volt += self.chip_data[chip].cell_voltages[cell];
+                    total_volt += self.corrected_cell_voltages[chip][cell];
                     total_ocv += self.open_cell_voltage[chip][cell];
                     total_seg_volt += self.open_cell_voltage[chip][cell];
                 }
@@ -500,9 +407,34 @@ pub mod analyzer {
             self.avg_ocv = total_ocv / (NUM_CELLS_TOTAL as f32);
             self.pack_ocv = total_ocv;
             self.delta_ocv = self.max_ocv.value() - self.min_ocv.value();
+
+            // Update cell voltage too low fault
+            if !self.ocv_is_first_reading {
+                if self.min_ocv.value() < Voltage::from_volts(2.5) {
+                    faults::queue(FaultCommand::CellVoltageTooLow(PassFailAction::NotifyBad)).await;
+                } else {
+                    faults::queue(FaultCommand::CellVoltageTooLow(PassFailAction::NotifyOkay)).await;
+                }
+
+                // Update cell voltage too high fault
+                // (note: the separate CellChargeVoltageTooHigh fault from TSECU-Shepherd is combined with CellVoltageTooHigh now, they just check different values depending on state)
+                let max = if crate::state_machine::bms_state().is_charging() { Voltage::from_volts(4.193) } else { Voltage::from_volts(4.2) };
+                if self.max_ocv.value() > max {
+                    faults::queue(FaultCommand::CellVoltageTooHigh(PassFailAction::NotifyBad)).await;
+                } else {
+                    faults::queue(FaultCommand::CellVoltageTooHigh(PassFailAction::NotifyOkay)).await;
+                }
+            }
+
+            // Update chip temp fault
+            if self.max_chiptemp.value() > Temperature::from_celsius(60.0) {
+                faults::queue(FaultCommand::DieTempMaximumFault(PassFailAction::NotifyBad)).await;
+            } else {
+                faults::queue(FaultCommand::DieTempMaximumFault(PassFailAction::NotifyOkay)).await;
+            }
         }
 
-        pub async fn detect_cell_open_wire(&mut self) {
+        pub async fn detect_cell_open_wire(&mut self, _s_voltages_ow_even_on: &IndexByChip<IndexByCell<Voltage>>, _s_voltages_ow_odd_on: &IndexByChip<IndexByCell<Voltage>>) {
             let mut open_wire_fault_active = false;
 
             for chip in ChipId::iter() {
@@ -513,9 +445,9 @@ pub mod analyzer {
                     }
 
                     // Cell voltage when even cells were excited and odd cells were left normal.
-                    let even_excited: Voltage = self.chip_data[chip].s_cell_ow_even_on[cell];
+                    let even_excited: Voltage = _s_voltages_ow_even_on[chip][cell];
                     // Cell voltage when odd cells were excited and even cells were left normal.
-                    let odd_excited: Voltage = self.chip_data[chip].s_cell_ow_odd_on[cell];
+                    let odd_excited: Voltage = _s_voltages_ow_odd_on[chip][cell];
 
                     let depends: Comparison = if cell.is_even() {
                         // This cell is even, so its `excited` voltage comes from when only even cells were excited,
@@ -541,9 +473,6 @@ pub mod analyzer {
                     }
                 }
             }
-
-            use crate::faults;
-            use crate::faults::{FaultCommand, PassFailAction};
 
             if open_wire_fault_active {
                 faults::queue(FaultCommand::CellOpenWireFault(PassFailAction::NotifyBad)).await;
@@ -572,7 +501,7 @@ pub mod analyzer {
             };
 
             if self.ocv_is_first_reading {
-                let last_cell: Voltage = self.chip_data[ChipId::last()].cell_voltages[CellId::last()];
+                let last_cell: Voltage = self.corrected_cell_voltages[ChipId::last()][CellId::last()];
 
                 if last_cell > Voltage::from_volts(1.0_f32) && last_cell < Voltage::from_volts(5.0_f32) {
                     self.ocv_is_first_reading = false;
@@ -598,7 +527,7 @@ pub mod analyzer {
             if update_ocv {
                 for chip in ChipId::iter() {
                     for cell in CellId::iter() {
-                        self.open_cell_voltage[chip][cell] = self.chip_data[chip].cell_voltages[cell];
+                        self.open_cell_voltage[chip][cell] = self.corrected_cell_voltages[chip][cell];
                     }
                 }
 
@@ -619,7 +548,8 @@ pub mod analyzer {
             segments::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL, SegmentId},
             units::{degree_celsius, volt},
         };
-        use embassy_time::Duration;
+        use crate::segments;
+        use crate::state_machine::{BmsState};
 
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
@@ -634,20 +564,40 @@ pub mod analyzer {
         #[allow(unused)]
         let mut analyzer_task_run_count: usize = 0;
 
+        // This block of code assumes that all of these are getting filled by the segments task every cycle. If in the future,
+        // someone modifies the segments task to only update some depending on car state, these might sleep this task for a long time
+        // if a group in the cache ends up not getting initialized for a while after boot
+        let normal_cell_voltages = segments::cache().get_cell_voltages().nice().ready().await;
+        let filtered_cell_voltages = segments::cache().get_filtered_cell_voltages().nice().ready().await;
+        let redundant_aux = segments::cache().get_redundant_aux().nice().ready().await;
+        let status_a = segments::cache().get_status_a().nice().ready().await;
+        let _s_voltages_ow_even_on = segments::cache().get_s_voltages_ow_even_on().nice().ready().await;
+        let _s_voltages_ow_odd_on = segments::cache().get_s_voltages_ow_odd_on().nice().ready().await;
+
         loop {
             // Run one loop of this task every time new Segments data arrives.
             segments_freshdata_subscription.wait().await;
 
-            let chip_data = match embassy_time::with_timeout(Duration::from_secs(1), ChipData::new()).await {
-                Ok(data) => data,
-                Err(_) => {
-                    defmt::warn!("analyzer_task: The cache hasn't been updated yet, even after 1 second of waiting. Something is probably wrong. Exiting this task early (it will run again after the next segments update).");
-                    continue;
-                },
+            // Get cell voltages depending on if we are charging or not.
+            let cell_voltages = match state_machine::bms_state() {
+                // If we are charging, get normal cell voltages.
+                BmsState::Charging => *normal_cell_voltages.get().data(),
+                // If we are not charging, get filtered cell voltages.
+                _ => *filtered_cell_voltages.get().data(),
             };
 
-            let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new(chip_data));
-            analyzer.chip_data = chip_data;
+            let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new());
+
+            let cell_temps: IndexByChip<IndexByCell<Temperature>> = {
+                let rdax = *redundant_aux.get().data();
+
+                IndexByChip::from_fn(|chip| {
+                    let temps = rdax[chip].to_temps().cell_temperatures;
+                    IndexByCell::from_fn(|cell| temps[cell])
+                })
+            };
+
+            let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| status_a.get().data()[chip].itmp);
 
             let soc_data = crate::hv_plate::soc_data();
             // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly
@@ -658,17 +608,17 @@ pub mod analyzer {
             // this whole section is supposed to look pretty similar to the C code just so
             // we make sure we bring everything over correctly.
             // calc_cell_temps() is in the C code, but is not needed here because the chipdata already calculates cell temps.
-            analyzer.calc_pack_temps();
-            analyzer.calc_cell_voltages();
+            analyzer.calc_pack_temps(&cell_temps, &die_temps);
+            analyzer.calc_cell_voltages(&cell_voltages);
             analyzer.calc_open_cell_voltage();
-            analyzer.calc_pack_voltage_stats();
+            analyzer.calc_pack_voltage_stats().await;
 
             // calc_celL_resistances u_TODO - also needs hv_plate so see above
             // we don't need `update_chip_status()` from the C code since all of that stuff is just done by ChipData::new()
 
             #[cfg(not(feature = "hil"))]
             if segments_openwire_subscription.has_been_signaled() {
-                analyzer.detect_cell_open_wire().await;
+                analyzer.detect_cell_open_wire(_s_voltages_ow_even_on.get().data(), _s_voltages_ow_odd_on.get().data()).await;
             }
 
             update(*analyzer);
