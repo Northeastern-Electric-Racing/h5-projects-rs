@@ -41,7 +41,7 @@ pub static IMU_DATA: Watch<ThreadModeRawMutex, ImuReading, MAX_RECEIVERS> = Watc
 
 #[embassy_executor::task]
 pub async fn imu_task(spi: ImuSpi) {
-    Timer::after_millis(20).await;   // let the IMU finish booting after power-up
+    Timer::after_millis(20).await; // let the IMU finish booting after power-up
     let mut imu = Lsm6dsv::new(spi, Delay);
     // Keep retrying instead of giving up, so the bus stays alive for debugging.
     loop {
