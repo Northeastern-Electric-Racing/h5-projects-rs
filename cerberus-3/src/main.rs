@@ -10,6 +10,7 @@ use embassy_stm32::Config;
 use embassy_stm32::gpio::Level;
 use embassy_stm32::gpio::Output;
 use embassy_stm32::gpio::Speed;
+use embassy_stm32::peripherals::PE2;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_time::Timer;
@@ -23,6 +24,7 @@ mod pedals;
 mod rtds;
 mod shutdown;
 mod statemachine;
+mod debug;
 
 use crate::can::can_inbox_task;
 use crate::shutdown::ShutdownInputs;
@@ -199,6 +201,7 @@ async fn main(spawner: Spawner) -> ! {
     // RTDS
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
     spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
+    spawner.spawn(debug::user_button_task(p.PE2, p.EXTI2).expect("Failed to spawn Debug task"));
 
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
