@@ -251,7 +251,7 @@ mod state {
         /// Based on the input values, checks if we have exceeded the fault conditions.
         fn exceeded_fault_voltages(&self) -> bool { (self.max_ocv >= MAX_CHARGE_VOLT_FLT) || (self.max_voltage >= MAX_CHARGE_VOLT_FLT) }
         /// If balancing hasn't already been started, this checks if we should start. 
-        fn should_we_start_balancing(&self) -> bool { self.delta_ocv > BALANCE_START_DELTA_V }
+        fn should_we_start_balancing(&self) -> bool { (self.delta_ocv > BALANCE_START_DELTA_V) && (PWM_DUTY_CYCLE_CONFIG.read().inner() != PwmDutyCycleConfig::Disabled) }
         /// If balancing is already active, this checks if we should stop.
         fn should_we_stop_balancing(&self) -> bool { self.delta_ocv <= BALANCE_STOP_DELTA_V }
         
@@ -414,9 +414,48 @@ impl ChargerConnected {
     const fn is_connected(&self) -> bool { matches!(*self, ChargerConnected::Connected(..)) }
 }
 
+use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
+use cangen::ShepherdBmsPwmPercent;
+
+#[derive(Copy, Clone)]
+pub struct RequestedPwm { inner: PwmDutyCycleConfig }
+impl RequestedPwm {
+    pub const fn default() -> Self { Self { inner: PwmDutyCycleConfig::Disabled } }
+    pub const fn from_frame(frame: &ShepherdBmsPwmPercent) -> Self {
+        let config = frame.into_bits();
+
+        Self {
+            inner: match config {
+                1..=6 => PwmDutyCycleConfig::Pct06_6,
+                7..=13 => PwmDutyCycleConfig::Pct13_2,
+                14..=19 => PwmDutyCycleConfig::Pct19_8,
+                20..=26 => PwmDutyCycleConfig::Pct26_4,
+                27..=33 => PwmDutyCycleConfig::Pct33_0,
+                34..=39 => PwmDutyCycleConfig::Pct39_6,
+                40..=46 => PwmDutyCycleConfig::Pct46_2,
+                47..=52 => PwmDutyCycleConfig::Pct52_8,
+                53..=59 => PwmDutyCycleConfig::Pct59_4,
+                60..=66 => PwmDutyCycleConfig::Pct66_0,
+                67..=72 => PwmDutyCycleConfig::Pct72_6,
+                73..=79 => PwmDutyCycleConfig::Pct79_2,
+                80..=85 => PwmDutyCycleConfig::Pct85_8,
+                86..=92 => PwmDutyCycleConfig::Pct92_4,
+                93..=100 => PwmDutyCycleConfig::Pct100_0,
+                _ => PwmDutyCycleConfig::Disabled,
+            }
+        }
+    }
+    pub const fn inner(&self) -> PwmDutyCycleConfig { self.inner }
+}
+
+static PWM_DUTY_CYCLE_CONFIG: SnapshotCell<RequestedPwm> = SnapshotCell::new(RequestedPwm::default());
 static CHARGER_CONNECTED: SnapshotCell<ChargerConnected> = SnapshotCell::new(ChargerConnected::Disconnected);
 static CHARGE_STATE: LazySnapshotCell<Charger> = LazySnapshotCell::new(Charger::default);
 
+/// Gets current PWM duty cycle config.
+pub fn get_pwm_duty_cycle() -> PwmDutyCycleConfig { PWM_DUTY_CYCLE_CONFIG.read().inner() }
+/// To be called when we recieve a PWM config from Calypso.
+pub fn update_pwm_duty_cycle(frame: &ShepherdBmsPwmPercent) { PWM_DUTY_CYCLE_CONFIG.set(RequestedPwm::from_frame(frame)) }
 /// Indicates if the charger is connected or not.
 pub fn is_charger_connected() -> bool { CHARGER_CONNECTED.read().is_connected() }
 /// To be called when a charger message comes in.

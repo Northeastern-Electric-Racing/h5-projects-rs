@@ -8,6 +8,7 @@ mod rx_ids {
     pub const CHARGER_BOX: u32 = 0x18FF_50E5;
     pub const DTI_DC_CURRENT: u16 = 0x436;
     pub const DTI_INPUT_VOLTAGE: u16 = 0x416;
+    pub const SHEPHERD_BMS_PWM_PERCENT: u16 = 0x455;
 }
 
 /// MAIN PUBLIC API THE REST OF THE PROGRAM USES TO INTERACT WITH CAN.
@@ -49,6 +50,7 @@ mod api {
         let can = handler::NerCan::init(configurator)
             .add_standard_filter(StandardFilterSlot::_0, rx_ids::DTI_INPUT_VOLTAGE, None)
             .add_standard_filter(StandardFilterSlot::_1, rx_ids::DTI_DC_CURRENT, None)
+            .add_standard_filter(StandardFilterSlot::_2, rx_ids::SHEPHERD_BMS_PWM_PERCENT, None)
             .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None);
 
         let (tx, rx, _props) = can.start();
@@ -286,7 +288,8 @@ mod channels {
 }
 
 mod handler {
-    use defmt::warn;
+    use cangen::FromCanFrame;
+use defmt::warn;
     use embassy_stm32::can::filter::FilterType::{DedicatedDual, DedicatedSingle};
     use embassy_stm32::can::filter::{Action, ExtendedFilter, ExtendedFilterSlot, StandardFilter, StandardFilterSlot};
     use embassy_stm32::can::{CanConfigurator, CanRx, CanTx, Properties};
@@ -482,6 +485,11 @@ mod handler {
                 Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !charging::is_charger_connected() => {
                     if let Some(voltage) = decode_dti_voltage(frame.data()) {
                         pack::analyzer::store_can_ts_voltage(voltage);
+                    }
+                },
+                Id::Standard(id) if id.as_raw() == SHEPHERD_BMS_PWM_PERCENT => {
+                    if let Some(pwm) = cangen::ShepherdBmsPwmPercent::from_can_frame(&frame) {
+                        charging::update_pwm_duty_cycle(&pwm);
                     }
                 },
                 _ => {},
