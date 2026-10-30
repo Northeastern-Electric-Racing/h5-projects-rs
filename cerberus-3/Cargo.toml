@@ -34,6 +34,7 @@ uom = {
     default-features = false,
     features = ["si", "f32", "autoconvert"]
 }
+strum.workspace = true
 
 [lints.clippy]
 enum_variant_names = "allow"
