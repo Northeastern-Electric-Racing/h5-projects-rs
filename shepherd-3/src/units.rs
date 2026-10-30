@@ -123,6 +123,11 @@ pub mod temperature {
         pub const fn from_inner(inner: UomTemperature) -> Self {
             Self { kelvin: inner.value }
         }
+
+        /// Returns whichever one of `self` or `other` is larger. If they are equal, returns `self`.
+        pub fn max(&self, other: Temperature) -> Self {
+            if *self >= other { *self } else { other }
+        }
     }
 }
 pub use temperature::*;

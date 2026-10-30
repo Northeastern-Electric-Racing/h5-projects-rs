@@ -1,7 +1,7 @@
 use crate::{
     helpers::deadline::Deadline,
     state_machine::{BmsState},
-    segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
+    segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, IndexByOnboardTherm, ThermistorTemperatures, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
     units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm},
 };
 
@@ -127,6 +127,9 @@ pub mod analyzer {
         pub min_temp: CriticalCellValue<Temperature>,
         pub avg_temp: Temperature,
 
+        // On board temps
+        pub on_board_temps: IndexByChip<IndexByOnboardTherm<Temperature>>,
+
         // Max, min, and avg voltage of the cells
         pub max_voltage: CriticalCellValue<Voltage>,
         pub min_voltage: CriticalCellValue<Voltage>,
@@ -186,6 +189,8 @@ pub mod analyzer {
                     cell: CellId::Cell1,
                 },
                 avg_temp: Temperature::new::<degree_celsius>(f32::MIN),
+
+                on_board_temps: IndexByChip::from_fn(|_| IndexByOnboardTherm::from_fn(|_| Temperature::new::<degree_celsius>(f32::MIN))),
 
                 max_voltage: CriticalCellValue {
                     value: Voltage::new::<volt>(f32::MIN),
@@ -587,14 +592,16 @@ pub mod analyzer {
 
             let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new());
 
-            let cell_temps: IndexByChip<IndexByCell<Temperature>> = {
+            let temps: IndexByChip<ThermistorTemperatures> = {
                 let rdax = *redundant_aux.get().data();
 
                 IndexByChip::from_fn(|chip| {
-                    let temps = rdax[chip].to_temps().cell_temperatures;
-                    IndexByCell::from_fn(|cell| temps[cell])
+                    rdax[chip].to_temps()
                 })
             };
+            let cell_temps = IndexByChip::from_fn(|chip| temps[chip].cell_temperatures);
+            let onboard_temps = IndexByChip::from_fn(|chip| temps[chip].on_board_temps );
+            analyzer.on_board_temps = onboard_temps;
 
             let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| status_a.get().data()[chip].itmp);
 

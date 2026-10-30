@@ -24,6 +24,9 @@ use crate::helpers::snapshot_cell::{SnapshotCell, LazySnapshotCell};
 use crate::helpers::hysteresis::Hysteresis;
 use crate::segments::IndexByChip;
 use crate::segments::ChipId;
+use crate::segments;
+use crate::segments::SegmentId;
+use crate::segments::OnboardThermIndex;
 
 mod state {
     use super::*;
@@ -214,6 +217,9 @@ mod state {
         fn default() -> Self { ChargeStage::LongChargeUp(LongChargeUp::new()) }
     }
     impl ChargeStage {
+        /// Indicates if the charge stage is currently `ChrageStage::Balance`.
+        pub fn is_balancing(&self) -> bool { matches!(*self, ChargeStage::Balance(..)) }
+
         /// Creates a ChargeStage, either `LongChargeUp` or `ShortChargeUp`, from a `ChargeRestoreCache`.
         fn from_charge_restore_cache(cache: ChargeRestoreCache) -> Self {
             match cache {
@@ -455,19 +461,6 @@ static PWM_DUTY_CYCLE_CONFIG: SnapshotCell<RequestedPwm> = SnapshotCell::new(Req
 static CHARGER_CONNECTED: SnapshotCell<ChargerConnected> = SnapshotCell::new(ChargerConnected::Disconnected);
 static CHARGE_STATE: LazySnapshotCell<Charger> = LazySnapshotCell::new(Charger::default);
 
-/// Persistent state for balancing.
-pub struct BalancingThermalState {
-    chip_die_too_hot: IndexByChip<Hysteresis<Temperature>>,
-    chip_onboard_therm_too_hot: IndexByChip<Hysteresis<Temperature>>,
-    balancing_resistor_too_hot: IndexByChip<Hysteresis<Temperature>>,
-}
-impl BalancingThermalState {
-    /// If balancing is blocked or not for `chip`.
-    pub fn balance_blocked(&self, chip: ChipId) -> bool {
-        self.chip_die_too_hot[chip].active() || self.chip_onboard_therm_too_hot[chip].active() || self.balancing_resistor_too_hot[chip].active()
-    }
-}
-
 /// Gets current PWM duty cycle config.
 pub fn get_pwm_duty_cycle() -> PwmDutyCycleConfig { PWM_DUTY_CYCLE_CONFIG.read().inner() }
 /// To be called when we recieve a PWM config from Calypso.
@@ -478,6 +471,8 @@ pub fn is_charger_connected() -> bool { CHARGER_CONNECTED.read().is_connected() 
 pub fn alert_charger_received() { CHARGER_CONNECTED.set(ChargerConnected::alert_ping()); }
 /// Resets the charge state. To be called by the state machine when charging is entered.
 pub fn reset_charge_state() { CHARGE_STATE.partial_set(|h| h.reset() );}
+/// Indicates if the charge stage is currently in `ChargeStage::Balance`.
+pub fn are_we_balancing() -> bool { CHARGE_STATE.read().stage().is_balancing() }
 
 /// Charger task.
 #[embassy_executor::task]

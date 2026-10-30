@@ -1,3 +1,4 @@
+#[derive(Clone, Copy)]
 pub struct Hysteresis<T: PartialOrd> {
     active: bool,
 

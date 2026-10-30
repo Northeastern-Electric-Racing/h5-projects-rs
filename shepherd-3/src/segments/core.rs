@@ -518,6 +518,85 @@ pub mod task {
     use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
     use embassy_time::{Instant, Duration, Timer};
     use crate::helpers::deadline::Deadline;
+    use crate::units::Temperature;
+    use crate::segments::{IndexByChip, OnboardThermIndex, ChipId, SegmentId};
+    use crate::helpers::hysteresis::Hysteresis;
+    use crate::pack::analyzer;
+    use crate::segments;
+    use crate::state_machine;
+    use crate::charging;
+
+    pub mod balancing {
+        use super::*;
+
+        const BALANCE_CHIP_DIE_DISABLE_TEMP: Temperature = Temperature::from_celsius(55.0_f32);
+        const BALANCE_CHIP_DIE_ENABLE_TEMP: Temperature = Temperature::from_celsius(50.0_f32);
+        const BALANCE_CHIP_ONBOARD_DISABLE_TEMP: Temperature = Temperature::from_celsius(55.0_f32);
+        const BALANCE_CHIP_ONBOARD_ENABLE_TEMP: Temperature = Temperature::from_celsius(50.0_f32);
+        const BALANCE_RESISTOR_DISABLE_TEMP: Temperature = Temperature::from_celsius(80.0_f32);
+        const BALANCE_RESISTOR_ENABLE_TEMP: Temperature = Temperature::from_celsius(60.0_f32);
+
+        /// Persistent state for balancing.
+        #[derive(Copy, Clone)]
+        pub struct BalancingThermalState {
+            chip_die_too_hot: IndexByChip<Hysteresis<Temperature>>,
+            chip_onboard_therm_too_hot: IndexByChip<Hysteresis<Temperature>>,
+            balancing_resistor_too_hot: IndexByChip<Hysteresis<Temperature>>,
+        }
+        impl BalancingThermalState {
+            pub const fn new() -> Self {
+                Self {
+                    chip_die_too_hot: IndexByChip::from_value(Hysteresis::new(BALANCE_CHIP_DIE_DISABLE_TEMP, BALANCE_CHIP_DIE_ENABLE_TEMP)),
+                    chip_onboard_therm_too_hot: IndexByChip::from_value(Hysteresis::new(BALANCE_CHIP_ONBOARD_DISABLE_TEMP, BALANCE_CHIP_ONBOARD_ENABLE_TEMP)),
+                    balancing_resistor_too_hot: IndexByChip::from_value(Hysteresis::new(BALANCE_RESISTOR_DISABLE_TEMP, BALANCE_RESISTOR_ENABLE_TEMP)),
+                }
+            }
+
+            /// If balancing is blocked or not for `chip`.
+            pub fn balance_blocked(&self, chip: ChipId) -> bool {
+                self.chip_die_too_hot[chip].active() || self.chip_onboard_therm_too_hot[chip].active() || self.balancing_resistor_too_hot[chip].active()
+            }
+
+            /// Returns `true` if the value of `balance_blocked()` changed for any chip after this call. Returns `false` if there was no state change for any chip.
+            pub fn update_chip_balance_thermal_limits(&mut self) -> bool {
+                let Some(temps) = analyzer::analyzer().try_partial_get(|h| h.data.on_board_temps) else { return false; };
+                let Some(stata) = segments::cache().get_status_a().nice().try_partial_get(|h| *h.data()) else { return false; };
+
+                let mut state_change = false;
+
+                let mut die_temp: IndexByChip<Temperature> = IndexByChip::from_value(Temperature::from_celsius(0.0));
+                let mut chip_temp: IndexByChip<Temperature> = IndexByChip::from_value(Temperature::from_celsius(0.0));
+                let mut resistor_temp: IndexByChip<Temperature> = IndexByChip::from_value(Temperature::from_celsius(0.0));
+
+                for segment in SegmentId::iter() {
+                    let alpha = segment.alpha();
+                    let beta = segment.beta();
+                    die_temp[alpha] = stata[alpha].itmp;
+                    die_temp[beta] = stata[beta].itmp;
+
+                    let greater_chip_temp = temps[alpha][OnboardThermIndex::ThermChips].max(temps[beta][OnboardThermIndex::ThermChips]);
+                    chip_temp[alpha] = greater_chip_temp;
+                    chip_temp[beta] = greater_chip_temp;
+                    
+                    // the fact that they both come from `temps[alpha]` is intentional based on C shep
+                    resistor_temp[alpha] = temps[alpha][OnboardThermIndex::ThermAlphaBalancingBank];
+                    resistor_temp[beta] = temps[alpha][OnboardThermIndex::ThermBetaBalancingBank];
+                }
+
+                for chip in ChipId::iter() {
+                    let was_blocked = self.balance_blocked(chip);
+
+                    self.balancing_resistor_too_hot[chip].update(resistor_temp[chip]);
+                    self.chip_die_too_hot[chip].update(die_temp[chip]);
+                    self.chip_onboard_therm_too_hot[chip].update(chip_temp[chip]);
+
+                    state_change |= was_blocked != self.balance_blocked(chip);
+                }
+
+                return state_change;
+            }
+        }
+    }
 
     /// `Broadcast` static for segments task. This allows the Segments task to flag other tasks when it successfully runs the jobs.
     ///
@@ -534,6 +613,9 @@ pub mod task {
 
     /// How often the open wire test/update should run.
     pub const OPEN_WIRE_FREQUENCY: Duration = Duration::from_secs(30);
+
+    /// Assumes a DCTO of 1 minute for PWM balancing in extended balancing mode
+    pub const PWM_UPDATE_FREQUENCY: Duration = Duration::from_millis(55_000);
 
     /// Frequency (in ms) at which the segments task should run.
     pub const SEGMENTS_TASK_FREQUENCY: Duration = Duration::from_millis(300);
@@ -624,11 +706,30 @@ pub mod task {
         #[cfg_attr(feature = "hil", allow(unused_mut, unused_variables))]
         let mut open_wire_deadline = Deadline::expire_now();
 
+        let mut pwm_deadline = Deadline::expire_now();
+
+        let mut balancing_thermal_state = balancing::BalancingThermalState::new();
+
+        let mut prev_state = state_machine::BmsState::Boot;
+        let mut current_state = state_machine::BmsState::Boot;
+        let mut prev_balancing_active = false;
+
+
         loop {
             let start_time = Instant::now();
 
             // Run the segments service.
             segments.run_service().await;
+
+            let prev_state = current_state;
+            let current_state = state_machine::state();
+            let charging = current_state.is_charging();
+            let balancing_active = charging && charging::are_we_balancing();
+            let thermal_state_changed = balancing_thermal_state.update_chip_balance_thermal_limits();
+
+            if (prev_state != current_state && !charging) || (prev_balancing_active && !balancing_active) {
+                // u_TODO do our version of `segment_disable_balancing()`
+            }
 
             // These are the normal updates we do every time this task runs.
             '_normal: {
@@ -659,6 +760,8 @@ pub mod task {
                 }
             }
 
+
+
             // We only run the open wire test every so often
             #[cfg(not(feature = "hil"))]
             '_open_wire: {
@@ -677,8 +780,31 @@ pub mod task {
                 }
             }
 
+            if charging && balancing_active && (!prev_balancing_active || thermal_state_changed || pwm_deadline.past()) {
+                // u_TODO do stuff that C shepherd does here
+            }
+
+            // if (charging && balancing_active &&
+            //     ((!prev_balancing_active) ||
+            //     thermal_state_changed ||
+            //     (is_timer_expired(&pwm_timer) &&
+            //     !is_timer_active(&pwm_timer)))) {
+            //     segment_mute(acc_data->chips, &hspi2);
+            //     segment_set_dcto(acc_data->chips, TIME_1MIN_OR_0_26HR,
+            //             &hspi2);
+            //     segment_configure_balancing(acc_data->chips,
+            //                     acc_data->discharge_config,
+            //                     &acc_data->balancing_thermal,
+            //                     &hspi2);
+            //     segment_read_pwm_registers(acc_data->chips, &hspi2);
+            //     segment_unmute(acc_data->chips, &hspi2);
+            //     start_timer(&pwm_timer, pwm_update_frequency);
+            // }
+
             diagnostics.update(start_time);
             diagnostics.log();
+
+            prev_balancing_active = balancing_active;
 
             // u_TODO maybe eventually try making this a Ticker or something, for now though this is closest to tx_thread_sleep so probably should keep it for now until we know everything else works
             Timer::after(SEGMENTS_TASK_FREQUENCY).await;

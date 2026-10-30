@@ -349,6 +349,28 @@ pub mod segments {
             let next = i + 1;
             Self::from_repr(next)
         }
+
+        /// Gets the Alpha chip for this particular segment.
+        pub const fn alpha(&self) -> ChipId {
+            match *self {
+                SegmentId::Segment0 => ChipId::Chip0,
+                SegmentId::Segment1 => ChipId::Chip2,
+                SegmentId::Segment2 => ChipId::Chip4,
+                SegmentId::Segment3 => ChipId::Chip6,
+                SegmentId::Segment4 => ChipId::Chip8,
+            }
+        }
+
+        /// Gets the Beta chip for this particular segment.
+        pub const fn beta(&self) -> ChipId {
+            match *self {
+                SegmentId::Segment0 => ChipId::Chip1,
+                SegmentId::Segment1 => ChipId::Chip3,
+                SegmentId::Segment2 => ChipId::Chip5,
+                SegmentId::Segment3 => ChipId::Chip7,
+                SegmentId::Segment4 => ChipId::Chip9,
+            }
+        }
     }
 
     #[derive(Copy, Clone, Debug)]
