@@ -106,7 +106,13 @@ async fn main(spawner: Spawner) -> ! {
         ner_can::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
-    spawner.spawn(can::can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
+    spawner.spawn(can::can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
     spawner.spawn(can::can_pulse_task().expect("Failed to spawn can::can_pulse_task()."));
 
     spawner.spawn(

@@ -68,6 +68,12 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
         id2: None,
     };
 
+    const SLOT_6: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_6,
+        id1: cangen::VcuBootRequest::ID,
+        id2: None,
+    };
+
     const SLOT_1E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_1,
         id1: cangen::RtdsCommandMessage::ID,
@@ -111,7 +117,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     };
 
     let can = NerCan::init(configurator)
-        .with_standard_filters(&[SLOT_1, SLOT_2, SLOT_3, SLOT_4, SLOT_5])
+        .with_standard_filters(&[SLOT_1, SLOT_2, SLOT_3, SLOT_4, SLOT_5, SLOT_6])
         .with_extended_filters(&[
             SLOT_1E, SLOT_2E, SLOT_3E, SLOT_4E, SLOT_5E, SLOT_6E, SLOT_7E,
         ]);
@@ -121,10 +127,13 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn can_inbox_task() -> ! {
+pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -> ! {
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
+            Some(Msg::VcuBootRequest(_)) => bootloader
+                .handle_request(frame.data())
+                .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
             Some(Msg::CellTemperatures(_)) => {}
             Some(Msg::LightningPulseMessage(_)) => {}
             Some(Msg::FrontWheelRpm(_)) => {}

@@ -1,0 +1,27 @@
+[package]
+name = "atlas"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+can-handler.workspace = true
+cortex-m-rt.workspace = true
+cortex-m.workspace = true
+crc.workspace = true
+defmt.workspace = true
+defmt-rtt.workspace = true
+embassy-boot-stm32.workspace = true
+embassy-executor.workspace = true
+embassy-stm32 = { workspace = true, features = ["dual-bank"] }
+embassy-sync.workspace = true
+embassy-time.workspace = true
+embedded-can.workspace = true
+embedded-storage.workspace = true
+panic-probe.workspace = true
+
+[build-dependencies]
+can-bootloader-config = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "7b9cb7388e921429a8792d5687bb6c49a35e9433" }
+
+[lints]
+workspace = true
