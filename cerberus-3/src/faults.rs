@@ -1,6 +1,9 @@
+use defmt::{info, warn};
+use embassy_time::{Duration, Instant, Timer};
 use heapless::{Vec, index_set::FnvIndexSet};
+use strum::{EnumCount, FromRepr};
 #[allow(non_camel_case_types)]
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, FromRepr, EnumCount, defmt::Format)]
 pub enum Fault {
     CAN_OUTGOING_FAULT = 0,
     CAN_INCOMING_FAULT,
@@ -20,46 +23,85 @@ pub enum Fault {
     ONBOARD_PEDAL_DIFFERENCE_FAULT,
     RTDS_FAULT,
     LV_LOW_VOLTAGE_FAULT,
+    // DO NOT ADD MORE THAN 32 FAULTS. THIS MUST FIT NEATLY IN A U32
 }
+const _: () = assert!(Fault::COUNT <= 32);
 
 impl Fault {
     pub fn is_critical(&self) -> bool {
-        matches!(
-            self,
-            Fault::CAN_OUTGOING_FAULT
-                | Fault::CAN_INCOMING_FAULT
-                | Fault::BMS_CAN_MONITOR_FAULT
-                | Fault::LIGHTNING_CAN_MONITOR_FAULT
-                | Fault::PRECHARGE_FLOATING_FAULT
-                | Fault::MOTOR_TEMP_SENSOR_FAULT
-        )
+        self.as_bitmap_component() & Fault::CRITICAL_MASK != 0
     }
     fn as_bitmap_component(&self) -> u32 {
         1 << (*self as u32)
     }
+    fn get_timeout(&self) -> Duration {
+        match self {
+            // This is a stub, but it can be updated as needed
+            _ => Duration::from_millis(5000),
+        }
+    }
+
+    // fn get_duration(&self) -> Duration {}
+    const CRITICAL_MASK: u32 = (1 << Fault::CAN_OUTGOING_FAULT as u32)
+        | (1 << Fault::CAN_INCOMING_FAULT as u32)
+        | (1 << Fault::BMS_CAN_MONITOR_FAULT as u32)
+        | (1 << Fault::LIGHTNING_CAN_MONITOR_FAULT as u32)
+        | (1 << Fault::PRECHARGE_FLOATING_FAULT as u32)
+        | (1 << Fault::MOTOR_TEMP_SENSOR_FAULT as u32);
 }
 
 pub struct AllFaults {
-    faults: FnvIndexSet<Fault, 32>,
+    // A bitmap of faults s.t `1<<(fault as usize)` is the bit in question
+    faults: u32,
+    // expirations[fault] gives the deadline for the pertinent fault
+    expirations: [Instant; Fault::COUNT],
 }
 
 impl AllFaults {
+    pub fn new() -> Self {
+        AllFaults {
+            faults: 0x0,
+            expirations: [Instant::MAX; Fault::COUNT],
+        }
+    }
     pub fn bitmap(&self) -> u32 {
         self.faults
-            .iter()
-            .map(|fault| fault.as_bitmap_component())
-            .collect::<Vec<u32, 32>>()
-            .iter()
-            .sum()
+    }
+    pub fn has_a_fault(&self) -> bool {
+        self.faults > 0
     }
     pub fn critical_fault_present(&self) -> bool {
-        self.faults
-            .iter()
-            .map(|fault| fault.is_critical())
-            .collect::<Vec<bool, 32>>()
-            .contains(&true)
+        self.faults & Fault::CRITICAL_MASK != 0
     }
     pub fn num_faults(self) -> u8 {
-        self.faults.len() as u8
+        self.faults.count_ones() as u8
+    }
+    pub fn trigger_fault(&mut self, fault: Fault) {
+        info!("Fault triggered: {:?}", fault);
+        if fault.is_critical() {
+            warn!("Critical fault!");
+        }
+        self.faults |= fault.as_bitmap_component();
+        self.expirations[fault as usize] = Instant::now() + fault.get_timeout();
+    }
+    pub fn reset_fault(&mut self, fault: Fault) {
+        self.faults &= !fault.as_bitmap_component();
+        self.expirations[fault as usize] = Instant::MAX;
+        info!("Reset fault: {:?}", fault);
+    }
+}
+
+pub async fn fault_task(mut faults: AllFaults) {
+    loop {
+        if let Some((i, _)) = faults
+            .expirations
+            .iter()
+            .enumerate()
+            .find(|(_, e)| **e <= Instant::now())
+        {
+            if let Some(dubious_fault) = Fault::from_repr(i) {
+                faults.reset_fault(dubious_fault);
+            }
+        }
     }
 }
