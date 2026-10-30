@@ -125,6 +125,8 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
 
 #[embassy_executor::task]
 pub async fn can_inbox_task() -> ! {
+    use crate::efuses::EfuseId::*;
+
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
@@ -149,24 +151,22 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
             Some(Msg::CurrentsStatus(_)) => {}
 
-            Some(Msg::DashboardEfuseState(m)) => {
-                EfuseCommand::add_command(EfuseDashboard, m.state())
-            }
-            Some(Msg::BrakeEfuseState(m)) => EfuseCommand::add_command(EfuseBrake, m.state()),
-            Some(Msg::ShutdownEfuseState(m)) => EfuseCommand::add_command(EfuseShutdown, m.state()),
-            Some(Msg::LvEfuseState(m)) => EfuseCommand::add_command(EfuseLV, m.state()),
-            Some(Msg::RadfanEfuseState(m)) => EfuseCommand::add_command(EfuseRadfan, m.state()),
-            Some(Msg::FanbattEfuseState(m)) => EfuseCommand::add_command(EfuseFanbatt, m.state()),
-            Some(Msg::PumponeEfuseState(m)) => EfuseCommand::add_command(EfusePump1, m.state()),
-            Some(Msg::PumptwoEfuseState(m)) => EfuseCommand::add_command(EfusePump2, m.state()),
-            Some(Msg::BattboxEfuseState(m)) => EfuseCommand::add_command(EfuseBattbox, m.state()),
-            Some(Msg::McEfuseState(m)) => EfuseCommand::add_command(EfuseMC, m.state()),
-            Some(Msg::SpareEfuseState(m)) => EfuseCommand::add_command(EfuseSpare, m.state()),
+            Some(Msg::DashboardEfuseState(m)) => efuses::send_command(EfuseDashboard, m.state()),
+            Some(Msg::BrakeEfuseState(m)) => efuses::send_command(EfuseBrake, m.state()),
+            Some(Msg::ShutdownEfuseState(m)) => efuses::send_command(EfuseShutdown, m.state()),
+            Some(Msg::LvEfuseState(m)) => efuses::send_command(EfuseLV, m.state()),
+            Some(Msg::RadfanEfuseState(m)) => efuses::send_command(EfuseRadfan, m.state()),
+            Some(Msg::FanbattEfuseState(m)) => efuses::send_command(EfuseFanbatt, m.state()),
+            Some(Msg::PumponeEfuseState(m)) => efuses::send_command(EfusePump1, m.state()),
+            Some(Msg::PumptwoEfuseState(m)) => efuses::send_command(EfusePump2, m.state()),
+            Some(Msg::BattboxEfuseState(m)) => efuses::send_command(EfuseBattbox, m.state()),
+            Some(Msg::McEfuseState(m)) => efuses::send_command(EfuseMC, m.state()),
+            Some(Msg::SpareEfuseState(m)) => efuses::send_command(EfuseSpare, m.state()),
 
             Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
                 Ok(cmd) => {
                     if rtds::send(cmd).is_err() {
-                        debug!("Failed to forward RTDS CAN command")
+                        debug!("Failed to forward RTDS CAN command");
                     }
                 }
                 Err(byte) => debug!("Unknown message {}", byte),

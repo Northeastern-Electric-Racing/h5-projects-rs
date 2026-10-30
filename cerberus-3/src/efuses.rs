@@ -1,8 +1,8 @@
-//! efuses
-//! Handles all functions related to efuses
-//! Auto efuses use function pointers and evaluates conditions every loop <br>
-//! The status of an efuse can be polled by calling is_enabled, or is_faulted <br>
-//! The efuse condition can also be updated using update_control_state <br>
+//! Handles all functions related to efuses. <br>
+//! Auto efuses use function pointers and evaluates conditions every loop.
+//! The status of an efuse can be polled by calling is_enabled, or is_faulted.
+//! The efuse condition can also be updated using update_control_state
+//! via Efuses::send_command (by CAN through cansend or Argos).
 
 use cangen::ToCanFrame;
 use defmt::debug;
@@ -106,22 +106,22 @@ pub struct EfuseCommand {
 }
 
 impl EfuseCommand {
-    pub fn add_command(efuse_id: EfuseId, efuse_control_state: u8) {
-        if let Ok(efuse_control_state) = EfuseControlState::try_from(efuse_control_state) {
-            let efuse_command = EfuseCommand {
-                efuse_id,
-                efuse_control_state,
-            };
-            if COMMAND.try_send(efuse_command).is_err() {
-                debug!("EfuseCommand queue full, dropped.");
-            }
-        } else {
-            debug!("Unexpected efuse control state: {}", efuse_control_state);
-        }
-    }
-
     pub fn get_id(&self) -> EfuseId {
         self.efuse_id
+    }
+}
+
+pub fn send_command(efuse_id: EfuseId, efuse_control_state: u8) {
+    if let Ok(efuse_control_state) = EfuseControlState::try_from(efuse_control_state) {
+        let efuse_command = EfuseCommand {
+            efuse_id,
+            efuse_control_state,
+        };
+        if COMMAND.try_send(efuse_command).is_err() {
+            debug!("EfuseCommand queue full, dropped.");
+        }
+    } else {
+        debug!("Unexpected efuse control state: {}", efuse_control_state);
     }
 }
 
