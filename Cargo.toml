@@ -29,6 +29,7 @@ bitfield = "0.19"
 bitfield-struct = "0.13"
 assign-resources = "0.5.0"
 
+strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 
