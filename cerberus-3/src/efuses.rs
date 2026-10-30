@@ -5,9 +5,12 @@
 //! The efuse condition can also be updated using update_control_state <br>
 
 use cangen::ToCanFrame;
+use defmt::debug;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use uom::si::ratio::percent;
 use variant_count::VariantCount;
@@ -25,6 +28,20 @@ pub enum EfuseControlState {
     EfuseOn = 0,   // Hard set on
     EfuseAuto = 1, // Hard set off
     EfuseOff = 2,  // Turns on and off under a specific predicate condition
+}
+
+impl TryFrom<u8> for EfuseControlState {
+    type Error = u8; // an unrecognized state number (not 0, 1, or 2)
+
+    /// method for converting from u8 -> EfuseControlState enum
+    fn try_from(control_state: u8) -> Result<EfuseControlState, Self::Error> {
+        match control_state {
+            0 => Ok(EfuseControlState::EfuseOn),
+            1 => Ok(EfuseControlState::EfuseAuto),
+            2 => Ok(EfuseControlState::EfuseOff),
+            other => Err(other),
+        }
+    }
 }
 
 /// ENUM for all Efuses on the car
@@ -79,6 +96,33 @@ pub struct EfuseTelemetry {
     pub faulted: bool,
     pub enabled: bool,
     pub control_state: EfuseControlState,
+}
+static COMMAND: Channel<ThreadModeRawMutex, EfuseCommand, 11> = Channel::new();
+
+/// requests for can to send to efuses
+pub struct EfuseCommand {
+    pub efuse_id: EfuseId,
+    pub efuse_control_state: EfuseControlState,
+}
+
+impl EfuseCommand {
+    pub fn add_command(efuse_id: EfuseId, efuse_control_state: u8) {
+        if let Ok(efuse_control_state) = EfuseControlState::try_from(efuse_control_state) {
+            let efuse_command = EfuseCommand {
+                efuse_id,
+                efuse_control_state,
+            };
+            if COMMAND.try_send(efuse_command).is_err() {
+                debug!("EfuseCommand queue full, dropped.");
+            }
+        } else {
+            debug!("Unexpected efuse control state: {}", efuse_control_state);
+        }
+    }
+
+    pub fn get_id(&self) -> EfuseId {
+        self.efuse_id
+    }
 }
 
 /// Common shape of every `<Name>Efuse` cangen message.
@@ -376,10 +420,15 @@ const EFUSE_PERIOD: Duration = Duration::from_millis(100);
 
 #[embassy_executor::task]
 pub async fn efuse_task(pins: EfusePins) {
-    let mut _efuses: [Efuse; _] = Efuse::init_all(pins);
+    let mut efuses: [Efuse; _] = Efuse::init_all(pins);
 
     loop {
-        for efuse in &mut _efuses {
+        while let Ok(command) = COMMAND.try_receive() {
+            if let Some(efuse) = efuses.get_mut(command.get_id() as usize) {
+                efuse.update_control_state(command.efuse_control_state);
+            }
+        }
+        for efuse in &mut efuses {
             match efuse.get_control_state() {
                 EfuseControlState::EfuseOff => efuse.disable(),
                 EfuseControlState::EfuseOn => efuse.enable(),
@@ -439,7 +488,7 @@ pub async fn efuse_task(pins: EfusePins) {
         let adc = adc::data().await;
 
         // send out CAN message for each EFUSE
-        for efuse in &_efuses {
+        for efuse in &efuses {
             can::OUTGOING.send(efuse.to_frame(&adc)).await;
         }
 

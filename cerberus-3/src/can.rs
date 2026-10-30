@@ -1,5 +1,7 @@
 //! CAN bring-up for Cerberus.
 
+use crate::efuses::EfuseCommand;
+use crate::efuses::EfuseId::*;
 use crate::{buttons, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
@@ -139,17 +141,19 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
             Some(Msg::CurrentsStatus(_)) => {}
 
-            Some(Msg::DashboardEfuseState(_)) => {}
-            Some(Msg::BrakeEfuseState(_)) => {}
-            Some(Msg::ShutdownEfuseState(_)) => {}
-            Some(Msg::LvEfuseState(_)) => {}
-            Some(Msg::RadfanEfuseState(_)) => {}
-            Some(Msg::FanbattEfuseState(_)) => {}
-            Some(Msg::PumponeEfuseState(_)) => {}
-            Some(Msg::PumptwoEfuseState(_)) => {}
-            Some(Msg::BattboxEfuseState(_)) => {}
-            Some(Msg::McEfuseState(_)) => {}
-            Some(Msg::SpareEfuseState(_)) => {}
+            Some(Msg::DashboardEfuseState(m)) => {
+                EfuseCommand::add_command(EfuseDashboard, m.state())
+            }
+            Some(Msg::BrakeEfuseState(m)) => EfuseCommand::add_command(EfuseBrake, m.state()),
+            Some(Msg::ShutdownEfuseState(m)) => EfuseCommand::add_command(EfuseShutdown, m.state()),
+            Some(Msg::LvEfuseState(m)) => EfuseCommand::add_command(EfuseLV, m.state()),
+            Some(Msg::RadfanEfuseState(m)) => EfuseCommand::add_command(EfuseRadfan, m.state()),
+            Some(Msg::FanbattEfuseState(m)) => EfuseCommand::add_command(EfuseFanbatt, m.state()),
+            Some(Msg::PumponeEfuseState(m)) => EfuseCommand::add_command(EfusePump1, m.state()),
+            Some(Msg::PumptwoEfuseState(m)) => EfuseCommand::add_command(EfusePump2, m.state()),
+            Some(Msg::BattboxEfuseState(m)) => EfuseCommand::add_command(EfuseBattbox, m.state()),
+            Some(Msg::McEfuseState(m)) => EfuseCommand::add_command(EfuseMC, m.state()),
+            Some(Msg::SpareEfuseState(m)) => EfuseCommand::add_command(EfuseSpare, m.state()),
 
             Some(Msg::PrechargeStatus(_)) => {}
             Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
