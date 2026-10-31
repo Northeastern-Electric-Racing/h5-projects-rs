@@ -181,7 +181,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Statemachine
     spawner.spawn(
-        statemachine::statemachine_task()
+        statemachine::statemachine_task(Output::new(p.PG15, Level::High, Speed::Low))
             .expect("Failed to spawn statemachine::statemachine_task()."),
     );
 
@@ -221,8 +221,6 @@ async fn main(spawner: Spawner) -> ! {
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
     watchdog.unleash();
-
-    let _can_fault = Output::new(p.PG15, Level::High, Speed::Low);
 
     loop {
         debug!("Status: Alive");
