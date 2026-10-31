@@ -19,6 +19,7 @@ use uom::si::f32::{ElectricCurrent, Ratio, Torque, Velocity};
 use uom::si::ratio::{percent, ratio};
 use uom::si::torque::newton_meter;
 use uom::si::velocity::meter_per_second;
+
 // ---------------------------------------------------------------------------
 // TEMP functions, replace later
 // ---------------------------------------------------------------------------
@@ -68,14 +69,14 @@ pub(crate) mod constants {
             }
         };
     }
-    pub(super) const BRAKE_FAULT_DEBOUNCE: Duration = Duration::from_millis(300);
+    pub(super) const BRAKE_FAULT_DEBOUNCE: Duration = Duration::from_millis(95);
     pub(super) const PEDAL_FAULT_DEBOUNCE: Duration = Duration::from_millis(95);
 
     pub(super) const BRAKE_SENSOR_IRREGULAR_HIGH: ElectricPotential = q!(ElectricPotential, 4.5);
     pub(super) const BRAKE_SENSOR_IRREGULAR_LOW: ElectricPotential = q!(ElectricPotential, 0.5);
     pub(super) const BRAKE_THRESHOLD_TOLERANCE: ElectricPotential = q!(ElectricPotential, 0.25);
     pub(super) const APPS_THRESHOLD_TOLERANCE: ElectricPotential = q!(ElectricPotential, 0.2);
-    pub(super) const PEDAL_DIFF_THRESH: Ratio = q!(Ratio, 20.0, percent);
+    pub(super) const PEDAL_DIFF_THRESH: Ratio = q!(Ratio, 10.0, percent);
     pub(super) const PEDAL_HARD_BRAKE_THRESH: Ratio = q!(Ratio, 20.0, percent);
     pub const PEDAL_BRAKE_THRESH: Ratio = q!(Ratio, 15.0, percent);
     pub(super) const SAMPLE_TIME: SampleTime = SampleTime::Cycles475;
