@@ -48,6 +48,8 @@ pub mod alias {
     pub type Api = adbms6830b::turnkey::api::Api<SpiDevice, ADBMS6830B_NUM_CHIPS>;
 }
 
+
+use crate::segments::cache::UpdateError;
 /// Guy in charge of the segments.
 pub(super) struct Segments {
     pub(super) service: &'static mut alias::Service,
@@ -112,6 +114,13 @@ impl Segments {
         }
     }
 
+    /// Helper to start continuous conversions.
+    pub async fn start_continuous_conversions(api: &mut alias::Api) -> Result<(), UpdateError> {
+        use adbms6830b::chip::commands;
+        use adbms6830b::chip::commands::adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire};
+        api.command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::Continuous, ResetFilter::Reset, OpenWire::OffForAll)).await.map_err(UpdateError::StartContinuousConversionsError)
+    }
+
     /// Wrapper function to run the service and handle diagnostics.
     pub async fn run_service(&mut self) {
         // HIL runs the same startup once, bypassing service discovery/sleep/split recovery.
@@ -135,6 +144,7 @@ impl Segments {
                 commands::adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire},
             };
             use adbms6830b::turnkey::service::StartupResult;
+            use crate::segments::cache::UpdateError;
 
             // Reset chips to blank state.
             if let Err(err) = api.reset().await {
@@ -220,8 +230,8 @@ impl Segments {
             }
 
             // Start the ADCV conversions.
-            if let Err(err) = api.command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::Continuous, ResetFilter::Reset, OpenWire::OffForAll)).await {
-                defmt::error!("Segments: Failed to send command to start adcv() conversions during ADBMS6830B Service startup. Error = {}", err.to_kind());
+            if let Err(err) = Self::start_continuous_conversions(api).await {
+                defmt::error!("Segments: Failed to send command to start adcv() conversions during ADBMS6830B Service startup. Error = {}", err);
                 return StartupResult::Incomplete;
             }
 
@@ -404,6 +414,46 @@ pub mod jobs {
             Ok(())
         }
 
+        /// Updates registers that we read during charging.
+        pub async fn job_update_charging_registers(&mut self) -> Result<(), UpdateError> {
+            use adbms6830b::chip::commands::{
+                adc::AdcvRedundancy,
+                adc::AutoAcquisition,
+                adc::ResetFilter,
+                adc::OpenWire,
+            };
+
+            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
+
+            /// Autoconvert timeout in ms.
+            #[cfg(not(feature = "hil"))]
+            const TIMEOUT_MS: u64 = 100;
+
+            #[cfg(not(feature = "hil"))]
+            self.service.api().adcv_autoconvert(AdcvRedundancy::Enabled, AutoAcquisition::SingleShot, ResetFilter::NoReset, OpenWire::OffForAll, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
+            
+            cache::CACHE.update_cell_voltages(self.service.api()).await?;
+            cache::CACHE.update_s_voltages(self.service.api()).await?;
+            cache::CACHE.update_average_cell_voltages(self.service.api()).await?;
+
+            // u_TODO - add HIL support
+
+            // u_TODO - we should probably be able to use continuous conversions in charging, just not when we are balancing. but the C code turns them off for the whole
+            // charging state so for now that is what we are doing for parity and simplicity
+
+            // We technically shouldnt need to do this in charging, but it is convinient to have this cache always
+            // filled with data for Analyzer.
+            cache::CACHE.update_filtered_cell_voltages(self.service.api()).await?;
+
+            cache::CACHE.update_status_c(self.service.api()).await?;
+            cache::CACHE.update_status_d(self.service.api()).await?;
+
+            job_diagnostics::log_job_diagnostics!("Segments", "job_update_charging_registers", run.finish());
+
+            Ok(())
+        }
+
         /// Updates the registers that require the SNAP command. This includes the following registers: CellVoltages, AverageCellVoltages, FilteredCellVoltages, SVotlages, StatusC, StatusD.
         ///
         /// This is done as a single job so there is only one SNAP window. This allows the data from the registers to be compared coherently.
@@ -479,7 +529,7 @@ pub mod jobs {
         /// Also, this basically takes the place of `segment_run_cell_open_wire_test()`, except for the fact that it
         /// doesn't read the normal S ADC voltages beforehand (since those are already read by the snap job).
         #[cfg(not(feature = "hil"))]
-        pub async fn job_update_open_wire(&mut self) -> Result<(), UpdateError> {
+        pub async fn job_update_open_wire(&mut self, charging: bool) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands::{
                 self,
                 adc::{AutoAcquisition, OpenWire, Acquisition},
@@ -500,7 +550,7 @@ pub mod jobs {
 
             // Unless we are not charging, restart continuous redundant conversions (since that is what we
             // normally use outside of this function when we aren't charging).
-            if !crate::state_machine::state().is_charging() {
+            if !charging {
                 self.service.api().command(commands::adc::adsv(Acquisition::Continuous, OpenWire::OffForAll)).await.map_err(UpdateError::PollError)?;
             }
 
@@ -710,9 +760,12 @@ pub mod task {
 
         let mut balancing_thermal_state = balancing::BalancingThermalState::new();
 
-        let mut prev_state = state_machine::BmsState::Boot;
+        let mut prev_state;
         let mut current_state = state_machine::BmsState::Boot;
         let mut prev_balancing_active = false;
+
+        // Continuous conversions are running by default at startup.
+        let mut continuous_conversions_running = true;
 
 
         loop {
@@ -721,10 +774,10 @@ pub mod task {
             // Run the segments service.
             segments.run_service().await;
 
-            let prev_state = current_state;
-            let current_state = state_machine::state();
+            prev_state = current_state;
+            current_state = state_machine::state();
             let charging = current_state.is_charging();
-            let balancing_active = charging && charging::are_we_balancing();
+            let balancing_active = charging && charging::are_we_actively_balancing();
             let thermal_state_changed = balancing_thermal_state.update_chip_balance_thermal_limits();
 
             if (prev_state != current_state && !charging) || (prev_balancing_active && !balancing_active) {
@@ -732,7 +785,7 @@ pub mod task {
             }
 
             // These are the normal updates we do every time this task runs.
-            '_normal: {
+            '_reads: {
                 let mut all_successful: bool = true;
 
                 if let Err(err) = segments.job_update_aux_registers().await {
@@ -740,9 +793,16 @@ pub mod task {
                     all_successful = false;
                 }
 
-                if let Err(err) = segments.job_update_snap_registers().await {
-                    defmt::error!("Segments: Inside `segments_task()`: `job_update_snap_registers()` failed. Error: {}", err);
-                    all_successful = false;
+                if charging {
+                    if let Err(err) = segments.job_update_charging_registers().await {
+                        defmt::error!("Segments: Inside `segments_task()`: `job_update_charging_registers()` failed. Error: {}", err);
+                        all_successful = false;
+                    }
+                } else {
+                    if let Err(err) = segments.job_update_snap_registers().await {
+                        defmt::error!("Segments: Inside `segments_task()`: `job_update_snap_registers()` failed. Error: {}", err);
+                        all_successful = false;
+                    }
                 }
 
                 if let Err(err) = segments.job_update_redundant_aux().await {
@@ -766,7 +826,7 @@ pub mod task {
             #[cfg(not(feature = "hil"))]
             '_open_wire: {
                 if open_wire_deadline.past() {
-                    match segments.job_update_open_wire().await {
+                    match segments.job_update_open_wire(charging).await {
                         Ok(()) => {
                             // only schedule the next deadline if we were successful. if the read failed we should try again
                             // the next time this task runs and keep doing so until it is successful
@@ -800,6 +860,15 @@ pub mod task {
             //     segment_unmute(acc_data->chips, &hspi2);
             //     start_timer(&pwm_timer, pwm_update_frequency);
             // }
+
+            if charging {
+                continuous_conversions_running = false;
+            } else if !continuous_conversions_running {
+                match Segments::start_continuous_conversions(segments.service.api()).await {
+                    Ok(()) => continuous_conversions_running = true,
+                    Err(err) => defmt::error!("In segments_task: Failed to start continuous conversions. Error: {}", err),
+                }
+            }
 
             diagnostics.update(start_time);
             diagnostics.log();

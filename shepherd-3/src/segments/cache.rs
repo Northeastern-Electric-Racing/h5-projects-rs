@@ -50,6 +50,8 @@ pub enum UpdateError {
     /// Impossible error that should not be possible to happen. Using this instead of unreachable!()
     /// or an unwrap/expect so an impossible error that somehow happens doesn't panic the whole bms
     ImpossibleError,
+    /// Error starting continuous conversions.
+    StartContinuousConversionsError(Error<SpiError>)
 }
 
 /// Register reading for a single chip.

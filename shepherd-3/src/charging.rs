@@ -177,6 +177,8 @@ mod state {
         pub(super) fn is_drawcurrent(&self) -> bool { matches!(self.kind, BalancingKind::Current(..)) }
         /// Indicates if this `Balancing` has kind `NoCurrent` or not.
         pub(super) fn is_nocurrent(&self) -> bool { matches!(self.kind, BalancingKind::NoCurrent) }
+        /// If `deadline` is currently `BalancingDeadline::Active()` (meaning we are actively balancing, rather than just being in the cooldown stage).
+        pub(super) fn is_active(&self) -> bool { matches!(self.deadline, BalancingDeadline::Active(..)) }
     }
 
     /// How long a `Settle` should last before expiring.
@@ -219,6 +221,8 @@ mod state {
     impl ChargeStage {
         /// Indicates if the charge stage is currently `ChrageStage::Balance`.
         pub fn is_balancing(&self) -> bool { matches!(*self, ChargeStage::Balance(..)) }
+        /// Returns `true` if we are actively in the `Balance` state, with `BalancingDeadline::Active` being the active balancing state.
+        pub fn is_actively_balancing(&self) -> bool { matches!(self, ChargeStage::Balance(Balance { deadline: BalancingDeadline::Active(..), .. }))  }
 
         /// Creates a ChargeStage, either `LongChargeUp` or `ShortChargeUp`, from a `ChargeRestoreCache`.
         fn from_charge_restore_cache(cache: ChargeRestoreCache) -> Self {
@@ -471,8 +475,8 @@ pub fn is_charger_connected() -> bool { CHARGER_CONNECTED.read().is_connected() 
 pub fn alert_charger_received() { CHARGER_CONNECTED.set(ChargerConnected::alert_ping()); }
 /// Resets the charge state. To be called by the state machine when charging is entered.
 pub fn reset_charge_state() { CHARGE_STATE.partial_set(|h| h.reset() );}
-/// Indicates if the charge stage is currently in `ChargeStage::Balance`.
-pub fn are_we_balancing() -> bool { CHARGE_STATE.read().stage().is_balancing() }
+/// Indicates if the charge stage is currently in `ChargeStage::Balance`, with `BalancingDeadline::Active`.
+pub fn are_we_actively_balancing() -> bool { CHARGE_STATE.read().stage().is_actively_balancing() }
 
 /// Charger task.
 #[embassy_executor::task]
