@@ -1,4 +1,5 @@
 use defmt::{info, warn};
+use embassy_stm32::{Peri, gpio::Output, peripherals::PG15};
 use embassy_time::{Duration, Instant, Timer};
 use heapless::{Vec, index_set::FnvIndexSet};
 use strum::{EnumCount, FromRepr};
@@ -102,6 +103,32 @@ pub async fn fault_task(mut faults: AllFaults) {
             if let Some(dubious_fault) = Fault::from_repr(i) {
                 faults.reset_fault(dubious_fault);
             }
+        }
+        Timer::after_millis(10).await;
+    }
+}
+
+pub struct MCUFaultSetter {
+    pin: Output<'static>,
+}
+impl MCUFaultSetter {
+    pub fn new(pin: Output<'static>) -> Self {
+        MCUFaultSetter { pin: pin }
+    }
+    // Ripped from cerb C impl
+    pub fn set_mcu_fault(&mut self, faulted: bool) {
+        // The MCU Fault pin is kind of "swapped".
+        // Setting the pin to HIGH indicates that there is no fault.
+        // Setting the pin to LOW indicates that there is a fault.
+        // The pin has a default state of HIGH (i.e. no fault).
+        if faulted {
+            // If there is a fault, set the fault pin to LOW.
+            info!("Turned on MCU fault.");
+            self.pin.set_low();
+        } else {
+            // If there is not a fault, set the pin to HIGH.
+            info!("Turned off MCU fault.");
+            self.pin.set_high();
         }
     }
 }
