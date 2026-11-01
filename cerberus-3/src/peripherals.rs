@@ -94,7 +94,7 @@ pub async fn peripherals_task(i2c_resources: I2C2Resources) {
         if (temperature, humidity) == (0.0, 0.0) {
             continue;
         }
-        debug!("Temp: {}\nHumidity:{}", temperature, humidity);
+
         crate::can::OUTGOING
             .send(
                 cangen::TemperatureSensor::new()
