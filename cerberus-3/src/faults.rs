@@ -105,6 +105,8 @@ impl AllFaults {
             .with_CAN_INCOMING_FAULT(self.get_fault(Fault::CAN_INCOMING_FAULT))
             .with_BMS_CAN_MONITOR_FAULT(self.get_fault(Fault::BMS_CAN_MONITOR_FAULT))
             .with_LIGHTNING_CAN_MONITOR_FAULT(self.get_fault(Fault::LIGHTNING_CAN_MONITOR_FAULT))
+            // .with_MOTOR_TEMP_SENSOR_FAULT(self.get_fault(Fault::MOTOR_TEMP_SENSOR_FAULT)) This
+            // one doesn't exist
             .with_ONBOARD_TEMP_FAULT(self.get_fault(Fault::ONBOARD_TEMP_FAULT))
             .with_IMU_ACCEL_FAULT(self.get_fault(Fault::IMU_ACCEL_FAULT))
             .with_IMU_GYRO_FAULT(self.get_fault(Fault::IMU_GYRO_FAULT))
