@@ -1,11 +1,10 @@
 use core::array;
 
 use defmt::{info, warn};
-use embassy_futures::select::{Either3, Select3, select_array, select3};
-use embassy_stm32::{Peri, can::Frame, gpio::Output, peripherals::PG15};
+use embassy_futures::select::{Either3, select_array, select3};
+use embassy_stm32::{can::Frame, gpio::Output};
 use embassy_sync::channel::{DynamicReceiver, DynamicSender};
 use embassy_time::{Duration, Instant, Timer};
-use heapless::{Vec, index_set::FnvIndexSet};
 use strum::{EnumCount, FromRepr};
 
 use cangen::ToCanFrame;
@@ -44,10 +43,7 @@ impl Fault {
         1 << (*self as u32)
     }
     fn get_timeout(&self) -> Duration {
-        match self {
-            // This is a stub, but it can be updated as needed
-            _ => Duration::from_millis(5000),
-        }
+        Duration::from_millis(5000)
     }
 
     // fn get_duration(&self) -> Duration {}
@@ -66,6 +62,7 @@ pub struct AllFaults {
     expirations: [Timer; Fault::COUNT],
 }
 
+#[allow(dead_code)]
 impl AllFaults {
     pub fn new() -> Self {
         AllFaults {
