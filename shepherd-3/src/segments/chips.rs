@@ -224,6 +224,11 @@ impl ChipId {
         *self as u8
     }
 
+    /// This `ChipId` represented as a raw usize.
+    pub fn as_usize(&self) -> usize {
+        *self as usize
+    }
+
     /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
     /// of two.
     ///

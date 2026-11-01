@@ -521,6 +521,18 @@ pub mod jobs {
             Ok(())
         }
 
+        /// Update the Config registers cache.
+        pub async fn job_update_config_registers(&mut self) -> Result<(), UpdateError> {
+            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
+
+            cache::CACHE.update_config(self.service.api()).await?;
+
+            job_diagnostics::log_job_diagnostics!("Segments", "job_update_config_registers", run.finish());
+
+            Ok(())
+        }
+
         /// Update the OpenWire parts of the S voltages.
         ///
         /// This probably shouldn't be called at the same frequency as the normal s voltages because then the OpenWire mode would
@@ -565,7 +577,9 @@ pub mod jobs {
 pub mod task {
     use super::{Segments};
     use crate::broadcast::Broadcast;
-    use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
+    use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
+use cortex_m::interrupt::enable;
+use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
     use embassy_time::{Instant, Duration, Timer};
     use crate::helpers::deadline::Deadline;
     use crate::units::Temperature;
@@ -712,6 +726,12 @@ pub mod task {
     /// shouldn't do any processing on that read data though. Once the data is cached, it should generally be read by other tasks since reading the data doesn't require making any actual SPI transactions.
     #[embassy_executor::task]
     pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) {
+        use adbms6830b::chip::commands;
+        use adbms6830b::chip::registers::pwm::{PwmA, PwmB};
+        use super::ADBMS6830B_NUM_CHIPS;
+        use adbms6830b::chip::registers::config_b::{ConfigB, types::DischargeTimerStatus};
+
+
         let mut segments = Segments::new(r_linea, r_lineb);
 
         /// Timing diagnostics for the segments task.
@@ -767,6 +787,14 @@ pub mod task {
         // Continuous conversions are running by default at startup.
         let mut continuous_conversions_running = true;
 
+        // Flag for when the DISABLE BALANCING block fails. This is set to `true` if we enter DISABLE BALANCING but then
+        // don't complete it fully due to an error. Then, the task will keep retrying DISABLE BALANCING every time until it
+        // is successful, in which this gets set to false.
+        let mut disable_balancing_failure = false;
+
+        // Same thing but for ENABLE BALANCING
+        let mut enable_balancing_failure = false;
+
 
         loop {
             let start_time = Instant::now();
@@ -780,9 +808,34 @@ pub mod task {
             let balancing_active = charging && charging::are_we_actively_balancing();
             let thermal_state_changed = balancing_thermal_state.update_chip_balance_thermal_limits();
 
-            if (prev_state != current_state && !charging) || (prev_balancing_active && !balancing_active) {
-                // u_TODO do our version of `segment_disable_balancing()`
-            }
+            // DISABLE BALANCING
+            disable_balancing_failure = '_disable_balancing: {
+                if (prev_state != current_state && !charging) || (prev_balancing_active && !balancing_active) || disable_balancing_failure {
+                    if let Err(err) = segments.service.api().command(commands::discharge::mute()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Failed to send the MUTE command to disable balancing. Error: {}", err);
+                        break '_disable_balancing true;
+                    }
+
+                    // Disable all PWM.
+                    if let Err(err) = segments.service.api().write(&[PwmA::all_disabled(); ADBMS6830B_NUM_CHIPS]).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Failed to send write command for PwmA to disable balancing. Error: {}", err);
+                        break '_disable_balancing true;
+                    }
+                    if let Err(err) = segments.service.api().write(&[PwmB::all_disabled(); ADBMS6830B_NUM_CHIPS]).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Failed to send write command for PwmB to disable balancing. Error: {}", err);
+                        break '_disable_balancing true;
+                    }
+
+                    // Read/update PWM registers
+                    // u_TODO idk why we need to do this? but c shepherd does it. job_
+                    if let Err(err) = segments.job_update_pwm_registers().await {
+                        defmt::error!("Segments: Inside `segments_task()`: `job_update_pwm_registers()` failed when trying to disable balancing. Error: {}", err);
+                        break '_disable_balancing true;
+                    }
+                }
+
+                break '_disable_balancing false;
+            };
 
             // These are the normal updates we do every time this task runs.
             '_reads: {
@@ -815,6 +868,12 @@ pub mod task {
                     all_successful = false;
                 }
 
+                if let Err(err) = segments.job_update_config_registers().await {
+                    // We probably don't need to do this job every loop but it is easier to for consistency
+                    defmt::error!("Segments: Inside `segments_task()`: `job_update_config_registers()` failed. Error: {}", err);
+                    all_successful = false;
+                }
+
                 if all_successful {
                     signal::SEGMENTS_FRESH_DATA_SIGNAL.signal();
                 }
@@ -840,26 +899,64 @@ pub mod task {
                 }
             }
 
-            if charging && balancing_active && (!prev_balancing_active || thermal_state_changed || pwm_deadline.past()) {
-                // u_TODO do stuff that C shepherd does here
-            }
+            // ENTER BALANCING
+            enable_balancing_failure = '_enter_balancing: {
+                if charging && balancing_active && (!prev_balancing_active || thermal_state_changed || pwm_deadline.past()) || enable_balancing_failure {
+                    if let Err(err) = segments.service.api().command(commands::discharge::mute()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: Failed to send the MUTE command before enabling balancing. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
 
-            // if (charging && balancing_active &&
-            //     ((!prev_balancing_active) ||
-            //     thermal_state_changed ||
-            //     (is_timer_expired(&pwm_timer) &&
-            //     !is_timer_active(&pwm_timer)))) {
-            //     segment_mute(acc_data->chips, &hspi2);
-            //     segment_set_dcto(acc_data->chips, TIME_1MIN_OR_0_26HR,
-            //             &hspi2);
-            //     segment_configure_balancing(acc_data->chips,
-            //                     acc_data->discharge_config,
-            //                     &acc_data->balancing_thermal,
-            //                     &hspi2);
-            //     segment_read_pwm_registers(acc_data->chips, &hspi2);
-            //     segment_unmute(acc_data->chips, &hspi2);
-            //     start_timer(&pwm_timer, pwm_update_frequency);
-            // }
+                    // Read-write-modify ConfigB to set DCTO
+                    let config = segments::cache().get_config();
+                    let Some(cfgb) = config.raw().config_b().try_get() else {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to read ConfigB from the cache, but it wasn't filled yet. Weird! We will try again next time.");
+                        break '_enter_balancing true;
+                    };
+                    let cfgb_to_write: IndexByChip<ConfigB> = IndexByChip::from_fn(|chip| {
+                        // Strange thing: We set DCTO to 0 at init, but then we set it to 1 here (when entering balancing). But then we never reset it
+                        // back to 0 upon leaving balancing. This is what C shepherd does! So it is probably fine. Just maybe kind of weird. But it would be
+                        // kind of annoying to read-write-modify ConfigB to set this back to 0 at the end of balancing so it is being kept.
+                        cfgb.data()[chip].data().with_dcto(DischargeTimerStatus::new().with_increments(1))
+                    });
+                    if let Err(err) = segments.service.api().set_configb(&cfgb_to_write.into_array()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to write ConfigB, but an error occured. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+
+                    // Write PWM configs.
+                    let desired_pwm = charging::get_pwm_duty_cycle();
+                    let configs: IndexByChip<PwmDutyCycleConfig> = IndexByChip::from_fn(|chip| {
+                        if balancing_thermal_state.balance_blocked(chip) { PwmDutyCycleConfig::Disabled } else { desired_pwm }
+                    });
+                    let pwma: IndexByChip<PwmA> = IndexByChip::from_fn(|chip| { PwmA::for_all(configs[chip]) });
+                    let pwmb: IndexByChip<PwmB> = IndexByChip::from_fn(|chip| { PwmB::for_all(configs[chip]) });
+                    if let Err(err) = segments.service.api().write(&pwma.into_array()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to write PwmA, but an error occured. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+                    if let Err(err) = segments.service.api().write(&pwmb.into_array()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to write PwmB, but an error occured. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+
+                    // Read back PWM configs? C Shepherd does this. not sure why. maybe to read back and see if they were actually written? But i don't think
+                    // C shepherd checks if the values were written so idk. (could be wrong)
+                    if let Err(err) = segments.job_update_pwm_registers().await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried run `job_update_pwm_registers()`, but it failed. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+
+                    if let Err(err) = segments.service.api().command(commands::discharge::unmute()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: Failed to send the UNMUTE command. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+
+                    pwm_deadline = Deadline::expire_in(PWM_UPDATE_FREQUENCY);
+                }
+
+                false
+            };
 
             if charging {
                 continuous_conversions_running = false;
