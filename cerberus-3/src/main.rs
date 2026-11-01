@@ -16,6 +16,7 @@ use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 mod adc;
+mod bms;
 mod buttons;
 mod can;
 mod efuses;
@@ -170,6 +171,10 @@ async fn main(spawner: Spawner) -> ! {
         })
         .expect("Failed to spawn efuses::efuse_task()."),
     );
+
+    // BMS Monitor
+    spawner
+        .spawn(bms::bms_can_monitor_task().expect("Failed to spawn bms::bms_can_monitor_task()."));
 
     // Statemachine
     spawner.spawn(
