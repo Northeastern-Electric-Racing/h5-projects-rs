@@ -2,7 +2,7 @@
 
 use crate::efuses::EfuseCommand;
 use crate::efuses::EfuseId::*;
-use crate::{buttons, rtds, shutdown};
+use crate::{buttons, lightning, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -126,7 +126,7 @@ pub async fn can_inbox_task() -> ! {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
             Some(Msg::CellTemperatures(_)) => {}
-            Some(Msg::LightningPulseMessage(_)) => {}
+            Some(Msg::LightningPulseMessage(_)) => lightning::lightning_handle_pulse_message(),
             Some(Msg::FrontWheelRpm(_)) => {}
             Some(Msg::TempsFaultCodeStatus(_)) => {}
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
