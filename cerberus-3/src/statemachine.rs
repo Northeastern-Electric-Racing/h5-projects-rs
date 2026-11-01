@@ -370,7 +370,7 @@ pub(crate) async fn set_fault_state() {
 #[embassy_executor::task]
 pub async fn statemachine_task(
     mcu_pin: Peri<'static, PG15>,
-    inbound_faults: DynamicSender<'static, Fault>,
+    _inbound_faults: DynamicSender<'static, Fault>,
 ) -> ! {
     let mut state = CerberusState::INIT;
     let mut mcu_output = Output::new(mcu_pin, Level::High, Speed::Low);
