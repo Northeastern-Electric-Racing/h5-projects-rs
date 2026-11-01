@@ -11,17 +11,19 @@ use embassy_stm32::Config;
 // TODO: needed again when the magnetometer / IMU are re-enabled.
 // use embassy_stm32::gpio::{Level, Output, Speed};
 // use embassy_stm32::spi::{self, Spi};
-use embassy_stm32::i2c::{self, I2c};
+// TODO: needed again when the HDC2021 (I2C1) is re-enabled.
+// use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::{time::Hertz, wdg};
 // use embassy_time::Delay;
+// use embassy_time::Duration;
 use embassy_time::Timer;
 
 // use embedded_hal_bus::spi::ExclusiveDevice;
-use msb_fw_2::bind_interrupts::Irqs;
+// use msb_fw_2::bind_interrupts::Irqs; // TODO: needed again with the HDC2021 (I2C1).
 use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
-use msb_fw_2::{hdc2021, load_cell, shock_pot, steering_angle, strain_guage, thermocouple}; //, ,magnetometer, , imu}; 
+use msb_fw_2::{load_cell, shock_pot, steering_angle, strain_guage, thermocouple}; //, ,magnetometer, , imu, hdc2021};
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -141,20 +143,24 @@ async fn main(spawner: Spawner) -> ! {
     // let imu_spi = ExclusiveDevice::new(spi1, imu_cs, Delay).expect("Failed to create SPI device for IMU");
     // spawner.spawn(imu::imu_task(imu_spi).expect("Failed to spawn imu::imu_task()."));
 
-    // HDC2021 on I2C1
-    let mut i2c1_config = i2c::Config::default();
-    i2c1_config.frequency = Hertz::khz(100); // standard mode
-    let i2c1 = I2c::new(
-        p.I2C1,
-        p.PB8,
-        p.PB9,
-        p.GPDMA1_CH6,
-        p.GPDMA1_CH7,
-        Irqs,
-        i2c1_config,
-    );
+    // TODO: HDC2021 on I2C1 is disabled: the sensor doesn't respond on the bus (hardware issue).
+    // // HDC2021 on I2C1
+    // let mut i2c1_config = i2c::Config::default();
+    // i2c1_config.frequency = Hertz::khz(100); // standard mode
+    // // The driver busy-waits for this long when the bus is stuck (e.g. no sensor or pull-ups), which
+    // // blocks every other task. The 1 s default starves the 1 s watchdog and resets the board.
+    // i2c1_config.timeout = Duration::from_millis(10);
+    // let i2c1 = I2c::new(
+    //     p.I2C1,
+    //     p.PB8,
+    //     p.PB9,
+    //     p.GPDMA1_CH6,
+    //     p.GPDMA1_CH7,
+    //     Irqs,
+    //     i2c1_config,
+    // );
 
-    spawner.spawn(hdc2021::hdc2021_task(i2c1).expect("Failed to spawn hdc2021::hdc2021_task()."));
+    // spawner.spawn(hdc2021::hdc2021_task(i2c1).expect("Failed to spawn hdc2021::hdc2021_task()."));
 
     let wheel_speed_resources = WheelSpeedResources {
         left_timer: p.TIM1,

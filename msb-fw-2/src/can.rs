@@ -15,24 +15,33 @@
 //! | 0x606 | Front Left Shockpot  | left shock pot: travel (in) + raw ADC count    |
 //! | 0x626 | Front Right Shockpot | right shock pot: travel (in) + raw ADC count   |
 //! | 0x605 | Front MSB Strain     | strain gauges 1, 2 (raw ADC counts)            |
+//! | 0x632 | Steering Angle       | steering angle (deg x 10), built by hand       |
 //!
-//! TODO: the pinned definitions have no messages for strain gauges 3-4, wheel speed or steering
-//! angle. Add those once the definitions include them.
+//! 0x632 only exists on Odyssey-Definitions' `msb-updates` branch, not in the pinned definitions,
+//! so [`steering_angle_frame`] builds it by hand to the same layout. TODO: switch it to `cangen`
+//! once the message is merged into Odyssey-Definitions `main` and `cangen` is bumped.
+//!
+//! TODO: the pinned definitions have no messages for strain gauges 3-4 or wheel speed. Add those
+//! once the definitions include them.
 //!
 //! The MSB only transmits: the global filter rejects every incoming frame.
 
 use crate::bind_interrupts::Irqs;
 use crate::shock_pot::{NUM_SHOCK_POTS, SHOCK_POT_DATA, ShockPot, ShockPotReading};
+use crate::steering_angle::{NUM_STEERING_ANGLES, STEERING_ANGLE_DATA, SteeringAngleReading};
 use crate::strain_guage::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
 use can_handler::NerCan;
 use cangen::ToCanFrame;
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select3};
 use embassy_stm32::Peri;
 use embassy_stm32::can::{CanConfigurator, Frame};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+
+/// `Steering Angle` ID, from Odyssey-Definitions' `msb-updates` branch.
+const STEERING_ANGLE_ID: u16 = 0x632;
 
 /// Frames waiting for a free FDCAN TX buffer.
 const OUTGOING_CAPACITY: usize = 32;
@@ -74,16 +83,26 @@ async fn telemetry_task() {
     let mut strain_gauge_rx = STRAIN_GAUGE_DATA
         .receiver()
         .expect("Too many STRAIN_GAUGE_DATA receivers.");
+    let mut steering_angle_rx = STEERING_ANGLE_DATA
+        .receiver()
+        .expect("Too many STEERING_ANGLE_DATA receivers.");
 
     loop {
-        // Whichever sensor published first; the other is picked up on the next pass.
-        match select(shock_pot_rx.changed(), strain_gauge_rx.changed()).await {
-            Either::First(readings) => {
+        // Whichever sensor published first; the others are picked up on the next pass.
+        match select3(
+            shock_pot_rx.changed(),
+            strain_gauge_rx.changed(),
+            steering_angle_rx.changed(),
+        )
+        .await
+        {
+            Either3::First(readings) => {
                 for frame in shock_pot_frames(&readings) {
                     send(frame).await;
                 }
             }
-            Either::Second(readings) => send(strain_gauge_frame(&readings)).await,
+            Either3::Second(readings) => send(strain_gauge_frame(&readings)).await,
+            Either3::Third(readings) => send(steering_angle_frame(&readings)).await,
         }
     }
 }
@@ -117,4 +136,21 @@ fn strain_gauge_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Fra
         .with_strain1(strain1)
         .with_strain2(strain2)
         .to_can_frame()
+}
+
+/// `Steering Angle` (0x632): one signed 32-bit big-endian value, degrees x 10 (positive is right),
+/// matching the `msb-updates` definition (`steering_angle_1`, int32, divide by 10).
+///
+/// Sent even when the sensor reads out of range; the angle is then clamped to full lock, so check
+/// the MSB's log for the out-of-range warning before trusting it.
+fn steering_angle_frame(readings: &[SteeringAngleReading; NUM_STEERING_ANGLES]) -> Frame {
+    // Round to the nearest tenth (`f32::round` needs std).
+    let scaled = readings[0].angle_deg * 10.0_f32;
+    let tenths = if scaled >= 0.0_f32 {
+        scaled + 0.5_f32
+    } else {
+        scaled - 0.5_f32
+    } as i32;
+    Frame::new_standard(STEERING_ANGLE_ID, &tenths.to_be_bytes())
+        .expect("0x632 with 4 data bytes is a valid standard frame.")
 }
