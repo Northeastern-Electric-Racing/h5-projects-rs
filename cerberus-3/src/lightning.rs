@@ -25,7 +25,7 @@ impl From<LightStatus> for u8 {
     }
 }
 
-/// creates a lightningboardlight status object and sends it over can
+/// creates a lightningboardlightstatus object and sends it over can
 pub async fn send_lightning_board_light_status(status: LightStatus) {
     let light_status = cangen::LightningBoardLightStatus::new().with_status(u8::from(status));
     crate::can::OUTGOING.send(light_status.to_can_frame()).await

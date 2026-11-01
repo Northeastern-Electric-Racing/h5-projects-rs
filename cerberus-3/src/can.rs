@@ -3,7 +3,7 @@
 use crate::bms::{PrechargeState, set_precharge_state};
 use crate::efuses::EfuseCommand;
 use crate::efuses::EfuseId::*;
-use crate::{buttons, lightning, rtds, shutdown, bms};
+use crate::{bms, buttons, lightning, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -172,7 +172,6 @@ pub async fn can_inbox_task() -> ! {
                 Err(byte) => debug!("Unknown message {}", byte),
             },
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
-            Some(Msg::LightningPulseMessage(_)) => {}
 
             Some(_) => debug!("Unknown message"),
             _ => {
