@@ -43,9 +43,15 @@ impl TempSensor<'_> {
     pub fn toggle_heater(&mut self, enable: bool) {
         TEMP_SENSOR.lock(|| {
             if let Ok(status) = self.sensor.get_status() {
-                if !status.intersects(Status::HEATER) && enable && self.sensor.enable_heater().is_err() {
+                if !status.intersects(Status::HEATER)
+                    && enable
+                    && self.sensor.enable_heater().is_err()
+                {
                     debug!("Sht30 heater enable failed");
-                } else if status.intersects(Status::HEATER) && !enable && self.sensor.disable_heater().is_err() {
+                } else if status.intersects(Status::HEATER)
+                    && !enable
+                    && self.sensor.disable_heater().is_err()
+                {
                     debug!("Sht30 heater disable failed");
                 }
             }
