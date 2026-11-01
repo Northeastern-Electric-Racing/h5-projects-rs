@@ -4,12 +4,12 @@
 //! Performance, Efficiency, Faulted) and the NERO dash menu position
 //! (`NeroMenu`), and arbitrates transitions between them.
 
-use crate::faults::MCUFaultSetter;
+use crate::faults::{self, Fault};
 use crate::pedals::{
     get_accel_pressed, get_brake_pressed, get_launch_control_enabled, get_torque_limit,
 };
+use crate::rtds;
 use crate::shutdown::{self, BmsShutdownState};
-use crate::{faults, rtds};
 use cangen::ToCanFrame;
 use defmt::{bitflags, debug, info, warn};
 use embassy_futures::select::{Either3, select3};
@@ -17,7 +17,7 @@ use embassy_stm32::Peri;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::PG15;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::channel::{Channel, DynamicSender};
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use uom::si::ratio::percent;
@@ -368,10 +368,13 @@ pub(crate) async fn set_fault_state() {
 }
 
 #[embassy_executor::task]
-pub async fn statemachine_task(mcu_pin: Output<'static>) -> ! {
+pub async fn statemachine_task(
+    mcu_pin: Peri<'static, PG15>,
+    inbound_faults: DynamicSender<'static, Fault>,
+) -> ! {
     let mut state = CerberusState::INIT;
-    let mut mcu_fault: MCUFaultSetter = MCUFaultSetter::new(mcu_pin);
-    mcu_fault.set_mcu_fault(false);
+    let mut mcu_output = Output::new(mcu_pin, Level::High, Speed::Low);
+    faults::set_mcu_fault(&mut mcu_output, false);
     loop {
         match select3(
             TRANSITION_QUEUE.receive(),      // On a new command, handle it
@@ -385,7 +388,7 @@ pub async fn statemachine_task(mcu_pin: Output<'static>) -> ! {
                 let result = state.handle_command(command);
                 let is_faulted = state.state == FuncState::Faulted;
                 if was_faulted != is_faulted {
-                    mcu_fault.set_mcu_fault(is_faulted);
+                    faults::set_mcu_fault(&mut mcu_output, is_faulted);
                 }
                 if result.is_err() {
                     debug!("Error handling NERO command");
