@@ -21,8 +21,8 @@ static TEMP_SENSOR: CriticalSectionRawMutex = CriticalSectionRawMutex::new();
 
 pub struct I2C2Resources {
     pub i2c: Peri<'static, peripherals::I2C2>,
-    pub scl: Peri<'static, peripherals::PF1>, // need to update
-    pub sda: Peri<'static, peripherals::PF0>, // need to update
+    pub scl: Peri<'static, peripherals::PF1>,
+    pub sda: Peri<'static, peripherals::PF0>,
 }
 
 pub struct TempSensor<'a> {
@@ -37,54 +37,30 @@ impl TempSensor<'_> {
         TEMP_SENSOR.lock(|| {
             self.sensor.repeatability = Medium;
         });
-        self.tempsensor_get_temperature_and_humidity(); //get initial reading
+        self.poll_temperature_and_humidity(); //get initial reading
     }
 
-    pub fn tempsensor_toggle_heater(&mut self, enable: bool) {
+    pub fn toggle_heater(&mut self, enable: bool) {
         TEMP_SENSOR.lock(|| {
-            match self.sensor.get_status() {
-                Ok(status) => {
-                    if !status.intersects(Status::HEATER) && enable {
-                        match self.sensor.enable_heater() {
-                            Ok(_) => {}
-                            Err(_) => {
-                                debug!("Sht30 heater enable failed");
-                            }
-                        };
-                    } else if status.intersects(Status::HEATER) && !enable {
-                        match self.sensor.disable_heater() {
-                            Ok(_) => {}
-                            Err(_) => {
-                                debug!("Sht30 heater disable failed");
-                            }
-                        };
-                    }
+            if let Ok(status) = self.sensor.get_status() {
+                if !status.intersects(Status::HEATER) && enable && self.sensor.enable_heater().is_err() {
+                    debug!("Sht30 heater enable failed");
+                } else if status.intersects(Status::HEATER) && !enable && self.sensor.disable_heater().is_err() {
+                    debug!("Sht30 heater disable failed");
                 }
-                Err(_) => {
-                    debug!("Sht30 status error occurred");
-                }
-            };
+            }
         });
     }
 
-    pub fn tempsensor_get_temperature_and_humidity(&mut self) -> (f32, f32) {
+    pub fn poll_temperature_and_humidity(&mut self) {
         TEMP_SENSOR.lock(|| {
-            match self.sensor.single_measurement() {
-                Ok(value) => {
-                    self.temperature = ThermodynamicTemperature::new::<degree_celsius>(
-                        value.temperature.celsius().value(),
-                    );
-                    self.humidity = Ratio::new::<percent>(value.relative_humidity.value());
-                }
-                Err(_) => {
-                    debug!("Sht30 measurement error occured");
-                }
-            };
+            if let Ok(value) = self.sensor.single_measurement() {
+                self.temperature = ThermodynamicTemperature::new::<degree_celsius>(
+                    value.temperature.celsius().value(),
+                );
+                self.humidity = Ratio::new::<percent>(value.relative_humidity.value());
+            }
         });
-        (
-            self.temperature.get::<degree_celsius>(),
-            self.humidity.get::<percent>(),
-        )
     }
 }
 
@@ -121,16 +97,18 @@ pub async fn peripherals_task(i2c_resources: I2C2Resources) {
     loop {
         ticker.next().await;
 
-        let temp_humidity_reading = temp_sensor.tempsensor_get_temperature_and_humidity();
-        if temp_humidity_reading == (0.0, 0.0) {
+        temp_sensor.poll_temperature_and_humidity();
+        let temperature = temp_sensor.temperature.get::<degree_celsius>();
+        let humidity = temp_sensor.humidity.get::<percent>();
+        if (temperature, humidity) == (0.0, 0.0) {
             continue;
         }
 
         crate::can::OUTGOING
             .send(
                 cangen::TemperatureSensor::new()
-                    .with_vcu_temperature(temp_humidity_reading.0)
-                    .with_vcu_humidity(temp_humidity_reading.1)
+                    .with_vcu_temperature(temperature)
+                    .with_vcu_humidity(humidity)
                     .to_can_frame(),
             )
             .await;

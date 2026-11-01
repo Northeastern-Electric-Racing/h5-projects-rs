@@ -202,8 +202,8 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(
         peripherals::peripherals_task(I2C2Resources {
             i2c: p.I2C2,
-            scl: p.PF1, //need to update
-            sda: p.PF0, //need to update
+            scl: p.PF1,
+            sda: p.PF0,
         })
         .expect("Failed to spawn peripherals::peripherals_task()."),
     );
