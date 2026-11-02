@@ -2,7 +2,6 @@
 //!
 //! (this module uses `StartupCell` because the cache can be accessed at any time by different tasks. it doesn't use RefCell because that can panic. maybe in the future it would be good to look into RefCell but the Cell copies are realistically never going to be an actual issue)
 
-use adbms2950::chip::registers::config_b;
 use adbms6830b::{
     chip::registers::{
         ReadableGroup,
@@ -2519,8 +2518,8 @@ pub mod config {
 
         /// Updates the Raw.
         async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            let configa = self.configa.update(api).await?;
-            let configb = self.configb.update(api).await?;
+            self.configa.update(api).await?;
+            self.configb.update(api).await?;
 
             Ok(())
         }

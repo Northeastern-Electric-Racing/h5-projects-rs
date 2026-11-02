@@ -17,17 +17,12 @@ pub mod connected {
 }
 
 use embassy_time::{Duration, Instant};
-use crate::units::{Voltage, Current, Temperature};
+use crate::units::{Voltage, Current};
 use crate::helpers::deadline::Deadline;
 use crate::pack::analyzer;
 use crate::helpers::snapshot_cell::{SnapshotCell, LazySnapshotCell};
-use crate::helpers::hysteresis::Hysteresis;
 use crate::segments::IndexByChip;
 use crate::segments::IndexByCell;
-use crate::segments::ChipId;
-use crate::segments;
-use crate::segments::SegmentId;
-use crate::segments::OnboardThermIndex;
 
 mod state {
     use super::*;

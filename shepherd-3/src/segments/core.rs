@@ -1,6 +1,5 @@
 //! Module holding the `Segments` struct. This is the main place where the Segments stuff is configured/set up. The main segments task (i.e., the one that owns the SPI peripheral and actually does the reads/cache updates) is also in here.
 
-use adbms6830b::chip::registers::config_b::ConfigB;
 use static_cell::StaticCell;
 use embassy_time::{Timer};
 use super::chips::ADBMS6830B_NUM_CHIPS;
@@ -146,10 +145,8 @@ impl Segments {
             };
             use adbms6830b::chip::{
                 commands,
-                commands::adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire},
             };
             use adbms6830b::turnkey::service::StartupResult;
-            use crate::segments::cache::UpdateError;
 
             // Reset chips to blank state.
             if let Err(err) = api.reset().await {
@@ -248,7 +245,7 @@ impl Segments {
         };
         #[cfg(feature = "hil")]
         {
-            let startup = startup;
+            let mut startup = startup;
             self.hil_initialized = !startup(self.service.api(), adbms6830b::turnkey::service::StartupReason::FromSleep).await.is_incomplete();
         }
         #[cfg(not(feature = "hil"))]
@@ -422,13 +419,6 @@ pub mod jobs {
 
         /// Updates registers that we read during charging.
         pub async fn job_update_charging_registers(&mut self) -> Result<(), UpdateError> {
-            use adbms6830b::chip::commands::{
-                adc::AdcvRedundancy,
-                adc::AutoAcquisition,
-                adc::ResetFilter,
-                adc::OpenWire,
-            };
-
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
             let run = DIAGNOSTICS.start();
 
@@ -437,8 +427,10 @@ pub mod jobs {
             const TIMEOUT_MS: u64 = 100;
 
             #[cfg(not(feature = "hil"))]
-            self.service.api().adcv_autoconvert(AdcvRedundancy::Enabled, AutoAcquisition::SingleShot, ResetFilter::NoReset, OpenWire::OffForAll, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
-            
+            {
+                use adbms6830b::chip::commands::adc::{AdcvRedundancy, AutoAcquisition, ResetFilter, OpenWire};
+                self.service.api().adcv_autoconvert(AdcvRedundancy::Enabled, AutoAcquisition::SingleShot, ResetFilter::NoReset, OpenWire::OffForAll, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
+            }            
             cache::CACHE.update_cell_voltages(self.service.api()).await?;
             cache::CACHE.update_s_voltages(self.service.api()).await?;
             cache::CACHE.update_average_cell_voltages(self.service.api()).await?;
@@ -584,8 +576,7 @@ pub mod task {
     use super::{Segments};
     use crate::broadcast::Broadcast;
     use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
-use cortex_m::interrupt::enable;
-use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
+    use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
     use embassy_time::{Instant, Duration, Timer};
     use crate::helpers::deadline::Deadline;
     use crate::units::Temperature;
