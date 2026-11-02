@@ -595,12 +595,10 @@ pub mod analyzer {
             let temps: IndexByChip<ThermistorTemperatures> = {
                 let rdax = *redundant_aux.get().data();
 
-                IndexByChip::from_fn(|chip| {
-                    rdax[chip].to_temps()
-                })
+                IndexByChip::from_fn(|chip| rdax[chip].to_temps())
             };
             let cell_temps = IndexByChip::from_fn(|chip| temps[chip].cell_temperatures);
-            let onboard_temps = IndexByChip::from_fn(|chip| temps[chip].on_board_temps );
+            let onboard_temps = IndexByChip::from_fn(|chip| temps[chip].on_board_temps);
             analyzer.on_board_temps = onboard_temps;
 
             let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| status_a.get().data()[chip].itmp);

@@ -1,5 +1,8 @@
 use strum::FromRepr;
-use crate::{charging, faults, faults::{FaultPin}};
+use crate::{
+    charging, faults,
+    faults::{FaultPin},
+};
 use core::cell::Cell;
 use embassy_sync::blocking_mutex::ThreadModeMutex;
 
@@ -24,32 +27,32 @@ impl BmsState {
 
         match self {
             BmsState::Boot => {
-                if faults::are_critical_faults_active()  { BmsState::Faulted } 
-                else if charging::is_charger_connected() { BmsState::Charging } 
+                if faults::are_critical_faults_active()  { BmsState::Faulted }
+                else if charging::is_charger_connected() { BmsState::Charging }
                 else                                     { BmsState::Ready }
             },
 
             BmsState::Ready => {
-                if faults::are_critical_faults_active()  { BmsState::Faulted } 
-                else if charging::is_charger_connected() { BmsState::Charging } 
+                if faults::are_critical_faults_active()  { BmsState::Faulted }
+                else if charging::is_charger_connected() { BmsState::Charging }
                 else                                     { BmsState::Ready }
             },
 
             BmsState::Charging => {
-                if faults::are_critical_faults_active()  { BmsState::Faulted } 
-                else if charging::is_charger_connected() { BmsState::Charging } 
+                if faults::are_critical_faults_active()  { BmsState::Faulted }
+                else if charging::is_charger_connected() { BmsState::Charging }
                 else                                     { BmsState::Charging } // we shouldn't go back to READY after in charging even if the charger isn't connected
             },
 
             BmsState::Faulted => {
-                if faults::are_critical_faults_active()  { BmsState::Faulted } 
-                else                                     { BmsState::Boot } 
+                if faults::are_critical_faults_active()  { BmsState::Faulted }
+                else                                     { BmsState::Boot }
             },
         }
     }
 
     /// Routines to be called every tick we are in a state.
-    /// 
+    ///
     /// In some cases, this can be called twice in a single tick. This is because there are technically two
     /// states for each tick (the state before we call `evaluate()`, and the state after we call `evaluate()`). Most of the time,
     /// the state before and after will be the same. But if there is a state transition, the state before and after will be different.
@@ -57,34 +60,22 @@ impl BmsState {
     /// "after" state.
     fn on_tick(self) {
         match self {
-            BmsState::Boot => {
-                
-            },
+            BmsState::Boot => {},
 
-            BmsState::Ready => {
-                
-            },
+            BmsState::Ready => {},
 
-            BmsState::Charging => {
-                
-            },
+            BmsState::Charging => {},
 
-            BmsState::Faulted => {
-                
-            },
+            BmsState::Faulted => {},
         }
     }
 
     /// Routines to execute once whenever a state is entered.
     fn on_enter(self) {
         match self {
-            BmsState::Boot => {
-                
-            },
+            BmsState::Boot => {},
 
-            BmsState::Ready => {
-                
-            },
+            BmsState::Ready => {},
 
             BmsState::Charging => {
                 charging::reset_charge_state();
@@ -99,13 +90,9 @@ impl BmsState {
     /// Routines to execute once whenever a state is exited.
     fn on_exit(self) {
         match self {
-            BmsState::Boot => {
-                
-            },
+            BmsState::Boot => {},
 
-            BmsState::Ready => {
-                
-            },
+            BmsState::Ready => {},
 
             BmsState::Charging => {
                 charging::reset_charge_state();
@@ -121,15 +108,25 @@ impl BmsState {
 /// PUBLIC API.
 impl BmsState {
     /// Indicates if the current state is `BmsState::Charging` or not.
-    pub const fn is_charging(&self) -> bool { matches!(*self, BmsState::Charging) }
+    pub const fn is_charging(&self) -> bool {
+        matches!(*self, BmsState::Charging)
+    }
     /// Indicates if the current state is `BmsState::Faulted` or not.
-    pub const fn is_faulted(&self) -> bool { matches!(*self, BmsState::Faulted) }
+    pub const fn is_faulted(&self) -> bool {
+        matches!(*self, BmsState::Faulted)
+    }
 }
 
-struct State { state: ThreadModeMutex<Cell<BmsState>> }
+struct State {
+    state: ThreadModeMutex<Cell<BmsState>>,
+}
 impl State {
-    const fn new() -> Self { Self { state: ThreadModeMutex::new(Cell::new(BmsState::Boot)) } }
-    fn get(&self) -> BmsState { self.state.lock(|i| i.get()) }
+    const fn new() -> Self {
+        Self { state: ThreadModeMutex::new(Cell::new(BmsState::Boot)) }
+    }
+    fn get(&self) -> BmsState {
+        self.state.lock(|i| i.get())
+    }
     fn tick(&self) {
         self.state.lock(|i| {
             let old = i.get();
@@ -148,7 +145,9 @@ impl State {
 static STATE: State = State::new();
 
 /// Gets the current BMS State.
-pub fn state() -> BmsState { STATE.get() }
+pub fn state() -> BmsState {
+    STATE.get()
+}
 
 #[embassy_executor::task]
 pub async fn state_machine_task() -> ! {

@@ -53,7 +53,7 @@ pub enum UpdateError {
     /// or an unwrap/expect so an impossible error that somehow happens doesn't panic the whole bms
     ImpossibleError,
     /// Error starting continuous conversions.
-    StartContinuousConversionsError(Error<SpiError>)
+    StartContinuousConversionsError(Error<SpiError>),
 }
 
 /// Register reading for a single chip.

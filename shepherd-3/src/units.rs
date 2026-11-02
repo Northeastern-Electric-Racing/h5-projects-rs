@@ -71,7 +71,9 @@ pub mod voltage {
             Self { volts: inner.value }
         }
         /// Gets this data in units of Volts. This is just a wrapper around `.get::<volt>()`, but it looks nicer.
-        pub fn as_volts(&self) -> f32 { self.get::<volt>() }
+        pub fn as_volts(&self) -> f32 {
+            self.get::<volt>()
+        }
     }
 }
 pub use voltage::*;
@@ -189,7 +191,9 @@ pub mod current {
             Self { amps: self.amps.abs() }
         }
         /// Gets this data in units of Amps. This is just a wrapper around `.get::<ampere>()`, but it looks nicer.
-        pub fn as_amps(&self) -> f32 { self.get::<ampere>() }
+        pub fn as_amps(&self) -> f32 {
+            self.get::<ampere>()
+        }
     }
 }
 pub use current::*;

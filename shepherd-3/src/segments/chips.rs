@@ -728,7 +728,7 @@ pub mod gpios {
         }
 
         /// Wonderful wrapper type to allow you to index by `OnboardThermIndex`.
-        /// 
+        ///
         /// We really really really should have a macro for this
         #[derive(Copy, Clone, Debug)]
         pub struct IndexByOnboardTherm<T> {
@@ -872,12 +872,10 @@ pub mod gpios {
 
                     CellId::Cell13 => calc_cell_temp(gpios.get(GpioId::Gpio10)),
                 }),
-                on_board_temps: IndexByOnboardTherm::from_fn(|therm| {
-                    match therm {
-                        OnboardThermIndex::ThermAlphaBalancingBank => calc_cell_temp(gpios.get(GpioId::Gpio3)),
-                        OnboardThermIndex::ThermChips => calc_cell_temp(gpios.get(GpioId::Gpio4)),
-                        OnboardThermIndex::ThermBetaBalancingBank => calc_cell_temp(gpios.get(GpioId::Gpio5)),
-                    }
+                on_board_temps: IndexByOnboardTherm::from_fn(|therm| match therm {
+                    OnboardThermIndex::ThermAlphaBalancingBank => calc_cell_temp(gpios.get(GpioId::Gpio3)),
+                    OnboardThermIndex::ThermChips => calc_cell_temp(gpios.get(GpioId::Gpio4)),
+                    OnboardThermIndex::ThermBetaBalancingBank => calc_cell_temp(gpios.get(GpioId::Gpio5)),
                 }),
             }
         }

@@ -218,10 +218,10 @@ pub mod types {
     impl BmsChargeMessageSend {
         pub fn as_frame(&self) -> Frame {
             let frame = cangen::BmsChargeMessageSend::new().with_charge_volts(self.charge_volts).with_charge_current(self.charge_current).with_enable_charging(self.charging_state);
-            frame.to_can_frame() 
+            frame.to_can_frame()
         }
     }
-      
+
     pub struct ShutdownAsReadByBms {
         pub shutdown_state: bool,
         pub shutdown_ts_minus_sense: bool,
@@ -305,7 +305,7 @@ mod channels {
 
 mod handler {
     use cangen::FromCanFrame;
-use defmt::warn;
+    use defmt::warn;
     use embassy_stm32::can::filter::FilterType::{DedicatedDual, DedicatedSingle};
     use embassy_stm32::can::filter::{Action, ExtendedFilter, ExtendedFilterSlot, StandardFilter, StandardFilterSlot};
     use embassy_stm32::can::{CanConfigurator, CanRx, CanTx, Properties};

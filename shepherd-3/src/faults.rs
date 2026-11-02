@@ -433,11 +433,11 @@ mod api {
 
     pub enum FaultPin {
         /// Set MCU fault ACTIVE (we are faulted).
-        /// 
+        ///
         /// This corresponds to LOW pinstate, since this pin is active-low.
         Active,
         /// Set MCU fault INACTIVE (we are not faulted).
-        /// 
+        ///
         /// This corresponds to a HIGH pinstate, since this pin is active-low.
         Inactive,
     }
@@ -445,8 +445,12 @@ mod api {
     /// Sets state of MCU fault.
     pub fn set_fault(state: FaultPin) {
         match state {
-            FaultPin::Active => { crate::gpios::pins().get().mcu_fault_pin.set_low(); },
-            FaultPin::Inactive => { crate::gpios::pins().get().mcu_fault_pin.set_high();},
+            FaultPin::Active => {
+                crate::gpios::pins().get().mcu_fault_pin.set_low();
+            },
+            FaultPin::Inactive => {
+                crate::gpios::pins().get().mcu_fault_pin.set_high();
+            },
         }
     }
 }

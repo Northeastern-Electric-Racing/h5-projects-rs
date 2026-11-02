@@ -48,7 +48,6 @@ pub mod alias {
     pub type Api = adbms6830b::turnkey::api::Api<SpiDevice, ADBMS6830B_NUM_CHIPS>;
 }
 
-
 use crate::segments::cache::UpdateError;
 /// Guy in charge of the segments.
 pub(super) struct Segments {
@@ -143,9 +142,7 @@ impl Segments {
                     types::{OvervoltageThreshold, UndervoltageThreshold, DischargeTimerMonitor, DischargeTimerStatus, DischargeTimerRange, DischargeCellConfig},
                 },
             };
-            use adbms6830b::chip::{
-                commands,
-            };
+            use adbms6830b::chip::{commands};
             use adbms6830b::turnkey::service::StartupResult;
 
             // Reset chips to blank state.
@@ -430,7 +427,7 @@ pub mod jobs {
             {
                 use adbms6830b::chip::commands::adc::{AdcvRedundancy, AutoAcquisition, ResetFilter, OpenWire};
                 self.service.api().adcv_autoconvert(AdcvRedundancy::Enabled, AutoAcquisition::SingleShot, ResetFilter::NoReset, OpenWire::OffForAll, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
-            }            
+            }
             cache::CACHE.update_cell_voltages(self.service.api()).await?;
             cache::CACHE.update_s_voltages(self.service.api()).await?;
             cache::CACHE.update_average_cell_voltages(self.service.api()).await?;
@@ -620,8 +617,12 @@ pub mod task {
 
             /// Returns `true` if the value of `balance_blocked()` changed for any chip after this call. Returns `false` if there was no state change for any chip.
             pub fn update_chip_balance_thermal_limits(&mut self) -> bool {
-                let Some(temps) = analyzer::analyzer().try_partial_get(|h| h.data.on_board_temps) else { return false; };
-                let Some(stata) = segments::cache().get_status_a().nice().try_partial_get(|h| *h.data()) else { return false; };
+                let Some(temps) = analyzer::analyzer().try_partial_get(|h| h.data.on_board_temps) else {
+                    return false;
+                };
+                let Some(stata) = segments::cache().get_status_a().nice().try_partial_get(|h| *h.data()) else {
+                    return false;
+                };
 
                 let mut state_change = false;
 
@@ -638,7 +639,7 @@ pub mod task {
                     let greater_chip_temp = temps[alpha][OnboardThermIndex::ThermChips].max(temps[beta][OnboardThermIndex::ThermChips]);
                     chip_temp[alpha] = greater_chip_temp;
                     chip_temp[beta] = greater_chip_temp;
-                    
+
                     // the fact that they both come from `temps[alpha]` is intentional based on C shep
                     resistor_temp[alpha] = temps[alpha][OnboardThermIndex::ThermAlphaBalancingBank];
                     resistor_temp[beta] = temps[alpha][OnboardThermIndex::ThermBetaBalancingBank];
@@ -729,7 +730,6 @@ pub mod task {
         use adbms6830b::chip::registers::config_b::{ConfigB, types::DischargeTimerStatus};
         use crate::segments::IndexByCell;
 
-
         let mut segments = Segments::new(r_linea, r_lineb);
 
         /// Timing diagnostics for the segments task.
@@ -793,7 +793,6 @@ pub mod task {
         // Same thing but for ENABLE BALANCING
         let mut enable_balancing_failure = false;
 
-
         loop {
             let start_time = Instant::now();
 
@@ -806,11 +805,7 @@ pub mod task {
             let thermal_state_changed = balancing_thermal_state.update_chip_balance_thermal_limits();
 
             // Carries the payload for `balancing_active`.
-            let balancing_active_payload = if charging {
-                charging::are_we_actively_balancing()
-            } else {
-                AreWeActivelyBalancing::No
-            };
+            let balancing_active_payload = if charging { charging::are_we_actively_balancing() } else { AreWeActivelyBalancing::No };
 
             // Version of `balancing_active_payload` that is just a bool (for convenience).
             let balancing_active = balancing_active_payload.is_yes();
@@ -886,8 +881,6 @@ pub mod task {
                 }
             }
 
-
-
             // We only run the open wire test every so often
             #[cfg(not(feature = "hil"))]
             '_open_wire: {
@@ -913,10 +906,10 @@ pub mod task {
                         AreWeActivelyBalancing::No => {
                             defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: Somehow, `balancing_active_payload` is `AreWeActivelyBalancing::No` even though we have entered this `if` block. This should not be possible, and means there is a logical error somewhere.");
                             break '_enter_balancing true;
-                        }
-                        AreWeActivelyBalancing::Yes(b) => { b.cells_to_balance() }
+                        },
+                        AreWeActivelyBalancing::Yes(b) => b.cells_to_balance(),
                     };
-                    
+
                     if let Err(err) = segments.service.api().command(commands::discharge::mute()).await {
                         defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: Failed to send the MUTE command before enabling balancing. Error: {}", err);
                         break '_enter_balancing true;
@@ -929,7 +922,7 @@ pub mod task {
                         None => {
                             defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: There is no cached ConfigB from startup to write from. This means that something is probably definitely wrong with the logic here.");
                             break '_enter_balancing true;
-                        }
+                        },
                     };
                     let cfgb_to_write: IndexByChip<ConfigB> = IndexByChip::from_fn(|_| {
                         // Strange thing: We set DCTO to 0 at init, but then we set it to 1 here (when entering balancing). But then we never reset it
@@ -944,24 +937,10 @@ pub mod task {
 
                     // Write PWM configs.
                     let desired_pwm = charging::get_pwm_duty_cycle();
-                    let configs: IndexByChip<IndexByCell<PwmDutyCycleConfig>> = {
-                        IndexByChip::from_fn(|chip| {
-                            if balancing_thermal_state.balance_blocked(chip) { 
-                                IndexByCell::from_value(PwmDutyCycleConfig::Disabled) 
-                            } else {
-                                IndexByCell::from_fn(|cell| {
-                                    if cells_to_balance[chip][cell] { desired_pwm } else { PwmDutyCycleConfig::Disabled }
-                                })
-                            }
-                        })
-                    };
+                    let configs: IndexByChip<IndexByCell<PwmDutyCycleConfig>> = { IndexByChip::from_fn(|chip| if balancing_thermal_state.balance_blocked(chip) { IndexByCell::from_value(PwmDutyCycleConfig::Disabled) } else { IndexByCell::from_fn(|cell| if cells_to_balance[chip][cell] { desired_pwm } else { PwmDutyCycleConfig::Disabled }) }) };
 
-                    let pwma: IndexByChip<PwmA> = IndexByChip::from_fn(|chip| { 
-                        configs[chip].destructure().0
-                    });
-                    let pwmb: IndexByChip<PwmB> = IndexByChip::from_fn(|chip| { 
-                        configs[chip].destructure().1
-                    });
+                    let pwma: IndexByChip<PwmA> = IndexByChip::from_fn(|chip| configs[chip].destructure().0);
+                    let pwmb: IndexByChip<PwmB> = IndexByChip::from_fn(|chip| configs[chip].destructure().1);
                     if let Err(err) = segments.service.api().write(&pwma.into_array()).await {
                         defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to write PwmA, but an error occured. Error: {}", err);
                         break '_enter_balancing true;

@@ -20,56 +20,50 @@ impl OutputPin {
 
     /// Set the output as high.
     pub fn set_high(&self) {
-        self.pin.lock(|i| 
+        self.pin.lock(|i|
             // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on OutputPin's wrappers,
             // so there will be no borrows live at this moment.
-            i.borrow_mut().set_high()
-        )
+            i.borrow_mut().set_high())
     }
 
     /// Set the output as low.
     pub fn set_low(&self) {
-        self.pin.lock(|i| 
+        self.pin.lock(|i|
             // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on OutputPin's wrappers,
             // so there will be no borrows live at this moment.
-            i.borrow_mut().set_low()
-        )
+            i.borrow_mut().set_low())
     }
 
     /// Set the output level.
     pub fn set_level(&self, level: Level) {
-        self.pin.lock(|i| 
+        self.pin.lock(|i|
             // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on OutputPin's wrappers,
             // so there will be no borrows live at this moment.
-            i.borrow_mut().set_level(level)
-        )
+            i.borrow_mut().set_level(level))
     }
 
     /// Is the output pin set as high?
     pub fn is_set_high(&self) -> bool {
-        self.pin.lock(|i| 
+        self.pin.lock(|i|
             // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on OutputPin's wrappers,
             // so there will be no borrows live at this moment.
-            i.borrow_mut().is_set_high()
-        )
+            i.borrow_mut().is_set_high())
     }
 
     /// Is the output pin set as low?
     pub fn is_set_low(&self) -> bool {
-        self.pin.lock(|i| 
+        self.pin.lock(|i|
             // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on OutputPin's wrappers,
             // so there will be no borrows live at this moment.
-            i.borrow_mut().is_set_low()
-        )
+            i.borrow_mut().is_set_low())
     }
 
     /// What level the output is set to
     pub fn output_level(&self) -> Level {
-        self.pin.lock(|i| 
+        self.pin.lock(|i|
             // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on OutputPin's wrappers,
             // so there will be no borrows live at this moment.
-            i.borrow_mut().output_level()
-        )
+            i.borrow_mut().output_level())
     }
 
     /// Toggle pin output
@@ -77,8 +71,7 @@ impl OutputPin {
         self.pin.lock(|i|
             // PANIC SAFETY: The RefCell is only ever borrowed (mutably or non-mutably) in the closures implemented on OutputPin's wrappers,
             // so there will be no borrows live at this moment.
-            i.borrow_mut().toggle()
-        )
+            i.borrow_mut().toggle())
     }
 }
 
