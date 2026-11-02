@@ -1,1 +1,4 @@
 too-many-arguments-threshold = 8
+disallowed-types = [
+    { path = "f64", reason = "Use f32 or fixed-point arithmetic instead." }
+]

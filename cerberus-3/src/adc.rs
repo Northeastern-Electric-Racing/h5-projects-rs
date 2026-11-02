@@ -16,8 +16,6 @@ use crate::efuses::EfuseId;
 bind_interrupts!(struct Irqs {
     ADC1 => embassy_stm32::adc::InterruptHandler<peripherals::ADC1>;
     GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH0>;
-    ADC2 => embassy_stm32::adc::InterruptHandler<peripherals::ADC2>;
-    GPDMA1_CHANNEL4 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH4>;
 });
 
 /// How long the external mux needs to settle after the SEL lines change.
@@ -27,12 +25,6 @@ const MUX_SETTLE_MS: u64 = 10;
 const SAMPLE_TIME: SampleTime = SampleTime::Cycles475;
 /// Sample time for the LFIU mux input, which needs longer to change.
 const SAMPLE_TIME_MUX2: SampleTime = SampleTime::Cycles2475;
-
-/// Sample time for every ADC2 channel
-const SAMPLE_TIME2: SampleTime = SAMPLE_TIME;
-
-/// how long to let adc2 settle
-const PEDAL_SETTLE_MS: u64 = 100;
 
 #[derive(PartialEq, Eq)]
 enum AdcMuxSel {
@@ -51,14 +43,6 @@ pub enum Adc1Channels {
     Adc1Channel13, // EF_PUMP2_ADC
     Adc1Channel18, // EF_MC_ADC
     Adc1Channel15, // Mux 2
-}
-
-#[derive(VariantCount)]
-pub enum Adc2Channels {
-    Adc2Channel12, // APPS_1_ADC
-    Adc2Channel10, // APPS_2_ADC
-    Adc2Channel2,  // BSE_1_ADC
-    Adc2Channel6,  // BSE_2_ADC
 }
 
 #[derive(VariantCount)]
@@ -262,94 +246,5 @@ pub async fn adc1_task(r: Adc1Resources) {
 
         // Settle with the lock released, so readers are not blocked for 10ms.
         Timer::after_millis(MUX_SETTLE_MS).await;
-    }
-}
-
-/// Peripherals ADC2.
-///
-/// Channel pins follow the CubeMX rank order; see `Core/Inc/main.h:90-117` and
-/// the raw GPIOF writes in `Core/Src/stm32h5xx_hal_msp.c:155-158`.
-pub struct Adc2Resources {
-    pub adc: Peri<'static, peripherals::ADC2>,
-    pub dma: Peri<'static, peripherals::GPDMA1_CH4>,
-    pub apps1: Peri<'static, peripherals::PC2>,
-    pub apps2: Peri<'static, peripherals::PC0>,
-    pub bse1: Peri<'static, peripherals::PF13>,
-    pub bse2: Peri<'static, peripherals::PF14>,
-}
-
-#[embassy_executor::task]
-pub async fn adc2_task(r: Adc2Resources) {
-    let mut config = Config::default();
-    config.resolution = Some(Resolution::Bits12);
-    config.clock = Clock::Async(Prescaler::Div64);
-
-    let sequence = [
-        (r.apps1.degrade_adc(), SAMPLE_TIME2),
-        (r.apps2.degrade_adc(), SAMPLE_TIME2),
-        (r.bse1.degrade_adc(), SAMPLE_TIME2),
-        (r.bse2.degrade_adc(), SAMPLE_TIME2),
-    ];
-
-    let mut adc2 = Adc::new(r.adc, Irqs, config);
-
-    let mut sequence = adc2.configure_sequence(r.dma, sequence.into_iter(), Irqs);
-
-    let mut buffer = [0u16; Adc2Channels::VARIANT_COUNT];
-
-    let _ = ADC2_MUTEX.init(Mutex::new(PedalBuffer::new()));
-
-    loop {
-        sequence.read(&mut buffer).await;
-
-        let mut mux = ADC2_MUTEX.get().await.lock().await;
-
-        mux.update(&buffer);
-
-        Timer::after_millis(PEDAL_SETTLE_MS).await;
-    }
-}
-
-/// The one [`AdcMux`], populated by [`adc1_task`] when it starts.
-static ADC2_MUTEX: OnceLock<Mutex<ThreadModeRawMutex, PedalBuffer>> = OnceLock::new();
-
-/// Takes a snapshot of the latest readings.
-///
-/// Waits for [`adc1_task`] to have started. The lock is held only long enough to
-/// copy the buffers out.
-pub async fn pedal_data() -> RawPedalData {
-    ADC2_MUTEX.get().await.lock().await.get_pedal_data()
-}
-
-#[derive(Clone, Copy)]
-pub struct PedalBuffer {
-    adc_buffer: [u16; Adc2Channels::VARIANT_COUNT],
-}
-
-pub struct RawPedalData {
-    accel1: u16,
-    accel2: u16,
-    brake1: u16,
-    brake2: u16,
-}
-
-impl PedalBuffer {
-    pub fn new() -> Self {
-        Self {
-            adc_buffer: [0; Adc2Channels::VARIANT_COUNT],
-        }
-    }
-
-    pub fn update(&mut self, buffer: &[u16; Adc2Channels::VARIANT_COUNT]) {
-        self.adc_buffer = *buffer;
-    }
-
-    pub fn get_pedal_data(self) -> RawPedalData {
-        RawPedalData {
-            accel1: self.adc_buffer[Adc2Channels::Adc2Channel12 as usize],
-            accel2: self.adc_buffer[Adc2Channels::Adc2Channel10 as usize],
-            brake1: self.adc_buffer[Adc2Channels::Adc2Channel2 as usize],
-            brake2: self.adc_buffer[Adc2Channels::Adc2Channel6 as usize],
-        }
     }
 }

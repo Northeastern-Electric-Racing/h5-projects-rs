@@ -218,6 +218,20 @@ pub mod types {
     impl BmsChargeMessageSend {
         pub fn as_frame(&self) -> Frame {
             let frame = cangen::BmsChargeMessageSend::new().with_charge_volts(self.charge_volts).with_charge_current(self.charge_current).with_enable_charging(self.charging_state);
+            frame.to_can_frame() 
+        }
+    }
+      
+    pub struct ShutdownAsReadByBms {
+        pub shutdown_state: bool,
+        pub shutdown_ts_minus_sense: bool,
+        pub shutdown_ts_plus_sense: bool,
+        pub shutdown_acc_sense: bool,
+        pub shutdown_tsip_sense: bool,
+    }
+    impl ShutdownAsReadByBms {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::ShutdownAsReadByBms::new().with_shutdown_state(self.shutdown_state).with_shutdown_ts_minus_sense(self.shutdown_ts_minus_sense).with_shutdown_ts_plus_sense(self.shutdown_ts_plus_sense).with_shutdown_acc_sense(self.shutdown_acc_sense).with_shutdown_tsip_sense(self.shutdown_tsip_sense);
             frame.to_can_frame()
         }
     }

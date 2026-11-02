@@ -18,7 +18,7 @@ Each folder is a project corresponding to ONE binary.
 - To enter a project: `cd ./project-name`
 - To build: `cargo build`
 - To deploy onto an embedded chip locally connected, run `cargo run --release`.
-- To format, run `cargo format`. 
+- To format, run `cargo fmt`. 
 - To lint and check stuff, run `cargo clippy`.
 - To run a RTT terminal dedicated: `cargo embed2 --release rtt`
 - To run a GDB terminal dedicated: `cargo embed2 --release gdb`
@@ -30,7 +30,6 @@ The workspace's only purpose is to organize dependencies and build artificats, e
 ### Coding tips and tricks
 
 - Use defmt macros to print stuff
-- 
 
 ### IDE Stuff
 

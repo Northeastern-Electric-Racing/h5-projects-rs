@@ -1,15 +1,25 @@
+//! efuses
+//! Handles all functions related to efuses
+//! Auto efuses use function pointers and evaluates conditions every loop <br>
+//! The status of an efuse can be polled by calling is_enabled, or is_faulted <br>
+//! The efuse condition can also be updated using update_control_state <br>
+
 use cangen::ToCanFrame;
+use defmt::debug;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
-use embassy_time::Timer;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_time::{Duration, Timer};
+use uom::si::ratio::percent;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
 use crate::can;
 
 const V_REF: f32 = 3.3;
-const MAX_TWELVE_BIT_RESOUTION: u16 = 4095;
+const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
 
 /// Discriminants match the `control_state` encoding in the CAN spec.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -18,6 +28,20 @@ pub enum EfuseControlState {
     EfuseOn = 0,   // Hard set on
     EfuseAuto = 1, // Hard set off
     EfuseOff = 2,  // Turns on and off under a specific predicate condition
+}
+
+impl TryFrom<u8> for EfuseControlState {
+    type Error = u8; // an unrecognized state number (not 0, 1, or 2)
+
+    /// method for converting from u8 -> EfuseControlState enum
+    fn try_from(control_state: u8) -> Result<EfuseControlState, Self::Error> {
+        match control_state {
+            0 => Ok(EfuseControlState::EfuseOn),
+            1 => Ok(EfuseControlState::EfuseAuto),
+            2 => Ok(EfuseControlState::EfuseOff),
+            other => Err(other),
+        }
+    }
 }
 
 /// ENUM for all Efuses on the car
@@ -73,6 +97,33 @@ pub struct EfuseTelemetry {
     pub enabled: bool,
     pub control_state: EfuseControlState,
 }
+static COMMAND: Channel<ThreadModeRawMutex, EfuseCommand, 11> = Channel::new();
+
+/// requests for can to send to efuses
+pub struct EfuseCommand {
+    pub efuse_id: EfuseId,
+    pub efuse_control_state: EfuseControlState,
+}
+
+impl EfuseCommand {
+    pub fn add_command(efuse_id: EfuseId, efuse_control_state: u8) {
+        if let Ok(efuse_control_state) = EfuseControlState::try_from(efuse_control_state) {
+            let efuse_command = EfuseCommand {
+                efuse_id,
+                efuse_control_state,
+            };
+            if COMMAND.try_send(efuse_command).is_err() {
+                debug!("EfuseCommand queue full, dropped.");
+            }
+        } else {
+            debug!("Unexpected efuse control state: {}", efuse_control_state);
+        }
+    }
+
+    pub fn get_id(&self) -> EfuseId {
+        self.efuse_id
+    }
+}
 
 /// Common shape of every `<Name>Efuse` cangen message.
 trait EfuseMsg: ToCanFrame {
@@ -110,7 +161,7 @@ impl_efuse_msg!(
     SpareEfuse,
 );
 
-/// Builder pattern for convertering EfuseMsg into a frame
+/// Builder pattern for converting EfuseMsg into a frame
 fn frame_for<M: EfuseMsg>(t: &EfuseTelemetry) -> Frame {
     M::build(t).to_can_frame()
 }
@@ -190,16 +241,20 @@ impl Efuse {
                 Output::new(pins.brake_en, Level::Low, EN_SPEED),
                 Input::new(pins.brake_er, ER_PULL),
                 200.0,
-                EfuseControlState::EfuseOff,
+                EfuseControlState::EfuseAuto,
                 Some(AutoPredicate {
-                    value1: || 0.0,
-                    value2: || 0.0,
-                    operation: PredicateOperation::EQ,
+                    value1: || 0.0, /* pedals brake percentage */
+                    value2: || crate::pedals::constants::PEDAL_BRAKE_THRESH.get::<percent>(),
+                    operation: PredicateOperation::GREATER,
                 }),
                 Some(AutoPredicate {
-                    value1: || 0.0,
-                    value2: || 0.0,
-                    operation: PredicateOperation::EQ,
+                    value1: || 0.0, /* pedals brake threshold */
+                    value2: || {
+                        (crate::pedals::constants::PEDAL_BRAKE_THRESH
+                            - crate::pedals::constants::PEDAL_BRAKE_TURNOFF_THRESH)
+                            .get::<percent>()
+                    },
+                    operation: PredicateOperation::LESS,
                 }),
                 frame_for::<cangen::BrakeEfuse>,
             ),
@@ -328,7 +383,7 @@ impl Efuse {
 
     pub fn get_data(&self, adc_data: &AdcMuxData) -> Option<(f32, f32)> {
         if let Some(data) = adc_data.get_efuse_data(self.efuse_id) {
-            let voltage = data as f32 / MAX_TWELVE_BIT_RESOUTION as f32 * V_REF;
+            let voltage = data as f32 / MAX_TWELVE_BIT_RESOLUTION as f32 * V_REF;
             let current = voltage * self.scale;
             Some((voltage, current))
         } else {
@@ -361,14 +416,19 @@ impl Efuse {
     }
 }
 
-const EFUSE_PERIOD_MS: u64 = 100;
+const EFUSE_PERIOD: Duration = Duration::from_millis(100);
 
 #[embassy_executor::task]
 pub async fn efuse_task(pins: EfusePins) {
-    let mut _efuses: [Efuse; _] = Efuse::init_all(pins);
+    let mut efuses: [Efuse; _] = Efuse::init_all(pins);
 
     loop {
-        for efuse in &mut _efuses {
+        while let Ok(command) = COMMAND.try_receive() {
+            if let Some(efuse) = efuses.get_mut(command.get_id() as usize) {
+                efuse.update_control_state(command.efuse_control_state);
+            }
+        }
+        for efuse in &mut efuses {
             match efuse.get_control_state() {
                 EfuseControlState::EfuseOff => efuse.disable(),
                 EfuseControlState::EfuseOn => efuse.enable(),
@@ -428,10 +488,10 @@ pub async fn efuse_task(pins: EfusePins) {
         let adc = adc::data().await;
 
         // send out CAN message for each EFUSE
-        for efuse in &_efuses {
+        for efuse in &efuses {
             can::OUTGOING.send(efuse.to_frame(&adc)).await;
         }
 
-        Timer::after_millis(EFUSE_PERIOD_MS).await;
+        Timer::after(EFUSE_PERIOD).await;
     }
 }

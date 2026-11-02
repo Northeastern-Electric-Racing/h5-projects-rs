@@ -25,6 +25,7 @@ pub mod helpers;
 pub mod state_machine;
 pub mod charging;
 pub mod gpios;
+pub mod shutdown;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
@@ -83,6 +84,10 @@ assign_resources! {
     /// Resources for `gpios` module.
     gpios: GpiosResources {
         mcu_fault_pin: PG15,
+        ts_minus_sense_pin: PC0,
+        ts_plus_sense_pin: PC3,
+        acc_sense_pin: PB0,
+        tsip_sense_pin: PB1,
     }
 }
 
@@ -115,6 +120,14 @@ assign_resources! {
         tx_dma: GPDMA1_CH6,
         rx_dma: GPDMA1_CH7,
     }
+    /// Resources for `gpios` module.
+    gpios: GpiosResources {
+        mcu_fault_pin: PG15,
+        ts_minus_sense_pin: PC0,
+        ts_plus_sense_pin: PC3,
+        acc_sense_pin: PB0,
+        tsip_sense_pin: PB1,
+    }
 }
 
 #[embassy_executor::main]
@@ -133,6 +146,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
+    spawner.spawn(shutdown::shutdown_task().expect("Failed to spawn shutdown::shutdown_task()."));
     spawner.spawn(hv_plate::soc_task().expect("Failed to spawn hv_plate::soc_task()."));
     spawner.spawn(hv_plate::precharge_task().expect("Failed to spawn hv_plate::precharge_task()."));
     //spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
