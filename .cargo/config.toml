@@ -5,7 +5,7 @@ runner = 'probe-rs run --chip STM32H563ZITx --no-catch-reset'
 target = "thumbv8m.main-none-eabihf"
 
 [env]
-DEFMT_LOG = "trace"
+DEFMT_LOG = "debug"
 PROBE_RS_EMBED_CONFIG_FILE = { value = "Embed.toml", relative = true }
 
 [alias]

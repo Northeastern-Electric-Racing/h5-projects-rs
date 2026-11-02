@@ -16,15 +16,18 @@ use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 mod adc;
+mod bms;
 mod buttons;
 mod can;
 mod efuses;
 mod pedals;
+mod peripherals;
 mod rtds;
 mod shutdown;
 mod statemachine;
 
 use crate::can::can_inbox_task;
+use crate::peripherals::I2C2Resources;
 use crate::shutdown::ShutdownInputs;
 use crate::shutdown::report_shutdown_task;
 use adc::{Adc1Resources, adc1_task};
@@ -177,6 +180,10 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn efuses::efuse_task()."),
     );
 
+    // BMS Monitor
+    spawner
+        .spawn(bms::bms_can_monitor_task().expect("Failed to spawn bms::bms_can_monitor_task()."));
+
     // Statemachine
     spawner.spawn(
         statemachine::statemachine_task()
@@ -200,6 +207,16 @@ async fn main(spawner: Spawner) -> ! {
             tsms: p.PG9,
         })
         .expect("Failed to spawn shutdown::report_shutdown_task()."),
+    );
+
+    // Peripherals (temp sensor)
+    spawner.spawn(
+        peripherals::peripherals_task(I2C2Resources {
+            i2c: p.I2C2,
+            scl: p.PF1,
+            sda: p.PF0,
+        })
+        .expect("Failed to spawn peripherals::peripherals_task()."),
     );
 
     // RTDS
