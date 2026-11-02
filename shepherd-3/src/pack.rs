@@ -651,6 +651,7 @@ pub mod analyzer {
         let filtered_cell_voltages = segments::cache().get_filtered_cell_voltages().nice().ready().await;
         let redundant_aux = segments::cache().get_redundant_aux().nice().ready().await;
         let status_a = segments::cache().get_status_a().nice().ready().await;
+
         let _s_voltages_ow_even_on = segments::cache().get_s_voltages_ow_even_on().nice().ready().await;
         let _s_voltages_ow_odd_on = segments::cache().get_s_voltages_ow_odd_on().nice().ready().await;
 
@@ -725,6 +726,17 @@ pub mod analyzer {
                 defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_cell", desc = "The cell `low_val` was measured from.", "{}", analyzer.min_ocv.cell());
                 defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_chip", desc = "The chip `low_val` was measured from.", "{}", analyzer.min_ocv.chip());
                 defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/avg_val", desc = "The average cell voltage, in volts.", "{=f32}", analyzer.avg_ocv.get::<volt>());
+                let mut count = 0;
+                for chip in ChipId::iter() {
+                    for cell in CellId::iter() {
+                        let therm = &analyzer.sanitized_therms[chip][cell];
+                        if !therm.valid {
+                            count += 1;
+                        }
+                        defmt_monitor::monitor!(["AnalyzerDebug/ThermState/chip_{=u8}/cell_{=u8}/valid", chip.as_u8(), cell.as_u8()], desc = "Whether the sanitizer currently trusts this thermistor. Once false, it stays false until reboot.", "{=bool}", therm.valid)
+                    }
+                }
+                defmt_monitor::monitor!("AnalyzerDebug/ThermState/invalid_count", desc = "Number of thermistors the sanitizer currently does not trust.", "{=u32}", count);
             }
 
             can::send(
