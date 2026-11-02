@@ -2331,6 +2331,30 @@ pub mod pwm {
     /// so you should probably look at the Raw readings if interested in that.
     pub type NiceData = IndexByChip<IndexByCell<PwmDutyCycleConfig>>;
 
+    impl IndexByCell<PwmDutyCycleConfig> {
+        /// Destructures an `IndexByCell<PwmDutyCycleConfig>` into an `(PwmA, PwmB)` tuple so it can be written to registers.
+        pub fn destructure(&self) -> (PwmA, PwmB) {
+            let pwma = PwmA::all_disabled()
+                .with_pwm1(self[CellId::Cell1])
+                .with_pwm2(self[CellId::Cell2])
+                .with_pwm3(self[CellId::Cell3])
+                .with_pwm4(self[CellId::Cell4])
+                .with_pwm5(self[CellId::Cell5])
+                .with_pwm6(self[CellId::Cell6])
+                .with_pwm7(self[CellId::Cell7])
+                .with_pwm8(self[CellId::Cell8])
+                .with_pwm9(self[CellId::Cell9])
+                .with_pwm10(self[CellId::Cell10])
+                .with_pwm11(self[CellId::Cell11])
+                .with_pwm12(self[CellId::Cell12]);
+
+            // 14, 15, and 16 will stay disabled
+            let pwmb = PwmB::all_disabled().with_pwm13(self[CellId::Cell13]);
+
+            (pwma, pwmb)
+        }
+    }
+
     /// Container for "nice" data.
     #[derive(Copy, Clone)]
     pub struct Nice {

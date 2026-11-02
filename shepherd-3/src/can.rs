@@ -211,11 +211,13 @@ pub mod types {
     pub struct BmsChargeMessageSend {
         pub charge_volts: f32,
         pub charge_current: f32,
-        pub enable_charging: u8,
+
+        /// 0xFF = stop charging, 0 = yes charge
+        pub charging_state: u8,
     }
     impl BmsChargeMessageSend {
         pub fn as_frame(&self) -> Frame {
-            let frame = cangen::BmsChargeMessageSend::new().with_charge_volts(self.charge_volts).with_charge_current(self.charge_current).with_enable_charging(self.enable_charging);
+            let frame = cangen::BmsChargeMessageSend::new().with_charge_volts(self.charge_volts).with_charge_current(self.charge_current).with_enable_charging(self.charging_state);
             frame.to_can_frame()
         }
     }

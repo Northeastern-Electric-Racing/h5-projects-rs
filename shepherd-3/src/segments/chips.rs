@@ -77,7 +77,7 @@ pub mod cells {
     }
 
     /// Like IndexByChip but for cells
-    #[derive(Copy, Clone, Debug)]
+    #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct IndexByCell<T> {
         data: [T; NUM_CELLS_PER_CHIP],
     }
@@ -487,7 +487,7 @@ pub mod segments {
 /// The point of this so responses can be interacted with
 /// via `ChipId` (and iterated over) instead of having to
 /// lookup raw arrays (whuch might require you to convert a ChipId to usize).
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct IndexByChip<T> {
     data: [T; ADBMS6830B_NUM_CHIPS],
 }

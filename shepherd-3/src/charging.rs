@@ -23,6 +23,7 @@ use crate::pack::analyzer;
 use crate::helpers::snapshot_cell::{SnapshotCell, LazySnapshotCell};
 use crate::helpers::hysteresis::Hysteresis;
 use crate::segments::IndexByChip;
+use crate::segments::IndexByCell;
 use crate::segments::ChipId;
 use crate::segments;
 use crate::segments::SegmentId;
@@ -35,7 +36,7 @@ mod state {
     const LONG_CHARGE_DURATION: Duration = Duration::from_secs(15 * 60);
     /// How much current we should request from the charger while in `LongChargeUp`.
     const LONG_CHARGE_CURRENT: Current = Current::from_amps(5.0);
-    #[derive(Copy, Clone, PartialEq)]
+    #[derive(Copy, Clone)]
     pub struct LongChargeUp {
         /// RUNTIME FIELD. When this `LongChargeUp` session should expire (based on LONG_CHARGE_DURATION).
         deadline: Deadline,
@@ -53,7 +54,7 @@ mod state {
     const SHORT_CHARGE_START_CURRENT: Current = Current::from_amps(5.0);
     /// The rate at which we step down the current.
     const SHORT_CHARGE_CURRENT_STEP: Current = Current::from_amps(1.0);
-    #[derive(Copy, Clone, PartialEq)]
+    #[derive(Copy, Clone)]
     pub struct ShortChargeUp {
         /// RUNTIME FIELD. When this `ShortChargeUp` should check to step down the voltage next.
         deadline: Deadline,
@@ -108,7 +109,7 @@ mod state {
     /// Current to request from the charger while in the "active" stage.
     const BALANCING_ACTIVE_CURRENT: Current = Current::from_amps(0.5);
 
-    #[derive(Copy, Clone, PartialEq)]
+    #[derive(Copy, Clone)]
 
     enum BalancingDeadline {
         /// We are actively in the "active" stage of balancing, so this is our deadline for that ending.
@@ -137,7 +138,7 @@ mod state {
         }
     }
 
-    #[derive(Copy, Clone, PartialEq)]
+    #[derive(Copy, Clone)]
     enum BalancingKind {
         /// Balancing is not allowed to draw current right now. We are just going balancing.
         NoCurrent,
@@ -145,10 +146,13 @@ mod state {
         Current(Current),
     }
 
-    #[derive(Copy, Clone, PartialEq)]
+    #[derive(Copy, Clone)]
     pub struct Balance {
         /// RUNTIME FIELD. When this `BalanceAndChargeUp` should expire.
         deadline: BalancingDeadline,
+
+        /// RUNTIME FIELD. List of cells to balance. If there are no cells to balance, this is `None`.
+        cells_to_balance: IndexByChip<IndexByCell<bool>>,
 
         /// RUNTIME FIELD. Kind of balancing.
         kind: BalancingKind,
@@ -156,10 +160,43 @@ mod state {
     
     #[allow(dead_code)]
     impl Balance {
-        /// Creates a new `Balance` (in the active state, since that is what we start in). Current is not allowed to be drawn.
-        pub(super) fn new_nocurrent() -> Self { Self { deadline: BalancingDeadline::active(), kind: BalancingKind::NoCurrent } }
-        /// Creates a new `Balance` (in the active state, since that is what we start in). We will draw current.
-        pub(super) fn new_drawcurrent() -> Self { Self { deadline: BalancingDeadline::active(), kind: BalancingKind::Current(BALANCING_ACTIVE_CURRENT) } }
+        /// Helper to choose what cells to balance. On each chip, a cell is picked if it is one of the `MAX_BALANCE_CELLS_PER_CHIP` highest
+        /// cells by OCV, and its OCV is more than `BALANCE_STOP_DELTA_V` above the lowest OCV of all cells in the pack.
+        /// 
+        /// If at least one cell was chosen, this returns `Some(..)`. If no cells qualify for being picked, then this will return `None`.
+        fn select_cells_to_balance() -> Option<IndexByChip<IndexByCell<bool>>> {
+            use core::cmp::Ordering;
+
+            if get_pwm_duty_cycle() == PwmDutyCycleConfig::Disabled { return None; }
+
+            /// Max cells per chip to balance simultaneously (need this due to thermal limit).
+            const MAX_BALANCE_CELLS_PER_CHIP: usize = 7;
+
+            let (ocv, min_ocv) = analyzer::analyzer().try_partial_get(|h| (h.data.open_cell_voltage, h.data.min_ocv.value()))?;
+
+            let mut any_picked = false;
+            let picked = IndexByChip::from_fn(|chip| {
+                let cells = &ocv[chip];
+                IndexByCell::from_fn(|cell| {
+                    let rank = cells.iter().filter(|&(other, v)| match v.as_volts().total_cmp(&cells[cell].as_volts()) {
+                        Ordering::Greater => true,
+                        Ordering::Equal => other.as_u8() < cell.as_u8(),
+                        Ordering::Less => false,
+                    }).count();
+
+                    let pick = rank < MAX_BALANCE_CELLS_PER_CHIP && (cells[cell] - min_ocv) > BALANCE_STOP_DELTA_V;
+                    any_picked |= pick;
+                    pick
+                })
+            });
+
+            any_picked.then_some(picked)
+        }
+
+        /// Creates a new `Balance` (in the active state, since that is what we start in). Current is not allowed to be drawn. If no cells are able to balance, this returns `None`.
+        pub(super) fn new_nocurrent() -> Option<Self> { Some(Self { deadline: BalancingDeadline::active(), kind: BalancingKind::NoCurrent, cells_to_balance: Self::select_cells_to_balance()? }) }
+        /// Creates a new `Balance` (in the active state, since that is what we start in). We will draw current. If no cells are able to balance, this retuns `None`.
+        pub(super) fn new_drawcurrent() -> Option<Self> { Some(Self { deadline: BalancingDeadline::active(), kind: BalancingKind::Current(BALANCING_ACTIVE_CURRENT), cells_to_balance: Self::select_cells_to_balance()? }) }
         /// Transition to "cooldown" state.
         pub(super) fn to_cooldown(&mut self) { self.deadline = BalancingDeadline::cooldown() }
         /// Turns a `Balance` into a `NoCurrent` `Balance`. This will be a no-op if this `Balance` is already `NoCurrent`. This does not change anything else about the `Balance`.
@@ -179,12 +216,15 @@ mod state {
         pub(super) fn is_nocurrent(&self) -> bool { matches!(self.kind, BalancingKind::NoCurrent) }
         /// If `deadline` is currently `BalancingDeadline::Active()` (meaning we are actively balancing, rather than just being in the cooldown stage).
         pub(super) fn is_active(&self) -> bool { matches!(self.deadline, BalancingDeadline::Active(..)) }
+
+        /// Returns the cells to balance.
+        pub fn cells_to_balance(&self) -> IndexByChip<IndexByCell<bool>> { self.cells_to_balance }
     }
 
     /// How long a `Settle` should last before expiring.
     const SETTLE_DURATION: Duration = Duration::from_secs(60);
 
-    #[derive(Copy, Clone, PartialEq)]
+    #[derive(Copy, Clone)]
     pub struct Settle {
         /// RUNTIME FIELD. When this `Settle` should expire.
         deadline: Deadline,
@@ -200,7 +240,7 @@ mod state {
         fn new_from_balancing() -> Self { Self { deadline: Deadline::expire_in(SETTLE_DURATION), were_balancing: true } }
     }
 
-    #[derive(Copy, Clone, PartialEq)]
+    #[derive(Copy, Clone)]
     pub enum ChargeStage {
         /// First charging stage, in which we pull full current from the charger. This is what is used for like the first 90%+ percent of charge.
         LongChargeUp(LongChargeUp),
@@ -266,7 +306,7 @@ mod state {
         /// If balancing hasn't already been started, this checks if we should start. 
         fn should_we_start_balancing(&self) -> bool { (self.delta_ocv > BALANCE_START_DELTA_V) && (PWM_DUTY_CYCLE_CONFIG.read().inner() != PwmDutyCycleConfig::Disabled) }
         /// If balancing is already active, this checks if we should stop.
-        fn should_we_stop_balancing(&self) -> bool { self.delta_ocv <= BALANCE_STOP_DELTA_V }
+        fn should_we_stop_balancing(&self) -> bool { (self.delta_ocv <= BALANCE_STOP_DELTA_V) || (PWM_DUTY_CYCLE_CONFIG.read().inner() == PwmDutyCycleConfig::Disabled) }
         
         /// Checks if balancing is allowed right now based on Inputs.
         fn is_balancing_allowed(&self) -> bool {
@@ -276,20 +316,36 @@ mod state {
         }
 
         /// Returns the appropriate `Balance` phase based on inputs, using `max_voltage` for the comparison.
-        fn appropriate_balancing_phase(&self) -> ChargeStage {
+        /// 
+        /// If no cells are able to balance right now, this returns `None`.
+        fn appropriate_balancing_phase(&self) -> Option<ChargeStage> {
             if self.max_voltage >= MAX_CHARGE_VOLT { 
-                ChargeStage::Balance(Balance::new_nocurrent()) 
+                Some(ChargeStage::Balance(match Balance::new_nocurrent() {
+                    Some(s) => s,
+                    None => { return None; },
+                }))
             } else {
-                ChargeStage::Balance(Balance::new_drawcurrent())
+                Some(ChargeStage::Balance(match Balance::new_drawcurrent() {
+                    Some(s) => s,
+                    None => { return None; }
+                }))
             }
         }
 
         /// Returns the appropriate `Balance` phase based on inputs, using `max_ocv` for the comparison.
-        fn appropriate_balancing_phase_ocv(&self) -> ChargeStage {
+        /// 
+        /// If no cells are able to balance right now, this returns `None`.
+        fn appropriate_balancing_phase_ocv(&self) -> Option<ChargeStage> {
             if self.max_ocv >= MAX_CHARGE_VOLT { 
-                ChargeStage::Balance(Balance::new_nocurrent()) 
+                Some(ChargeStage::Balance(match Balance::new_nocurrent() {
+                    Some(s) => s,
+                    None => { return None; },
+                }))
             } else {
-                ChargeStage::Balance(Balance::new_drawcurrent())
+                Some(ChargeStage::Balance(match Balance::new_drawcurrent() {
+                    Some(s) => s,
+                    None => { return None; }
+                }))
             }
         }
     }
@@ -308,20 +364,20 @@ mod state {
         fn tick(self, inputs: Inputs) -> Self {
             match self {
                 Self::LongChargeUp(h) => {
-                    if inputs.exceeded_fault_voltages()                                         { Self::Fault }
-                    else if inputs.max_voltage >= MAX_CHARGE_VOLT                               { Self::ShortChargeUp(ShortChargeUp::new()) }
-                    else if inputs.should_we_start_balancing() && inputs.is_balancing_allowed() { inputs.appropriate_balancing_phase() /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
-                    else if h.deadline.past()                                                   { Self::Settle(Settle::new()) }
-                    else                                                                        { self }
+                    if inputs.exceeded_fault_voltages()                                                                                                                { Self::Fault }
+                    else if inputs.max_voltage >= MAX_CHARGE_VOLT                                                                                                      { Self::ShortChargeUp(ShortChargeUp::new()) }
+                    else if inputs.should_we_start_balancing() && inputs.is_balancing_allowed() && let Some(stage) = inputs.appropriate_balancing_phase() { stage /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
+                    else if h.deadline.past()                                                                                                                          { Self::Settle(Settle::new()) }
+                    else                                                                                                                                               { self }
 
                 },
 
                 Self::ShortChargeUp(mut h) => {
-                    if inputs.exceeded_fault_voltages()                                                                              { Self::Fault }
-                    else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && (h.current <= SHORT_CHARGE_CURRENT_STEP) && h.deadline.past() { Self::Settle(Settle::new()) }
-                    else if inputs.should_we_start_balancing() && inputs.is_balancing_allowed()                                      { inputs.appropriate_balancing_phase() /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
-                    else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && h.deadline.past()                                             { h.reschedule_with_step_down(); Self::ShortChargeUp(h) }
-                    else                                                                                                             { self }
+                    if inputs.exceeded_fault_voltages()                                                                                                                { Self::Fault }
+                    else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && (h.current <= SHORT_CHARGE_CURRENT_STEP) && h.deadline.past()                                   { Self::Settle(Settle::new()) }
+                    else if inputs.should_we_start_balancing() && inputs.is_balancing_allowed() && let Some(stage) = inputs.appropriate_balancing_phase() { stage /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
+                    else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && h.deadline.past()                                                                               { h.reschedule_with_step_down(); Self::ShortChargeUp(h) }
+                    else                                                                                                                                               { self }
                 },
 
                 Self::Balance(mut h) => {
@@ -335,13 +391,13 @@ mod state {
                 Self::Settle(h) => {
                     let wants_balancing = if h.were_balancing { !inputs.should_we_stop_balancing() } else { inputs.should_we_start_balancing() };
 
-                    if inputs.exceeded_fault_voltages() { Self::Fault }
+                    if inputs.exceeded_fault_voltages()                                                                                                { Self::Fault }
                     else if h.deadline.past() {
-                        if inputs.is_balancing_allowed() && wants_balancing { inputs.appropriate_balancing_phase_ocv() /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
-                        else if inputs.max_ocv >= MAX_CHARGE_VOLT           { Self::Done }
-                        else                                                { Self::from_charge_restore_cache(inputs.charge_restore_cache) /* Self::LongChargeUp or Self::ShortChargeUp */ }
+                        if inputs.is_balancing_allowed() && wants_balancing && let Some(stage) = inputs.appropriate_balancing_phase_ocv() { stage /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
+                        else if inputs.max_ocv >= MAX_CHARGE_VOLT                                                                                      { Self::Done }
+                        else                                                                                                                           { Self::from_charge_restore_cache(inputs.charge_restore_cache) /* Self::LongChargeUp or Self::ShortChargeUp */ }
                     }
-                    else                                                    { self }
+                    else                                                                                                                               { self }
                 },
 
                 Self::Done => self,
@@ -461,6 +517,20 @@ impl RequestedPwm {
     pub const fn inner(&self) -> PwmDutyCycleConfig { self.inner }
 }
 
+/// Enum to indicate if we are actively balancing or not.
+/// 
+/// "Actively balancing" means the charge stage is currently in `ChargeStage::Balance`, with `BalancingDeadline::Active`.
+pub enum AreWeActivelyBalancing {
+    /// We are actively balancing, so here is the current `Balance` to read.
+    Yes(Balance),
+    /// We are not actively balancing.
+    No,
+}
+impl AreWeActivelyBalancing {
+    /// Indicates if this is `AreWeActivelyBalancing::Yes(..)` or not.
+    pub const fn is_yes(&self) -> bool { matches!(*self, AreWeActivelyBalancing::Yes(..)) }
+}
+
 static PWM_DUTY_CYCLE_CONFIG: SnapshotCell<RequestedPwm> = SnapshotCell::new(RequestedPwm::default());
 static CHARGER_CONNECTED: SnapshotCell<ChargerConnected> = SnapshotCell::new(ChargerConnected::Disconnected);
 static CHARGE_STATE: LazySnapshotCell<Charger> = LazySnapshotCell::new(Charger::default);
@@ -476,7 +546,18 @@ pub fn alert_charger_received() { CHARGER_CONNECTED.set(ChargerConnected::alert_
 /// Resets the charge state. To be called by the state machine when charging is entered.
 pub fn reset_charge_state() { CHARGE_STATE.partial_set(|h| h.reset() );}
 /// Indicates if the charge stage is currently in `ChargeStage::Balance`, with `BalancingDeadline::Active`.
-pub fn are_we_actively_balancing() -> bool { CHARGE_STATE.read().stage().is_actively_balancing() }
+pub fn are_we_actively_balancing() -> AreWeActivelyBalancing { 
+    match CHARGE_STATE.read().stage() {
+        ChargeStage::Balance(b) => {
+            if b.is_active() { 
+                AreWeActivelyBalancing::Yes(b) 
+            } else {
+                AreWeActivelyBalancing::No
+            }
+        }
+        _ => AreWeActivelyBalancing::No
+    }
+}
 
 /// Charger task.
 #[embassy_executor::task]
@@ -495,6 +576,7 @@ pub async fn charger_task() -> ! {
 
     let mut ticker = Ticker::every(CHARGER_TASK_FREQUENCY);
     let mut current_request_deadline = Deadline::expire_now();
+    let mut current_off_deadline_for_faulted = Deadline::expire_now();
 
     loop {
         /// Voltage to request from the charger.
@@ -514,14 +596,18 @@ pub async fn charger_task() -> ! {
                         BmsChargeMessageSend {
                             charge_volts: VOLTAGE_TO_REQUEST.as_volts(),
                             charge_current: c.as_amps(),
-                            enable_charging: 1,
+
+                            // 0 = enable charging
+                            charging_state: 0,
                         }.as_frame()
                     },
                     None => {
                         BmsChargeMessageSend {
-                            charge_volts: VOLTAGE_TO_REQUEST.as_volts(),
+                            charge_volts: 0_f32,
                             charge_current: 0_f32,
-                            enable_charging: 0,
+
+                            // 0xFF = stop charging
+                            charging_state: 0xFF,
                         }.as_frame()
                     },
                 };
@@ -531,6 +617,20 @@ pub async fn charger_task() -> ! {
             }
 
             // u_TODO maybe send motor controller zero commands every charger tick (look at C code)
+        }
+
+        if state_machine::state().is_faulted() && current_off_deadline_for_faulted.past() {
+            can::send(
+                BmsChargeMessageSend {
+                    charge_volts: 0_f32,
+                    charge_current: 0_f32,
+
+                    // 0xFF = stop charging
+                    charging_state: 0xFF,
+                }.as_frame()
+            ).await;
+
+            current_off_deadline_for_faulted = Deadline::expire_in(CHARGER_COMMAND_SEND_FREQUENCY);
         }
 
         ticker.next().await;

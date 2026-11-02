@@ -108,7 +108,7 @@ impl BmsState {
             },
 
             BmsState::Charging => {
-                
+                charging::reset_charge_state();
             },
 
             BmsState::Faulted => {
@@ -122,6 +122,8 @@ impl BmsState {
 impl BmsState {
     /// Indicates if the current state is `BmsState::Charging` or not.
     pub const fn is_charging(&self) -> bool { matches!(*self, BmsState::Charging) }
+    /// Indicates if the current state is `BmsState::Faulted` or not.
+    pub const fn is_faulted(&self) -> bool { matches!(*self, BmsState::Faulted) }
 }
 
 struct State { state: ThreadModeMutex<Cell<BmsState>> }

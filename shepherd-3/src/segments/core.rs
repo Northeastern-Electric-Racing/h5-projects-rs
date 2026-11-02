@@ -1,5 +1,6 @@
 //! Module holding the `Segments` struct. This is the main place where the Segments stuff is configured/set up. The main segments task (i.e., the one that owns the SPI peripheral and actually does the reads/cache updates) is also in here.
 
+use adbms6830b::chip::registers::config_b::ConfigB;
 use static_cell::StaticCell;
 use embassy_time::{Timer};
 use super::chips::ADBMS6830B_NUM_CHIPS;
@@ -52,6 +53,9 @@ pub mod alias {
 use crate::segments::cache::UpdateError;
 /// Guy in charge of the segments.
 pub(super) struct Segments {
+    /// ConfigB from startup.
+    startup_config_b: Option<adbms6830b::chip::registers::config_b::ConfigB>,
+
     pub(super) service: &'static mut alias::Service,
     #[cfg(feature = "hil")]
     hil_initialized: bool,
@@ -108,6 +112,7 @@ impl Segments {
         ));
 
         Self {
+            startup_config_b: None,
             service,
             #[cfg(feature = "hil")]
             hil_initialized: false,
@@ -218,6 +223,7 @@ impl Segments {
                     .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
                     .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
             };
+            self.startup_config_b = Some(config_b);
             if let Err(err) = api.set_configb(&[config_b; ADBMS6830B_NUM_CHIPS]).await {
                 defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
                 return StartupResult::Incomplete;
@@ -588,7 +594,7 @@ use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
     use crate::pack::analyzer;
     use crate::segments;
     use crate::state_machine;
-    use crate::charging;
+    use crate::charging::{self, AreWeActivelyBalancing};
 
     pub mod balancing {
         use super::*;
@@ -730,6 +736,7 @@ use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
         use adbms6830b::chip::registers::pwm::{PwmA, PwmB};
         use super::ADBMS6830B_NUM_CHIPS;
         use adbms6830b::chip::registers::config_b::{ConfigB, types::DischargeTimerStatus};
+        use crate::segments::IndexByCell;
 
 
         let mut segments = Segments::new(r_linea, r_lineb);
@@ -805,8 +812,17 @@ use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
             prev_state = current_state;
             current_state = state_machine::state();
             let charging = current_state.is_charging();
-            let balancing_active = charging && charging::are_we_actively_balancing();
             let thermal_state_changed = balancing_thermal_state.update_chip_balance_thermal_limits();
+
+            // Carries the payload for `balancing_active`.
+            let balancing_active_payload = if charging {
+                charging::are_we_actively_balancing()
+            } else {
+                AreWeActivelyBalancing::No
+            };
+
+            // Version of `balancing_active_payload` that is just a bool (for convenience).
+            let balancing_active = balancing_active_payload.is_yes();
 
             // DISABLE BALANCING
             disable_balancing_failure = '_disable_balancing: {
@@ -901,23 +917,34 @@ use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
 
             // ENTER BALANCING
             enable_balancing_failure = '_enter_balancing: {
-                if charging && balancing_active && (!prev_balancing_active || thermal_state_changed || pwm_deadline.past()) || enable_balancing_failure {
+                if charging && balancing_active && (!prev_balancing_active || thermal_state_changed || pwm_deadline.past() || enable_balancing_failure) {
+                    let cells_to_balance = match balancing_active_payload {
+                        AreWeActivelyBalancing::No => {
+                            defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: Somehow, `balancing_active_payload` is `AreWeActivelyBalancing::No` even though we have entered this `if` block. This should not be possible, and means there is a logical error somewhere.");
+                            break '_enter_balancing true;
+                        }
+                        AreWeActivelyBalancing::Yes(b) => { b.cells_to_balance() }
+                    };
+                    
                     if let Err(err) = segments.service.api().command(commands::discharge::mute()).await {
                         defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: Failed to send the MUTE command before enabling balancing. Error: {}", err);
                         break '_enter_balancing true;
                     }
 
-                    // Read-write-modify ConfigB to set DCTO
-                    let config = segments::cache().get_config();
-                    let Some(cfgb) = config.raw().config_b().try_get() else {
-                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to read ConfigB from the cache, but it wasn't filled yet. Weird! We will try again next time.");
-                        break '_enter_balancing true;
+                    // Write ConfigB to set DCTO
+                    // u_TODO - we should be able to replace segments.startup_config_b with just storing a cached ConfigB on `Api` in the driver (like we do with ConfigA) and then allowing it to be read from Api
+                    let cfgb = match segments.startup_config_b {
+                        Some(cfgb) => cfgb,
+                        None => {
+                            defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: There is no cached ConfigB from startup to write from. This means that something is probably definitely wrong with the logic here.");
+                            break '_enter_balancing true;
+                        }
                     };
-                    let cfgb_to_write: IndexByChip<ConfigB> = IndexByChip::from_fn(|chip| {
+                    let cfgb_to_write: IndexByChip<ConfigB> = IndexByChip::from_fn(|_| {
                         // Strange thing: We set DCTO to 0 at init, but then we set it to 1 here (when entering balancing). But then we never reset it
                         // back to 0 upon leaving balancing. This is what C shepherd does! So it is probably fine. Just maybe kind of weird. But it would be
                         // kind of annoying to read-write-modify ConfigB to set this back to 0 at the end of balancing so it is being kept.
-                        cfgb.data()[chip].data().with_dcto(DischargeTimerStatus::new().with_increments(1))
+                        cfgb.with_dcto(DischargeTimerStatus::new().with_increments(1))
                     });
                     if let Err(err) = segments.service.api().set_configb(&cfgb_to_write.into_array()).await {
                         defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to write ConfigB, but an error occured. Error: {}", err);
@@ -926,11 +953,24 @@ use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
 
                     // Write PWM configs.
                     let desired_pwm = charging::get_pwm_duty_cycle();
-                    let configs: IndexByChip<PwmDutyCycleConfig> = IndexByChip::from_fn(|chip| {
-                        if balancing_thermal_state.balance_blocked(chip) { PwmDutyCycleConfig::Disabled } else { desired_pwm }
+                    let configs: IndexByChip<IndexByCell<PwmDutyCycleConfig>> = {
+                        IndexByChip::from_fn(|chip| {
+                            if balancing_thermal_state.balance_blocked(chip) { 
+                                IndexByCell::from_value(PwmDutyCycleConfig::Disabled) 
+                            } else {
+                                IndexByCell::from_fn(|cell| {
+                                    if cells_to_balance[chip][cell] { desired_pwm } else { PwmDutyCycleConfig::Disabled }
+                                })
+                            }
+                        })
+                    };
+
+                    let pwma: IndexByChip<PwmA> = IndexByChip::from_fn(|chip| { 
+                        configs[chip].destructure().0
                     });
-                    let pwma: IndexByChip<PwmA> = IndexByChip::from_fn(|chip| { PwmA::for_all(configs[chip]) });
-                    let pwmb: IndexByChip<PwmB> = IndexByChip::from_fn(|chip| { PwmB::for_all(configs[chip]) });
+                    let pwmb: IndexByChip<PwmB> = IndexByChip::from_fn(|chip| { 
+                        configs[chip].destructure().1
+                    });
                     if let Err(err) = segments.service.api().write(&pwma.into_array()).await {
                         defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to write PwmA, but an error occured. Error: {}", err);
                         break '_enter_balancing true;
