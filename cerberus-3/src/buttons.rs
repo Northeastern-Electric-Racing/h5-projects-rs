@@ -7,7 +7,7 @@ const BUTTON_QUEUE_SIZE: usize = 32;
 static PRESSED: Channel<ThreadModeRawMutex, Button, BUTTON_QUEUE_SIZE> = Channel::new();
 
 #[derive(Debug, Clone, Copy, defmt::Format)]
-enum Button {
+pub(crate) enum Button {
     Escape,
     Left,
     Right,
@@ -39,14 +39,10 @@ impl TryFrom<u8> for Button {
     }
 }
 
-pub fn register_press(button: u8) {
+pub fn register_press(button: Button) {
     debug!("Pressed: {}", button);
-    if let Ok(button) = Button::try_from(button) {
-        if PRESSED.try_send(button).is_err() {
-            debug!("Button queue full, dropping press {:?}", button);
-        }
-    } else {
-        debug!("Unknown button pressed: {}", button);
+    if PRESSED.try_send(button).is_err() {
+        debug!("Button queue full, dropping press {:?}", button);
     }
 }
 
@@ -63,7 +59,7 @@ pub async fn button_task() -> ! {
             Button::DownRegen => pedals::decrease_regen_limit(statemachine::get_func_state().await),
             Button::UpTorque => pedals::increase_torque_limit(),
             Button::DownTorque => pedals::decrease_torque_limit(),
-            
+
             Button::ToggleLaunchControl => pedals::toggle_launch_control(),
             Button::ToggleTractionControl => {}
         }

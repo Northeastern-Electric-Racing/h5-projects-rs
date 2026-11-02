@@ -1,16 +1,14 @@
 //! CAN bring-up for Cerberus.
 
 use crate::bms::{PrechargeState, set_precharge_state};
-use crate::efuses::EfuseCommand;
-use crate::efuses::EfuseId::*;
-use crate::{bms, buttons, lightning, rtds, shutdown};
+use crate::{bms, buttons, efuses, lightning, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
+use embassy_stm32::can::Frame;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
-use embassy_stm32::can::{
-    CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,
-};
+use embassy_stm32::can::{CanConfigurator, CanRx, CanTx};
+use embassy_stm32::can::{IT0InterruptHandler, IT1InterruptHandler};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
@@ -136,10 +134,7 @@ pub async fn can_inbox_task() -> ! {
             }
             Some(Msg::PrechargeStatus(m)) => match PrechargeState::try_from(m.precharge_status()) {
                 Ok(state) => set_precharge_state(state),
-                Err(state) => debug!(
-                    "Received invalid precharge state from CAN message: {}",
-                    state
-                ),
+                Err(e) => debug!("Unknown precharge state: {}", e),
             },
             Some(Msg::ShutdownAsReadByBms(m)) => {
                 shutdown::update_bms_shutdown(m.shutdown_state().into()).await
@@ -171,12 +166,13 @@ pub async fn can_inbox_task() -> ! {
                 }
                 Err(byte) => debug!("Unknown message {}", byte),
             },
-            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
+            Some(Msg::WheelButtons(m)) => match buttons::Button::try_from(m.button_id()) {
+                Ok(button) => buttons::register_press(button),
+                Err(e) => debug!("Unknown button pressed: {}", e),
+            },
 
-            Some(_) => debug!("Unknown message"),
-            _ => {
-                debug!("failed to parse id")
-            }
+            Some(m) => debug!("Received unhandled message: {}", m.name()),
+            None => debug!("Failed to decode CAN message"),
         }
     }
 }
