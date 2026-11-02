@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "adbms-register-macros"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#b17027173d17abe9cb1351dd821686e559d7eafa"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#9de7a975fec615ba7b52e5cedda34d85c0a06852"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -37,7 +37,7 @@ dependencies = [
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#b17027173d17abe9cb1351dd821686e559d7eafa"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#9de7a975fec615ba7b52e5cedda34d85c0a06852"
 dependencies = [
  "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "bitfield-struct",
@@ -180,10 +180,10 @@ dependencies = [
 [[package]]
 name = "boot-control"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#b17027173d17abe9cb1351dd821686e559d7eafa"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#9de7a975fec615ba7b52e5cedda34d85c0a06852"
 dependencies = [
  "cortex-m",
- "embassy-boot 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "embassy-boot",
  "embassy-stm32",
  "embassy-sync",
 ]
@@ -197,7 +197,7 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "can-bootloader-config"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#b17027173d17abe9cb1351dd821686e559d7eafa"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#9de7a975fec615ba7b52e5cedda34d85c0a06852"
 dependencies = [
  "serde_json",
 ]
@@ -205,7 +205,7 @@ dependencies = [
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#b17027173d17abe9cb1351dd821686e559d7eafa"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#9de7a975fec615ba7b52e5cedda34d85c0a06852"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
@@ -220,7 +220,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#b17027173d17abe9cb1351dd821686e559d7eafa"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#9de7a975fec615ba7b52e5cedda34d85c0a06852"
 dependencies = [
  "bitfield-struct",
  "cangen-macro",
@@ -230,7 +230,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#b17027173d17abe9cb1351dd821686e559d7eafa"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#9de7a975fec615ba7b52e5cedda34d85c0a06852"
 dependencies = [
  "definition-rs",
  "heck",
@@ -417,7 +417,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#b17027173d17abe9cb1351dd821686e559d7eafa"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#9de7a975fec615ba7b52e5cedda34d85c0a06852"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -530,21 +530,6 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 [[package]]
 name = "embassy-boot"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73bfc955c9238df2ce9fecc6f18a64b13ecaa41a3cd42d940a09f304765d10db"
-dependencies = [
- "digest",
- "document-features",
- "embassy-embedded-hal",
- "embassy-sync",
- "embedded-storage",
- "embedded-storage-async",
- "signature",
-]
-
-[[package]]
-name = "embassy-boot"
-version = "0.7.0"
 source = "git+https://github.com/embassy-rs/embassy?rev=c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb#c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb"
 dependencies = [
  "defmt 1.2.0",
@@ -566,7 +551,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
- "embassy-boot 0.7.0 (git+https://github.com/embassy-rs/embassy?rev=c0c0419f48c67e160ab0e3a8a93dcaaa2d4e84fb)",
+ "embassy-boot",
  "embassy-stm32",
  "embassy-sync",
  "embedded-storage",
