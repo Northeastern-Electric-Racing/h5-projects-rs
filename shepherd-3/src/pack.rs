@@ -73,22 +73,54 @@ pub mod analyzer {
     const MAX_CELL_TEMP: Temperature = Temperature::from_celsius(60.0);
 
     #[derive(Copy, Clone)]
-    pub struct ThermState {
-        last_temp: Option<Temperature>,
-        valid: bool,
-        fault_count: u8,
+    pub enum ThermState {
+        Startup { faults: u8 },
+        Trusted { last_temp: Temperature, faults: u8 },
+        Invalid,
     }
-
     impl ThermState {
-        fn new() -> Self {
-            Self { last_temp: None, valid: false, fault_count: 0 }
+        const fn new() -> Self {
+            ThermState::Startup { faults: 0 }
         }
 
-        fn record_fault(&mut self) {
-            self.fault_count = self.fault_count.saturating_add(1);
-            if self.fault_count >= THERM_FAULT_COUNT_THRESHOLD {
-                self.valid = false;
+        /// Update `ThermState` with `temp`. Returns `true` if `temp` was accepted.
+        fn update(&mut self, temp: Temperature) -> bool {
+            let in_range = (temp >= MIN_TEMP) && (temp <= MAX_CELL_TEMP);
+            match self {
+                Self::Startup { faults } => {
+                    if in_range {
+                        *self = Self::Trusted { last_temp: temp, faults: 0 };
+                        true
+                    } else {
+                        *faults += 1;
+                        if *faults >= THERM_FAULT_COUNT_THRESHOLD {
+                            *self = Self::Invalid;
+                        }
+                        false
+                    }
+                },
+
+                Self::Trusted { last_temp, faults } => {
+                    let delta = temp.get::<degree_celsius>() - last_temp.get::<degree_celsius>();
+                    if in_range && delta <= TEMP_MAX_DELTA_C && delta >= -TEMP_MAX_DELTA_C {
+                        *last_temp = temp;
+                        *faults = 0;
+                        true
+                    } else {
+                        *faults += 1;
+                        if *faults >= THERM_FAULT_COUNT_THRESHOLD {
+                            *self = Self::Invalid;
+                        }
+                        false
+                    }
+                },
+
+                Self::Invalid => false,
             }
+        }
+
+        pub const fn is_invalid(&self) -> bool {
+            matches!(self, Self::Invalid)
         }
     }
 
@@ -295,45 +327,8 @@ pub mod analyzer {
             for chip in ChipId::iter() {
                 for cell in CellId::iter() {
                     let temp = cell_temps[chip][cell];
-                    let in_range = temp >= MIN_TEMP && temp <= MAX_CELL_TEMP;
                     let therm = &mut self.sanitized_therms[chip][cell];
-
-                    let sample_valid = if therm.last_temp.is_none() && therm.fault_count < THERM_FAULT_COUNT_THRESHOLD {
-                        if in_range {
-                            therm.last_temp = Some(temp);
-                            therm.valid = true;
-                            therm.fault_count = 0;
-                            true
-                        } else {
-                            therm.record_fault();
-                            false
-                        }
-                    } else if !therm.valid {
-                        // Invalid thermistors do not recover automatically.
-                        false
-                    } else if !in_range {
-                        therm.record_fault();
-                        false
-                    } else {
-                        if let Some(last_temp) = therm.last_temp {
-                            let delta = temp.get::<degree_celsius>() - last_temp.get::<degree_celsius>();
-                            if delta > TEMP_MAX_DELTA_C || delta < -TEMP_MAX_DELTA_C {
-                                // Sudden jump from the last trusted value
-                                therm.record_fault();
-                                false
-                            } else {
-                                therm.last_temp = Some(temp);
-                                therm.fault_count = 0;
-                                true
-                            }
-                        } else {
-                            // No previous temperature exists; initialize it.
-                            therm.last_temp = Some(temp);
-                            therm.valid = true;
-                            therm.fault_count = 0;
-                            true
-                        }
-                    };
+                    let sample_valid = therm.update(temp);
 
                     if sample_valid {
                         if temp > self.max_temp.value() {
@@ -730,10 +725,11 @@ pub mod analyzer {
                 for chip in ChipId::iter() {
                     for cell in CellId::iter() {
                         let therm = &analyzer.sanitized_therms[chip][cell];
-                        if !therm.valid {
+                        let invalid = therm.is_invalid();
+                        if invalid {
                             count += 1;
                         }
-                        defmt_monitor::monitor!(["AnalyzerDebug/ThermState/chip_{=u8}/cell_{=u8}/valid", chip.as_u8(), cell.as_u8()], desc = "Whether the sanitizer currently trusts this thermistor. Once false, it stays false until reboot.", "{=bool}", therm.valid)
+                        defmt_monitor::monitor!(["AnalyzerDebug/ThermState/chip_{=u8}/cell_{=u8}/valid", chip.as_u8(), cell.as_u8()], desc = "Whether the sanitizer currently trusts this thermistor. Once false, it stays false until reboot.", "{=bool}", !invalid)
                     }
                 }
                 defmt_monitor::monitor!("AnalyzerDebug/ThermState/invalid_count", desc = "Number of thermistors the sanitizer currently does not trust.", "{=u32}", count);
