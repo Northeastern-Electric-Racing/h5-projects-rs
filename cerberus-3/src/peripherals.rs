@@ -2,23 +2,53 @@
 
 use cangen::ToCanFrame;
 use defmt::{debug, warn};
-use embassy_stm32::Peri;
+use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::{I2c, Master};
-use embassy_stm32::mode::Blocking;
-use embassy_stm32::peripherals;
+use embassy_stm32::mode::{Async, Blocking};
+use embassy_stm32::spi::{self, Spi};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::{Peri, bind_interrupts, dma, peripherals};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Duration, Ticker};
 use embedded_sht3x::{Repeatability::Medium, Sht3x, Status, Temperature};
+use static_cell::StaticCell;
 use uom::si::f32::{Ratio, ThermodynamicTemperature};
 use uom::si::ratio::percent;
 use uom::si::thermodynamic_temperature::degree_celsius;
 
+use crate::can;
+
 const SHT30_ADDRESS: u8 = 0x44;
 const TEMP_POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// Same SPI2 clock as the Cerberus-2.0 C firmware.
+const IMU_SPI_FREQUENCY: Hertz = Hertz::mhz(2);
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL2 => dma::InterruptHandler<peripherals::GPDMA1_CH2>;
+    GPDMA1_CHANNEL3 => dma::InterruptHandler<peripherals::GPDMA1_CH3>;
+});
+
+// Needlessly verbose and overengineered, but hey maximum flexibility I suppose
+static IMU_SPI_BUS: StaticCell<Mutex<ThreadModeRawMutex, Spi<'static, Async, spi::mode::Master>>> =
+    StaticCell::new();
 
 pub struct I2C2Resources {
     pub i2c: Peri<'static, peripherals::I2C2>,
     pub scl: Peri<'static, peripherals::PF1>,
     pub sda: Peri<'static, peripherals::PF0>,
+}
+
+/// LSM6DSV16X IMU on SPI2 (pinout from Cerberus-2.0.ioc).
+pub struct SPI2Resources {
+    pub spi: Peri<'static, peripherals::SPI2>,
+    pub sck: Peri<'static, peripherals::PA12>,
+    pub mosi: Peri<'static, peripherals::PG1>,
+    pub miso: Peri<'static, peripherals::PB14>,
+    pub cs: Peri<'static, peripherals::PB9>,
+    pub tx_dma: Peri<'static, peripherals::GPDMA1_CH2>,
+    pub rx_dma: Peri<'static, peripherals::GPDMA1_CH3>,
 }
 
 pub struct TempSensor<'a> {
@@ -104,4 +134,21 @@ pub async fn peripherals_task(i2c_resources: I2C2Resources) {
             )
             .await;
     }
+}
+
+/// Brings up SPI2 and runs the IMU driver, which sends accelerometer and gyro
+/// frames to [`can::OUTGOING`].
+#[embassy_executor::task]
+pub async fn imu_task(r: SPI2Resources) -> ! {
+    let mut config = spi::Config::default();
+    config.mode = spi::MODE_0;
+    config.frequency = IMU_SPI_FREQUENCY;
+
+    let spi = Spi::new(
+        r.spi, r.sck, r.mosi, r.miso, r.tx_dma, r.rx_dma, Irqs, config,
+    );
+    let bus = IMU_SPI_BUS.init(Mutex::new(spi));
+    let cs = Output::new(r.cs, Level::High, Speed::VeryHigh);
+
+    lsm6dsv16x_ner::imu_loop(SpiDevice::new(bus, cs), can::OUTGOING.dyn_sender()).await
 }
