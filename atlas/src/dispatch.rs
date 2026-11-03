@@ -7,22 +7,23 @@ use embedded_storage::nor_flash::NorFlash;
 use crate::can::{CanHandler, data_id};
 use crate::commands::*;
 use crate::handlers::Handlers;
-use crate::types::{Context, Control};
+use crate::types::{BootAction, Context};
 
 /// Dispatch one request frame; data packets are consumed inside WRITE_MEMORY.
+/// Returns an action only when the command ends the bootloader session.
 pub async fn run<DFU, STATE>(
     frame: &Frame,
     can: &mut CanHandler<'_>,
     updater: &mut BlockingFirmwareUpdater<'_, DFU, STATE>,
     handlers: &mut Handlers,
     context: &mut Context,
-) -> Control
+) -> Option<BootAction>
 where
     DFU: NorFlash,
     STATE: NorFlash,
 {
     if data_id(frame) != Some(REQUEST_ID) || frame.data().is_empty() {
-        return Control::Continue;
+        return None;
     }
 
     match frame.data()[0] {
@@ -38,5 +39,5 @@ where
         }
     }
 
-    Control::Continue
+    None
 }

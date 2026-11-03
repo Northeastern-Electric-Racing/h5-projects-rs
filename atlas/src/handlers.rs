@@ -9,7 +9,7 @@ use crate::can::{CanHandler, data_id};
 use crate::commands::*;
 use crate::config::*;
 use crate::flash;
-use crate::types::{Context, Control, UpdateState};
+use crate::types::{BootAction, Context, UpdateState};
 
 // Request lengths include the opcode byte.
 const WRITE_REQUEST_LEN: usize = 7;
@@ -256,41 +256,41 @@ impl Handlers {
         can: &mut CanHandler<'_>,
         updater: &mut BlockingFirmwareUpdater<'_, DFU, STATE>,
         context: &Context,
-    ) -> Control
+    ) -> Option<BootAction>
     where
         DFU: NorFlash,
         STATE: NorFlash,
     {
         if context.state != UpdateState::Verified {
             let _ = can.nack(ACTIVATE).await;
-            return Control::Continue;
+            return None;
         }
 
         // BootLoader::prepare performs the swap on the next boot.
         if updater.mark_updated().is_err() {
             let _ = can.nack(ACTIVATE).await;
-            return Control::Continue;
+            return None;
         }
 
         // Resetting while the ACK is queued would leave the host unsure of success.
         if can.ack(ACTIVATE).await && can.flush().await {
-            Control::Reset
+            Some(BootAction::Reset)
         } else {
-            Control::Continue
+            None
         }
     }
 
     /// ACK and launch the current active image without activating staged firmware.
-    pub async fn start_app(&mut self, can: &mut CanHandler<'_>) -> Control {
+    pub async fn start_app(&mut self, can: &mut CanHandler<'_>) -> Option<BootAction> {
         if !crate::app::active_valid() {
             let _ = can.nack(START_APP).await;
-            return Control::Continue;
+            return None;
         }
 
         if can.ack(START_APP).await && can.flush().await {
-            Control::StartApp
+            Some(BootAction::StartApp)
         } else {
-            Control::Continue
+            None
         }
     }
 }

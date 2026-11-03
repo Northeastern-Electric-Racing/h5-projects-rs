@@ -7,14 +7,14 @@ use crate::app;
 use crate::can::CanHandler;
 use crate::dispatch;
 use crate::handlers::Handlers;
-use crate::types::{Context, Control};
+use crate::types::{BootAction, Context};
 
 /// Serve commands until the host requests application startup or reset.
 pub async fn run<DFU, STATE>(
     can: &mut CanHandler<'_>,
     updater: &mut BlockingFirmwareUpdater<'_, DFU, STATE>,
     boot_state: &State,
-) -> Control
+) -> BootAction
 where
     DFU: NorFlash,
     STATE: NorFlash,
@@ -25,7 +25,7 @@ where
             defmt::error!("Failed to clear bootloader entry request; staying in update mode");
         }
     } else if app::active_valid() {
-        return Control::StartApp;
+        return BootAction::StartApp;
     }
 
     let mut handlers = Handlers::new();
@@ -35,10 +35,10 @@ where
     loop {
         let frame = can.recv().await;
 
-        let control = dispatch::run(&frame, can, updater, &mut handlers, &mut context).await;
-        if !matches!(control, Control::Continue) {
-            // The caller owns the final reset or interrupt cleanup and jump.
-            return control;
+        // The caller owns the final reset or interrupt cleanup and jump.
+        if let Some(action) = dispatch::run(&frame, can, updater, &mut handlers, &mut context).await
+        {
+            return action;
         }
     }
 }

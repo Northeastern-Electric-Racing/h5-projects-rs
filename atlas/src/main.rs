@@ -28,7 +28,7 @@ mod handlers;
 mod types;
 
 use can::CanHandler;
-use types::Control;
+use types::BootAction;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -70,9 +70,8 @@ async fn main(_spawner: Spawner) -> ! {
     let mut can = CanHandler::new(p.FDCAN2, p.PB5, p.PB6);
 
     match boot::run(&mut can, &mut updater, &boot.state).await {
-        Control::Reset => SCB::sys_reset(),
-        Control::StartApp => {}
-        Control::Continue => unreachable!(),
+        BootAction::Reset => SCB::sys_reset(),
+        BootAction::StartApp => {}
     }
 
     let start = config::app_start();

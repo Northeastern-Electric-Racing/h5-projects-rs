@@ -22,9 +22,8 @@ impl UpdateState {
     }
 }
 
-/// Tell the top-level loop whether to keep serving, jump, or reset.
-pub enum Control {
-    Continue,
+/// How the bootloader exits.
+pub enum BootAction {
     StartApp,
     Reset,
 }
