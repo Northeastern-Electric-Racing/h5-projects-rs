@@ -79,9 +79,5 @@ where
         return false;
     }
 
-    let first = [
-        vector[0], vector[1], vector[2], vector[3], vector[4], vector[5], vector[6], vector[7],
-    ];
-
-    app::vector_valid(&first)
+    vector.first_chunk::<8>().is_some_and(app::vector_valid)
 }
