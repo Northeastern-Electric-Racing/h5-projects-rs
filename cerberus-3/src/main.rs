@@ -27,7 +27,7 @@ mod shutdown;
 mod statemachine;
 
 use crate::can::can_inbox_task;
-use crate::peripherals::I2C2Resources;
+use crate::peripherals::{I2C2Resources, SPI2Resources};
 use crate::shutdown::ShutdownInputs;
 use crate::shutdown::report_shutdown_task;
 use adc::{Adc1Resources, adc1_task};
@@ -211,6 +211,20 @@ async fn main(spawner: Spawner) -> ! {
             sda: p.PF0,
         })
         .expect("Failed to spawn peripherals::peripherals_task()."),
+    );
+
+    // IMU
+    spawner.spawn(
+        peripherals::imu_task(SPI2Resources {
+            spi: p.SPI2,
+            sck: p.PA12,
+            mosi: p.PG1,
+            miso: p.PB14,
+            cs: p.PB9,
+            tx_dma: p.GPDMA1_CH2,
+            rx_dma: p.GPDMA1_CH3,
+        })
+        .expect("Failed to spawn peripherals::imu_task()."),
     );
 
     // RTDS
