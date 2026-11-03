@@ -12,8 +12,6 @@ use embassy_stm32::gpio::Output;
 use embassy_stm32::gpio::Speed;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::wdg::IndependentWatchdog;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -36,12 +34,8 @@ use crate::shutdown::report_shutdown_task;
 use adc::{Adc1Resources, adc1_task};
 use can::CanPins;
 use efuses::{EfusePins, efuse_task};
-use faults::Fault;
 use pedals::analog::AdcPedalsResources;
 use pedals::pedals_task;
-
-/// Faults raised by any task, consumed by `faults::fault_task`.
-static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, 32> = Channel::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -187,13 +181,10 @@ async fn main(spawner: Spawner) -> ! {
 
     // Statemachine
     spawner.spawn(
-        statemachine::statemachine_task(p.PG15, INBOUND_FAULTS.dyn_sender())
+        statemachine::statemachine_task(p.PG15)
             .expect("Failed to spawn statemachine::statemachine_task()."),
     );
-    spawner.spawn(
-        faults::fault_task(INBOUND_FAULTS.dyn_receiver(), can::OUTGOING.dyn_sender())
-            .expect("failed to spawn faults::fault_task()"),
-    );
+    spawner.spawn(faults::fault_task().expect("failed to spawn faults::fault_task()"));
 
     // Buttons
     spawner.spawn(buttons::button_task().expect("Failed to spawn buttons::button_task()."));

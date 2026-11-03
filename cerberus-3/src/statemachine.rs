@@ -4,7 +4,7 @@
 //! Performance, Efficiency, Faulted) and the NERO dash menu position
 //! (`NeroMenu`), and arbitrates transitions between them.
 
-use crate::faults::{self, Fault};
+use crate::faults;
 use crate::pedals::{
     get_accel_pressed, get_brake_pressed, get_launch_control_enabled, get_torque_limit,
 };
@@ -17,7 +17,7 @@ use embassy_stm32::Peri;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::PG15;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::{Channel, DynamicSender};
+use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use uom::si::ratio::percent;
@@ -171,7 +171,6 @@ impl CerberusState {
                 Ok(())
             }
             FuncState::Faulted => {
-                // mcu_fault_setter.set_mcu_fault(true);
                 self.nero_menu = NeroMenu::Off;
                 self.set_func_state(FuncState::Faulted);
                 self.home_mode = true;
@@ -368,10 +367,7 @@ pub(crate) async fn set_fault_state() {
 }
 
 #[embassy_executor::task]
-pub async fn statemachine_task(
-    mcu_pin: Peri<'static, PG15>,
-    _inbound_faults: DynamicSender<'static, Fault>,
-) -> ! {
+pub async fn statemachine_task(mcu_pin: Peri<'static, PG15>) -> ! {
     let mut state = CerberusState::INIT;
     let mut mcu_output = Output::new(mcu_pin, Level::High, Speed::Low);
     faults::set_mcu_fault(&mut mcu_output, false);

@@ -1,17 +1,22 @@
-use core::array;
-
 use defmt::{info, warn};
-use embassy_futures::select::{Either3, select_array, select3};
+use embassy_futures::select::{Either3, select3};
 use embassy_stm32::{can::Frame, gpio::Output};
-use embassy_sync::channel::{DynamicReceiver, DynamicSender};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Timer};
 use strum::{EnumCount, FromRepr};
 
 use cangen::ToCanFrame;
 
-use crate::statemachine::set_ready_state;
+use crate::{
+    can,
+    statemachine::{self, set_ready_state},
+};
+
+pub static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, 32> = Channel::new();
+
 #[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, FromRepr, EnumCount, defmt::Format)]
+
 pub enum Fault {
     CAN_OUTGOING_FAULT = 0,
     CAN_INCOMING_FAULT,
@@ -43,7 +48,7 @@ impl Fault {
         1 << (*self as u32)
     }
     fn get_timeout(&self) -> Duration {
-        Duration::from_millis(5000)
+        Duration::from_millis(500)
     }
 
     // fn get_duration(&self) -> Duration {}
@@ -59,7 +64,7 @@ pub struct AllFaults {
     // A bitmap of faults s.t `1<<(fault as usize)` is the bit in question
     faults: u32,
     // expirations[fault] gives the deadline for the pertinent fault
-    expirations: [Timer; Fault::COUNT],
+    expirations: [Instant; Fault::COUNT],
 }
 
 #[allow(dead_code)]
@@ -67,7 +72,7 @@ impl AllFaults {
     pub fn new() -> Self {
         AllFaults {
             faults: 0x0,
-            expirations: array::from_fn(|_| Timer::at(Instant::MAX)),
+            expirations: [Instant::MAX; Fault::COUNT],
         }
     }
     pub fn bitmap(&self) -> u32 {
@@ -77,25 +82,23 @@ impl AllFaults {
         self.faults & fault.as_bitmap_component() != 0
     }
     pub fn has_a_fault(&self) -> bool {
-        self.faults > 0
+        self.faults != 0
     }
     pub fn critical_fault_present(&self) -> bool {
         self.faults & Fault::CRITICAL_MASK != 0
     }
-    pub fn num_faults(self) -> u8 {
-        self.faults.count_ones() as u8
-    }
+
     pub fn trigger_fault(&mut self, fault: Fault) {
         info!("Fault triggered: {:?}", fault);
         if fault.is_critical() {
             warn!("Critical fault!");
         }
         self.faults |= fault.as_bitmap_component();
-        self.expirations[fault as usize] = Timer::after(fault.get_timeout());
+        self.expirations[fault as usize] = Instant::now() + fault.get_timeout();
     }
     pub fn reset_fault(&mut self, fault: Fault) {
         self.faults &= !fault.as_bitmap_component();
-        self.expirations[fault as usize] = Timer::at(Instant::MAX);
+        self.expirations[fault as usize] = Instant::MAX;
         info!("Reset fault: {:?}", fault);
     }
     pub fn as_can_frame(&self) -> Frame {
@@ -135,25 +138,33 @@ impl AllFaults {
 
 /// To trigger a fault, simply append it to the channel and the task takes care of the rest
 #[embassy_executor::task]
-pub async fn fault_task(
-    inbound_faults: DynamicReceiver<'static, Fault>,
-    outbound_can: DynamicSender<'static, Frame>,
-) {
+pub async fn fault_task() {
     let mut faults = AllFaults::new();
     const TIMEOUT_DURATION: Duration = Duration::from_millis(5000);
 
     loop {
+        let (position, deadline) = faults
+            .expirations
+            .iter()
+            .copied()
+            .enumerate()
+            .min_by_key(|&(_, deadline)| deadline)
+            .unwrap();
+
         match select3(
-            select_array(faults.expirations.each_mut()),
+            async move {
+                Timer::at(deadline).await;
+                (deadline, position)
+            },
             Timer::after(TIMEOUT_DURATION),
-            inbound_faults.receive(),
+            INBOUND_FAULTS.receive(),
         )
         .await
         {
             Either3::First(expired_fault) => {
                 if let Some(expired_fault) = Fault::from_repr(expired_fault.1) {
                     faults.reset_fault(expired_fault);
-                    if faults.faults == 0 {
+                    if !faults.critical_fault_present() {
                         set_ready_state().await;
                     }
                 }
@@ -163,9 +174,14 @@ pub async fn fault_task(
             }
             Either3::Third(newfault) => {
                 faults.trigger_fault(newfault);
+                if faults.critical_fault_present()
+                    && statemachine::get_func_state().await != statemachine::FuncState::Faulted
+                {
+                    statemachine::set_fault_state().await;
+                }
             }
         };
-        outbound_can.send(faults.as_can_frame()).await;
+        can::OUTGOING.send(faults.as_can_frame()).await;
     }
 }
 
