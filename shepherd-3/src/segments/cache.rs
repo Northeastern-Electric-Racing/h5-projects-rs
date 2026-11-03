@@ -38,6 +38,7 @@ pub enum UpdateError {
     /// Error occurred while trying to run the SNAP command.
     SnapError(Error<SpiError>),
     /// Error occurred while trying to clear flags after reading them in an update call.
+    #[cfg_attr(feature = "hil", allow(dead_code))]
     ClearFlagsError(Error<SpiError>),
     /// Error occurred while polling a conversion completion (possibly via a ...autoconvert() function).
     PollError(Error<SpiError>),
@@ -1655,8 +1656,10 @@ pub mod status_c {
         /// Updates StatusC.
         pub(in crate::segments) async fn update_status_c(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             let statc = self.status_c.update(api).await?;
+            #[cfg_attr(feature = "hil", allow(unused_variables))]
             let clears = self.update_status_c_fault_counts(statc.data());
 
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = api.write(&clears.into_array()).await {
                 defmt::error!("Segments: Cache: in `update_status_c()`: ClearFlags write failed. Error: {}", err);
                 return Err(UpdateError::ClearFlagsError(err));
@@ -1873,8 +1876,10 @@ pub mod status_d {
         /// Updates StatusD.
         pub(in crate::segments) async fn update_status_d(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             let statd = self.status_d.update(api).await?;
+            #[cfg_attr(feature = "hil", allow(unused_variables))]
             let clears = self.update_status_d_fault_counts(statd.data());
 
+            #[cfg(not(feature = "hil"))]
             if let Err(err) = api.write(&clears.into_array()).await {
                 defmt::error!("Segments: Cache: in `update_status_d()`: ClearOvervoltageUndervoltage write failed. Error: {}", err);
                 return Err(UpdateError::ClearFlagsError(err));
