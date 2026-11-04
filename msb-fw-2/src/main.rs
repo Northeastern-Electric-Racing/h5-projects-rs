@@ -172,7 +172,13 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     };
-    can::start(spawner, can_resources);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
+    can::start(spawner, can_resources, bootloader);
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();
