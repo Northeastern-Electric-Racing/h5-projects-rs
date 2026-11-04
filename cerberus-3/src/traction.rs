@@ -299,12 +299,6 @@ pub struct Vector3 {
     pub z: f32,
 }
 
-//TODO
-#[derive(Clone, Copy, Debug)]
-pub enum ImuError {
-    ReadFailed,
-}
-
 // TODO
 pub fn imu_get_acceleration() -> Result<Vector3, Error> {
     Ok(Vector3::default())
