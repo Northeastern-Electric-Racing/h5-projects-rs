@@ -2,7 +2,7 @@ use core::cell::{Cell, RefCell};
 use core::f32::consts::PI;
 use core::mem::size_of;
 use core::ptr;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32};
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -20,6 +20,8 @@ const SECONDS_TO_HOURS: f32 = 3600.0;
 const G_IN_PER_S2: f32 = 386.09;
 const TC_KP_DEFAULT: f32 = 1.5;
 const TC_KI_DEFAULT: f32 = 0.2;
+const TIRE_DIAMETER: f32 = 0.0; //TODO
+const GEAR_RATIO: f32 = 0.0; //TODO
 
 // ---------------------------------------------------------------------------
 // Tire curve
@@ -153,7 +155,7 @@ fn load_tire_curve(data: &[u8]) -> Option<TireCurve> {
 fn calc_slip(motor_rpm: f32, vx_car: f32) -> f32 {
     let wheel_rps = motor_rpm / GEAR_RATIO / 60.0;
     let v_rear = wheel_rps * PI * TIRE_DIAMETER * SECONDS_TO_HOURS / INCHES_TO_MILES;
- 
+
     let denom = vx_car.abs().max(v_rear.abs());
     if denom < TC_MIN_VX {
         return 0.0;
@@ -164,27 +166,26 @@ fn calc_slip(motor_rpm: f32, vx_car: f32) -> f32 {
 fn rpm_to_rads(rpm: i16) -> f32 {
     rpm as f32 * 2.0 * PI / 60.0
 }
- 
+
 fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
     let n = (curve.num_points as usize).min(TC_CURVE_POINTS_MAX);
     if n == 0 {
         return 0.0;
     }
     let pts = &curve.points;
- 
+
     let first = pts[0];
     let last = pts[n - 1];
     let (first_slip, first_fx) = (first.slip_ratio, first.fx_norm);
     let (last_slip, last_fx) = (last.slip_ratio, last.fx_norm);
- 
+
     if slip <= first_slip {
         return first_fx;
     }
     if slip >= last_slip {
         return last_fx;
     }
- 
-    // Invariant: pts[lo].slip <= slip < pts[hi].slip
+
     let mut lo = 0usize;
     let mut hi = n - 1;
     while hi - lo > 1 {
@@ -196,10 +197,10 @@ fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
             hi = mid;
         }
     }
- 
+
     let (lo_slip, lo_fx) = (pts[lo].slip_ratio, pts[lo].fx_norm);
     let (hi_slip, hi_fx) = (pts[hi].slip_ratio, pts[hi].fx_norm);
- 
+
     let span = hi_slip - lo_slip;
     if span <= 0.0 {
         return lo_fx;
@@ -207,8 +208,7 @@ fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
     let t = (slip - lo_slip) / span;
     lo_fx + t * (hi_fx - lo_fx)
 }
- 
-/// Initialise the velocity estimator from the stationary average ax (mg).
+
 fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: f32) {
     est.ax_bias = avg_ax_stationary;
     est.v_x = 0.0;
@@ -216,29 +216,24 @@ fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: f32) {
     est.init = true;
     defmt::info!("TC: ax bias = {} mg", est.ax_bias);
 }
- 
-/// Complementary-filter velocity estimate (mph).
-/// `ax` is in mg with bias not yet subtracted.
+
+/// Velocity in mph
 fn estimate_velocity(est: &mut VelEstimator, avg_front_rads: f32, ax: f32, dt: f32) -> f32 {
     let vx_wheel = avg_front_rads * (TIRE_DIAMETER / 2.0) * SECONDS_TO_HOURS / INCHES_TO_MILES;
- 
     let ax_corrected = ax - est.ax_bias;
-    let vx_imu = est.v_x
-        + ax_corrected * (G_IN_PER_S2 / 1000.0) * dt * SECONDS_TO_HOURS / INCHES_TO_MILES;
- 
+    let vx_imu =
+        est.v_x + ax_corrected * (G_IN_PER_S2 / 1000.0) * dt * SECONDS_TO_HOURS / INCHES_TO_MILES;
     let v = est.alpha * vx_wheel + (1.0 - est.alpha) * vx_imu;
     est.v_x = if v > 0.0 { v } else { 0.0 };
     est.v_x
 }
- 
-/// PI slip controller with curve feed-forward. Returns torque scale in [0, 1].
+
 fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
-    let peak_lambda = curve.peak_lambda;
-    let slip_ref = peak_lambda * 0.98;
+    let slip_ref = curve.peak_lambda * 0.98;
     let error = slip_ref - slip;
- 
+
     pi.integral = (pi.integral + error * dt).clamp(-TC_INTEGRAL_LIMIT, TC_INTEGRAL_LIMIT);
- 
+
     let fx_ff = lookup_fx(curve, slip_ref);
     (fx_ff + pi.kp * error + pi.ki * pi.integral).clamp(0.0, 1.0)
 }
