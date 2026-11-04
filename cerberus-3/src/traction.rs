@@ -186,7 +186,7 @@ fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
         return last_fx;
     }
 
-    let mut lo = 0usize;
+    let mut lo = 0;
     let mut hi = n - 1;
     while hi - lo > 1 {
         let mid = lo + (hi - lo) / 2;
