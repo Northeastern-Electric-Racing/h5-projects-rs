@@ -3,6 +3,7 @@ use embassy_time::{Duration, Instant, Timer};
 use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use crate::segments::{duration_to_open_wire_cycles, duration_to_segments_task_cycles};
+use crate::charging::{duration_to_charger_task_frequency};
 
 mod system {
     use super::*;
@@ -258,7 +259,7 @@ mod system {
         DischargeLimitEnforcementFault => Critical, Automatic { timeout: Duration::from_secs(5) },
         ChargeLimitEnforcement         => Critical, Automatic { timeout: Duration::from_secs(5) },
         PackTooHot                     => Critical, Automatic { timeout: Duration::from_secs(5) },
-        HvPlateCommsFault              => Critical, PassFail  { consecutive_bads: 0, consecutive_okays: 0 },
+        HvPlateCommsFault              => Critical, PassFail { consecutive_bads: 0, consecutive_okays: 0 },
         SegmentCommsFault              => Critical, Automatic { timeout: Duration::from_secs(5) },
         FakeFault1                     => Critical, Automatic { timeout: Duration::from_millis(1000) },
         FakeFault2                     => Critical, Automatic { timeout: Duration::from_millis(2500) },

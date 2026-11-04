@@ -666,6 +666,18 @@ pub fn are_we_actively_balancing() -> AreWeActivelyBalancing {
     }
 }
 
+/// How often the charger task should run.
+const CHARGER_TASK_FREQUENCY: Duration = Duration::from_millis(20);
+/// How often we should send out the charger current request CAN message.
+const CHARGER_COMMAND_SEND_FREQUENCY: Duration = Duration::from_secs(1);
+
+/// Converts a duration to a "number of open wire test cycles" value. Will return `None` if `duration` isn't an exact multiple of
+/// `CHARGER_TASK_FREQUENCY` or if either one isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
+/// call inside a `const{}` block for compile-time error checking purposes.
+pub const fn duration_to_charger_task_frequency(duration: Duration) -> Option<usize> {
+    crate::helpers::duration_to_task_cycles(CHARGER_TASK_FREQUENCY, duration)
+}
+
 /// Charger task.
 #[embassy_executor::task]
 pub async fn charger_task() -> ! {
@@ -675,11 +687,6 @@ pub async fn charger_task() -> ! {
     use crate::can::types::BmsChargeMessageSend;
     use crate::can;
     use crate::faults;
-
-    /// How often the charger task should run.
-    const CHARGER_TASK_FREQUENCY: Duration = Duration::from_millis(20);
-    /// How often we should send out the charger current request CAN message.
-    const CHARGER_COMMAND_SEND_FREQUENCY: Duration = Duration::from_secs(1);
 
     let mut ticker = Ticker::every(CHARGER_TASK_FREQUENCY);
     let mut current_request_deadline = Deadline::expire_now();
