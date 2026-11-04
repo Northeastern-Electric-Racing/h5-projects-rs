@@ -379,8 +379,7 @@ mod state {
 
         /// Checks if balancing is allowed right now based on Inputs.
         fn is_balancing_allowed(&self) -> bool {
-            self.max_ocv >= BAL_MIN_V && self.max_voltage < MAX_CHARGE_VOLT_FLT
-            && crate::shutdown::circuit_closed()
+            self.max_ocv >= BAL_MIN_V && self.max_voltage < MAX_CHARGE_VOLT_FLT && crate::shutdown::circuit_closed()
         }
 
         /// Returns the appropriate `Balance` phase based on inputs, using `max_voltage` for the comparison.

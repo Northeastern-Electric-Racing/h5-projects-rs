@@ -425,7 +425,10 @@ pub mod jobs {
 
             #[cfg(feature = "hil")]
             {
-                use adbms6830b::chip::commands::{self, adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire}};
+                use adbms6830b::chip::commands::{
+                    self,
+                    adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire},
+                };
                 self.service.api().command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::SingleShot, ResetFilter::NoReset, OpenWire::OffForAll)).await.map_err(UpdateError::PollError)?;
             }
             #[cfg(not(feature = "hil"))]

@@ -8,7 +8,7 @@ pub mod hysteresis;
 /// Helpers that aren't cool enough for their own module.
 mod misc {
     use embassy_time::Duration;
-    
+
     /// Helper that converts `duration` to a "lapses of `task_frequency`" value. Will return `None` if `duration` isn't an exact
     /// multiple of `task_frequency` or if either isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
     /// call inside a `const{}` block for compile-time error checking purposes.

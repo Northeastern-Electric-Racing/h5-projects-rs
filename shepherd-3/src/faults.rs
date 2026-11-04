@@ -3,7 +3,6 @@ use embassy_time::{Duration, Instant, Timer};
 use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use crate::segments::{duration_to_open_wire_cycles, duration_to_segments_task_cycles};
-use crate::charging::{duration_to_charger_task_frequency};
 
 mod system {
     use super::*;

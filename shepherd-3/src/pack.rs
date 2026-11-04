@@ -502,11 +502,7 @@ pub mod analyzer {
             let mut pack_current = data.data().pack_current;
             let mut update_ocv = false;
 
-            let ocv_update_allowed: bool = {
-                pack_current.abs() < OCV_CURR_THRESH
-                && crate::charging::charger_output_disabled()
-                && !crate::charging::are_we_actively_balancing().as_bool()
-            };
+            let ocv_update_allowed: bool = { pack_current.abs() < OCV_CURR_THRESH && crate::charging::charger_output_disabled() && !crate::charging::are_we_actively_balancing().as_bool() };
 
             if self.ocv_is_first_reading {
                 let last_cell: Voltage = self.corrected_cell_voltages[ChipId::last()][CellId::last()];
