@@ -161,8 +161,7 @@ pub fn pins() -> &'static Handle {
 /// This is just for the basic GPIOs we decide to explicitly control here.
 pub fn init(r: GpiosResources) {
     PINS.init(Pins {
-        // Pin should be HIGH by default at init so we don't immidietely trigger fault
-        mcu_fault_pin: OutputPin::new(r.mcu_fault_pin.into(), Level::High, Speed::Low),
+        mcu_fault_pin: OutputPin::new(r.mcu_fault_pin.into(), Level::Low, Speed::Low),
 
         // The shutdown circuit drives these lines actively, so no internal pull.
         ts_minus_sense_pin: InputPin::new(r.ts_minus_sense_pin.into(), Pull::None),
