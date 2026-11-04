@@ -5,8 +5,8 @@
 use crate::pedals::constants::{
     MAX_REGEN, PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH, REGEN_STEP_SIZE,
 };
-use crate::statemachine;
 use crate::statemachine::FuncState;
+use crate::{statemachine, traction};
 use cangen::ToCanFrame;
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::debug;
@@ -39,7 +39,9 @@ fn is_not_precharge() -> bool {
     false
 }
 
-fn tc_process() {}
+fn tc_process() {
+    traction::tc_process();
+}
 
 // ---------------------------------------------------------------------------
 // END TEMP functions

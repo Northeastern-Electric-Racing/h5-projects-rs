@@ -113,11 +113,10 @@ static TORQUE_SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000);
 pub fn tc_get_torque_scale() -> f32 {
     f32::from_bits(TORQUE_SCALE.load(Ordering::Relaxed))
 }
- 
+
 pub(crate) fn set_torque_scale(scale: f32) {
     TORQUE_SCALE.store(scale.to_bits(), Ordering::Relaxed);
 }
-
 
 static TC_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -128,7 +127,7 @@ pub fn tc_is_enabled() -> bool {
 pub fn enable_tc() {
     TC_ENABLED.store(true, Ordering::Relaxed);
 }
- 
+
 pub fn disable_tc() {
     TC_ENABLED.store(false, Ordering::Relaxed);
 }
@@ -137,7 +136,6 @@ pub fn toggle_tc() {
     let curr_tc_state = TC_ENABLED.load(Ordering::Relaxed);
     TC_ENABLED.store(!curr_tc_state, Ordering::Relaxed);
 }
-
 
 static TC_STATE: Mutex<CriticalSectionRawMutex, RefCell<TcState>> =
     Mutex::new(RefCell::new(TcState::new()));
@@ -300,7 +298,7 @@ pub struct Vector3 {
     pub y: f32,
     pub z: f32,
 }
- 
+
 //TODO
 #[derive(Clone, Copy, Debug)]
 pub enum ImuError {
@@ -323,16 +321,16 @@ pub fn tc_process() {
         set_torque_scale(1.0);
         return;
     }
- 
+
     let (curve_loaded, calibrated) =
         set_tc_state(|s| (s.tire_curve.is_some(), s.vel_estimator.init));
- 
+
     // 2. No valid curve -> pass-through.
     if !curve_loaded {
         set_torque_scale(1.0);
         return;
     }
- 
+
     // 3. Calibration
     if !calibrated {
         let accel = imu_get_acceleration();
@@ -349,13 +347,13 @@ pub fn tc_process() {
         set_torque_scale(1.0);
         return;
     }
- 
+
     // 4. Control step.
     let dt = set_tc_state(|s| s.update_dt());
     let accel = imu_get_acceleration();
     let (omega_fl, omega_fr) = get_front_wheel_speeds();
     let motor_rpm = dti_get_rpm() as f32;
- 
+
     let scale = set_tc_state(|s| {
         let TcState {
             tire_curve,
@@ -366,7 +364,7 @@ pub fn tc_process() {
         let Some(curve) = tire_curve.as_ref() else {
             return 1.0;
         };
- 
+
         let ax = match accel {
             Ok(a) => {
                 vel_estimator.alpha = VEL_ALPHA;
@@ -379,13 +377,12 @@ pub fn tc_process() {
                 0.0
             }
         };
- 
+
         let avg_front_rads = (omega_fl + omega_fr) / 2.0;
         let vx_car = estimate_velocity(vel_estimator, avg_front_rads, ax, dt);
         let slip = calc_slip(motor_rpm, vx_car);
         update_pi(pi, curve, slip, dt)
     });
- 
+
     set_torque_scale(scale);
 }
- 
