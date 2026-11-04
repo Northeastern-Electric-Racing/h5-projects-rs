@@ -1,8 +1,9 @@
 use core::cell::{Cell, RefCell};
 use core::f32::consts::PI;
+use core::fmt::Error;
 use core::mem::size_of;
 use core::ptr;
-use core::sync::atomic::{AtomicBool, AtomicU32};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -22,10 +23,6 @@ const TC_KP_DEFAULT: f32 = 1.5;
 const TC_KI_DEFAULT: f32 = 0.2;
 const TIRE_DIAMETER: f32 = 0.0; //TODO
 const GEAR_RATIO: f32 = 0.0; //TODO
-
-// ---------------------------------------------------------------------------
-// Tire curve
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy)]
 struct TireCurvePoint {
@@ -111,15 +108,55 @@ impl TcState {
     }
 }
 
+static TORQUE_SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000);
+
+pub fn tc_get_torque_scale() -> f32 {
+    f32::from_bits(TORQUE_SCALE.load(Ordering::Relaxed))
+}
+ 
+pub(crate) fn set_torque_scale(scale: f32) {
+    TORQUE_SCALE.store(scale.to_bits(), Ordering::Relaxed);
+}
+
+
+static TC_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn tc_is_enabled() -> bool {
+    TC_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn enable_tc() {
+    TC_ENABLED.store(true, Ordering::Relaxed);
+}
+ 
+pub fn disable_tc() {
+    TC_ENABLED.store(false, Ordering::Relaxed);
+}
+
+pub fn toggle_tc() {
+    let curr_tc_state = TC_ENABLED.load(Ordering::Relaxed);
+    TC_ENABLED.store(!curr_tc_state, Ordering::Relaxed);
+}
+
+
 static TC_STATE: Mutex<CriticalSectionRawMutex, RefCell<TcState>> =
     Mutex::new(RefCell::new(TcState::new()));
-/// f32 bits of the torque scale (1.0 = 0x3F80_0000). Written only by `tc_process`.
-static TORQUE_SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000);
-/// Set by the state machine CAN message; read by the pedal task and `tc_process`.
-static TC_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn set_tc_state<R>(f: impl FnOnce(&mut TcState) -> R) -> R {
+    TC_STATE.lock(|cell| f(&mut cell.borrow_mut()))
+}
+
 /// (omega_fl, omega_fr) in rad/s
 static FRONT_WHEEL_SPEEDS: Mutex<CriticalSectionRawMutex, Cell<(f32, f32)>> =
     Mutex::new(Cell::new((0.0, 0.0)));
+
+pub fn set_front_wheel_speeds(omega_fl: f32, omega_fr: f32) {
+    FRONT_WHEEL_SPEEDS.lock(|c| c.set((omega_fl, omega_fr)));
+}
+
+pub fn get_front_wheel_speeds() -> (f32, f32) {
+    FRONT_WHEEL_SPEEDS.lock(|c| c.get())
+}
 
 fn load_tire_curve(data: &[u8]) -> Option<TireCurve> {
     if data.len() < size_of::<TireCurve>() {
@@ -237,3 +274,118 @@ fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
     let fx_ff = lookup_fx(curve, slip_ref);
     (fx_ff + pi.kp * error + pi.ki * pi.integral).clamp(0.0, 1.0)
 }
+
+pub fn tc_init(tire_curve_data: &[u8]) -> Result<(), ()> {
+    let curve = load_tire_curve(tire_curve_data);
+    let loaded = curve.is_some();
+    set_tc_state(|s| s.tire_curve = curve);
+    defmt::info!("TC: init done (curve loaded: {})", loaded);
+    Ok(())
+}
+
+pub fn tc_record_front_rpm(data: &[u8]) {
+    if data.len() < 4 {
+        defmt::error!("TC: front RPM message too short ({} bytes)", data.len());
+        return;
+    }
+    let fl_rpm = i16::from_be_bytes([data[0], data[1]]);
+    let fr_rpm = i16::from_be_bytes([data[2], data[3]]);
+    set_front_wheel_speeds(rpm_to_rads(fl_rpm), rpm_to_rads(fr_rpm));
+}
+
+//TODO
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Vector3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+ 
+//TODO
+#[derive(Clone, Copy, Debug)]
+pub enum ImuError {
+    ReadFailed,
+}
+
+// TODO
+pub fn imu_get_acceleration() -> Result<Vector3, Error> {
+    Ok(Vector3::default())
+}
+
+//TODO
+pub fn dti_get_rpm() -> i32 {
+    0
+}
+
+pub fn tc_process() {
+    // 1. Disabled -> pass-through.
+    if !tc_is_enabled() {
+        set_torque_scale(1.0);
+        return;
+    }
+ 
+    let (curve_loaded, calibrated) =
+        set_tc_state(|s| (s.tire_curve.is_some(), s.vel_estimator.init));
+ 
+    // 2. No valid curve -> pass-through.
+    if !curve_loaded {
+        set_torque_scale(1.0);
+        return;
+    }
+ 
+    // 3. Calibration
+    if !calibrated {
+        let accel = imu_get_acceleration();
+        set_tc_state(|s| {
+            if let Ok(a) = accel {
+                s.ax_sum += a.x;
+                s.sample_count += 1;
+            }
+            if s.sample_count >= TC_CALIB_SAMPLES {
+                let avg = s.ax_sum / s.sample_count as f32;
+                init_vel_estimator(&mut s.vel_estimator, avg);
+            }
+        });
+        set_torque_scale(1.0);
+        return;
+    }
+ 
+    // 4. Control step.
+    let dt = set_tc_state(|s| s.update_dt());
+    let accel = imu_get_acceleration();
+    let (omega_fl, omega_fr) = get_front_wheel_speeds();
+    let motor_rpm = dti_get_rpm() as f32;
+ 
+    let scale = set_tc_state(|s| {
+        let TcState {
+            tire_curve,
+            vel_estimator,
+            pi,
+            ..
+        } = s;
+        let Some(curve) = tire_curve.as_ref() else {
+            return 1.0;
+        };
+ 
+        let ax = match accel {
+            Ok(a) => {
+                vel_estimator.alpha = VEL_ALPHA;
+                a.x
+            }
+            Err(_) => {
+                defmt::error!("TC: IMU read failed, using wheel speed only");
+                // alpha = 1.0 -> velocity entirely from wheel speeds this cycle.
+                vel_estimator.alpha = 1.0;
+                0.0
+            }
+        };
+ 
+        let avg_front_rads = (omega_fl + omega_fr) / 2.0;
+        let vx_car = estimate_velocity(vel_estimator, avg_front_rads, ax, dt);
+        let slip = calc_slip(motor_rpm, vx_car);
+        update_pi(pi, curve, slip, dt)
+    });
+ 
+    set_torque_scale(scale);
+}
+ 
