@@ -423,6 +423,11 @@ pub mod jobs {
             #[cfg(not(feature = "hil"))]
             const TIMEOUT_MS: u64 = 100;
 
+            #[cfg(feature = "hil")]
+            {
+                use adbms6830b::chip::commands::{self, adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire}};
+                self.service.api().command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::SingleShot, ResetFilter::NoReset, OpenWire::OffForAll)).await.map_err(UpdateError::PollError)?;
+            }
             #[cfg(not(feature = "hil"))]
             {
                 use adbms6830b::chip::commands::adc::{AdcvRedundancy, AutoAcquisition, ResetFilter, OpenWire};
@@ -431,8 +436,6 @@ pub mod jobs {
             cache::CACHE.update_cell_voltages(self.service.api()).await?;
             cache::CACHE.update_s_voltages(self.service.api()).await?;
             cache::CACHE.update_average_cell_voltages(self.service.api()).await?;
-
-            // u_TODO - add HIL support
 
             // u_TODO - we should probably be able to use continuous conversions in charging, just not when we are balancing. but the C code turns them off for the whole
             // charging state so for now that is what we are doing for parity and simplicity
