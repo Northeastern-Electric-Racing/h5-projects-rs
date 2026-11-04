@@ -76,7 +76,7 @@ impl TcPi {
     }
 }
 
-struct TcState {
+pub struct TcState {
     tire_curve: Option<TireCurve>,
     vel_estimator: VelEstimator,
     pi: TcPi,
@@ -114,7 +114,7 @@ pub fn tc_get_torque_scale() -> f32 {
     f32::from_bits(TORQUE_SCALE.load(Ordering::Relaxed))
 }
 
-pub(crate) fn set_torque_scale(scale: f32) {
+pub fn set_torque_scale(scale: f32) {
     TORQUE_SCALE.store(scale.to_bits(), Ordering::Relaxed);
 }
 
