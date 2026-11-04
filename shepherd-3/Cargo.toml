@@ -20,11 +20,11 @@ embassy-time.workspace = true
 embassy-futures.workspace = true
 embedded-hal-async.workspace = true
 embedded-hal-bus.workspace = true
-embedded-can.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 assign-resources.workspace = true
 cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "15a97fb9d680c44d82125d3898089b88686b7020"}
+can-handler = { workspace = true, features = ["defmt-monitor"] }
 static_cell.workspace = true
 
 function_name = { version = "0.3.0" }

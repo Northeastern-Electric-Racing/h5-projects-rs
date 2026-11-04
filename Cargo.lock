@@ -190,6 +190,7 @@ version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#e26a8a1dbc1a40fba5064b343c318fc64c7fd1ba"
 dependencies = [
  "defmt 1.2.0",
+ "defmt-monitor",
  "embassy-executor",
  "embassy-futures",
  "embassy-stm32",
@@ -1459,6 +1460,7 @@ dependencies = [
  "adbms6830b",
  "assign-resources",
  "atomic_enum",
+ "can-handler",
  "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=15a97fb9d680c44d82125d3898089b88686b7020)",
  "cortex-m",
  "cortex-m-rt",
@@ -1471,7 +1473,6 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
- "embedded-can",
  "embedded-hal-async",
  "embedded-hal-bus",
  "function_name",
