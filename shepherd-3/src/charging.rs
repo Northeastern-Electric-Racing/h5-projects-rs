@@ -460,6 +460,7 @@ mod state {
                     else if h.is_drawcurrent() && inputs.max_voltage >= MAX_CHARGE_VOLT { h.to_nocurrent(); Self::Balance(h) }
                     else if h.deadline.is_active_and(|d| { d.past() })        { h.to_cooldown(); Self::Balance(h) }
                     else if h.deadline.is_cooldown_and(|d| { d.past() })      { Self::Settle(Settle::new_from_balancing()) }
+                    else if (!get_pwm_duty_cycle().is_balancing()) && h.is_active()     { h.to_cooldown(); Self::Balance(h) }
                     else                                                                { self }
                 },
 
