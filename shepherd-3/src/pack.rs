@@ -332,6 +332,10 @@ pub mod analyzer {
                     _ => Current::from_amps(0.031_f32),
                 };
 
+                self.corrected_cell_voltages[chip].iter_mut().for_each(|(cell, voltage)| {
+                    *voltage = cell_voltages[chip][cell];
+                });
+
                 // I*R is the way
                 self.corrected_cell_voltages[chip][cell] = cell_voltages[chip][cell];
                 self.corrected_cell_voltages[chip][cell] += curr_bal * res;
@@ -422,7 +426,7 @@ pub mod analyzer {
 
                 // Update cell voltage too high fault
                 // (note: the separate CellChargeVoltageTooHigh fault from TSECU-Shepherd is combined with CellVoltageTooHigh now, they just check different values depending on state)
-                let max = if crate::state_machine::state().is_charging() { Voltage::from_volts(4.193) } else { Voltage::from_volts(4.2) };
+                let max = if crate::state_machine::state().is_charging() { Voltage::from_volts(4.2) } else { Voltage::from_volts(4.2) };
                 if self.max_ocv.value() > max {
                     faults::queue(FaultCommand::CellVoltageTooHigh(PassFailAction::NotifyBad)).await;
                 } else {
