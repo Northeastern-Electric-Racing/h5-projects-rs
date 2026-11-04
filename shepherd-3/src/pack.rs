@@ -63,6 +63,66 @@ pub mod analyzer {
         ANALYZER.set(AnalyzerHolder { data: analyzer, last_updated: Instant::now() })
     }
 
+    /// Number of consecutive invalid samples before a thermistor is marked invalid.
+    const THERM_FAULT_COUNT_THRESHOLD: u8 = 2;
+    /// Max allowed change from the last trusted sample in degrees C
+    const TEMP_MAX_DELTA_C: f32 = 5.0;
+    // from bms_config.h in the C code
+    const MIN_TEMP: Temperature = Temperature::from_celsius(-40.0);
+    const MAX_CELL_TEMP: Temperature = Temperature::from_celsius(60.0);
+
+    #[derive(Copy, Clone)]
+    pub enum ThermState {
+        Startup { faults: u8 },
+        Trusted { last_temp: Temperature, faults: u8 },
+        Invalid,
+    }
+    impl ThermState {
+        const fn new() -> Self {
+            ThermState::Startup { faults: 0 }
+        }
+
+        /// Update `ThermState` with `temp`. Returns `true` if `temp` was accepted.
+        fn update(&mut self, temp: Temperature) -> bool {
+            let in_range = (temp >= MIN_TEMP) && (temp <= MAX_CELL_TEMP);
+            match self {
+                Self::Startup { faults } => {
+                    if in_range {
+                        *self = Self::Trusted { last_temp: temp, faults: 0 };
+                        true
+                    } else {
+                        *faults += 1;
+                        if *faults >= THERM_FAULT_COUNT_THRESHOLD {
+                            *self = Self::Invalid;
+                        }
+                        false
+                    }
+                },
+
+                Self::Trusted { last_temp, faults } => {
+                    let delta = temp.get::<degree_celsius>() - last_temp.get::<degree_celsius>();
+                    if in_range && delta <= TEMP_MAX_DELTA_C && delta >= -TEMP_MAX_DELTA_C {
+                        *last_temp = temp;
+                        *faults = 0;
+                        true
+                    } else {
+                        *faults += 1;
+                        if *faults >= THERM_FAULT_COUNT_THRESHOLD {
+                            *self = Self::Invalid;
+                        }
+                        false
+                    }
+                },
+
+                Self::Invalid => false,
+            }
+        }
+
+        pub const fn is_invalid(&self) -> bool {
+            matches!(self, Self::Invalid)
+        }
+    }
+
     #[derive(Copy, Clone)]
     pub struct CriticalCellValue<T> {
         /// The critical value being stored here.
@@ -168,6 +228,9 @@ pub mod analyzer {
 
         /// Voltage of pack
         pub pack_voltage: Voltage,
+
+        /// Per-cell trust state for the sanitizer.
+        pub sanitized_therms: IndexByChip<IndexByCell<ThermState>>,
     }
     impl Analyzer {
         pub fn new() -> Self {
@@ -238,13 +301,13 @@ pub mod analyzer {
                 ts_voltage: None,
                 soc: None,
                 last_settled_at: None,
+
+                sanitized_therms: IndexByChip::from_fn(|_| IndexByCell::from_fn(|_| ThermState::new())),
             }
         }
-    }
 
-    impl Analyzer {
-        fn calc_pack_temps(&mut self, cell_temp: &IndexByChip<IndexByCell<Temperature>>, die_temp: &IndexByChip<Temperature>) {
-            // Reset the last cycle's critical values.
+        /// Rejects thermistor samples that are out of range or jump too far, and tracks min/max over only the trusted ones.
+        fn sanitize_temps(&mut self, cell_temps: &IndexByChip<IndexByCell<Temperature>>, die_temps: &IndexByChip<Temperature>) {
             self.max_temp = CriticalCellValue {
                 value: Temperature::new::<degree_celsius>(f32::MIN),
                 chip: ChipId::Chip0,
@@ -260,39 +323,51 @@ pub mod analyzer {
                 chip: ChipId::Chip0,
             };
 
-            let mut total_temp = 0_f32;
-            let mut total_seg_temp = 0_f32;
+            let mut total_temp = 0.0_f32;
+            let mut valid_temp_count = 0_usize;
+            let mut total_seg_temp = 0.0_f32;
+            let mut valid_seg_temp_count = 0_usize;
 
             for chip in ChipId::iter() {
                 for cell in CellId::iter() {
-                    let temp: Temperature = cell_temp[chip][cell];
+                    let temp = cell_temps[chip][cell];
+                    let therm = &mut self.sanitized_therms[chip][cell];
+                    let sample_valid = therm.update(temp);
 
-                    if temp > self.max_temp.value() {
-                        self.max_temp = CriticalCellValue { value: temp, chip, cell }
+                    if sample_valid {
+                        if temp > self.max_temp.value() {
+                            self.max_temp = CriticalCellValue { value: temp, chip, cell }
+                        }
+
+                        if temp < self.min_temp.value() {
+                            self.min_temp = CriticalCellValue { value: temp, chip, cell }
+                        }
+
+                        total_temp += temp.get::<degree_celsius>();
+                        total_seg_temp += temp.get::<degree_celsius>();
+                        valid_temp_count += 1;
+                        valid_seg_temp_count += 1;
                     }
-
-                    if temp < self.min_temp.value() {
-                        self.min_temp = CriticalCellValue { value: temp, chip, cell }
-                    }
-
-                    total_temp += temp.get::<degree_celsius>();
-                    total_seg_temp += temp.get::<degree_celsius>();
                 }
 
-                // Apparently only for NERO according to analyzer.c
                 if chip.is_beta() {
-                    self.segment_average_temps[chip.segment()] = Temperature::new::<degree_celsius>(total_seg_temp / NUM_CELLS_PER_SEGMENT as f32);
-                    total_seg_temp = 0_f32;
+                    if valid_seg_temp_count > 0 {
+                        self.segment_average_temps[chip.segment()] = Temperature::new::<degree_celsius>(total_seg_temp / valid_seg_temp_count as f32);
+                    }
+
+                    total_seg_temp = 0.0;
+                    valid_seg_temp_count = 0;
                 }
 
-                let die_temp: Temperature = die_temp[chip];
-
-                if self.max_chiptemp.value() < die_temp {
-                    self.max_chiptemp = CriticalChipValue { value: die_temp, chip }
+                let die_temp = die_temps[chip];
+                if die_temp > self.max_chiptemp.value() {
+                    self.max_chiptemp = CriticalChipValue { value: die_temp, chip };
                 }
             }
 
-            self.avg_temp = Temperature::new::<degree_celsius>(total_temp / NUM_CELLS_TOTAL as f32);
+            if valid_temp_count > 0 {
+                self.avg_temp = Temperature::new::<degree_celsius>(total_temp / valid_temp_count as f32);
+            }
         }
 
         /// Doesn't really actually do that much calculating. Basically just moves data into `self.cell_voltages`, choosing the source
@@ -575,8 +650,10 @@ pub mod analyzer {
         let filtered_cell_voltages = segments::cache().get_filtered_cell_voltages().nice().ready().await;
         let redundant_aux = segments::cache().get_redundant_aux().nice().ready().await;
         let status_a = segments::cache().get_status_a().nice().ready().await;
-        let _s_voltages_ow_even_on = segments::cache().get_s_voltages_ow_even_on().nice().ready().await;
-        let _s_voltages_ow_odd_on = segments::cache().get_s_voltages_ow_odd_on().nice().ready().await;
+        #[cfg(not(feature = "hil"))]
+        let s_voltages_ow_even_on = segments::cache().get_s_voltages_ow_even_on().nice().ready().await;
+        #[cfg(not(feature = "hil"))]
+        let s_voltages_ow_odd_on = segments::cache().get_s_voltages_ow_odd_on().nice().ready().await;
 
         loop {
             // Run one loop of this task every time new Segments data arrives.
@@ -611,8 +688,7 @@ pub mod analyzer {
 
             // this whole section is supposed to look pretty similar to the C code just so
             // we make sure we bring everything over correctly.
-            // calc_cell_temps() is in the C code, but is not needed here because the chipdata already calculates cell temps.
-            analyzer.calc_pack_temps(&cell_temps, &die_temps);
+            analyzer.sanitize_temps(&cell_temps, &die_temps);
             analyzer.calc_cell_voltages(&cell_voltages);
             analyzer.calc_open_cell_voltage();
             analyzer.calc_pack_voltage_stats().await;
@@ -622,12 +698,10 @@ pub mod analyzer {
 
             #[cfg(not(feature = "hil"))]
             if segments_openwire_subscription.has_been_signaled() {
-                analyzer.detect_cell_open_wire(_s_voltages_ow_even_on.get().data(), _s_voltages_ow_odd_on.get().data()).await;
+                analyzer.detect_cell_open_wire(s_voltages_ow_even_on.get().data(), s_voltages_ow_odd_on.get().data()).await;
             }
 
             update(*analyzer);
-
-            // u_TODO - i'm pretty sure we can just move the stuff in `cell_temp_sanitizer.c` directly into the analyzer task. there doesn't seem to be a reason to have it in its own task like the C code. so we should add that here (after the analyzer is done)
 
             can::send(
                 CellVoltage {
@@ -652,6 +726,18 @@ pub mod analyzer {
                 defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_cell", desc = "The cell `low_val` was measured from.", "{}", analyzer.min_ocv.cell());
                 defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_chip", desc = "The chip `low_val` was measured from.", "{}", analyzer.min_ocv.chip());
                 defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/avg_val", desc = "The average cell voltage, in volts.", "{=f32}", analyzer.avg_ocv.get::<volt>());
+                let mut count = 0;
+                for chip in ChipId::iter() {
+                    for cell in CellId::iter() {
+                        let therm = &analyzer.sanitized_therms[chip][cell];
+                        let invalid = therm.is_invalid();
+                        if invalid {
+                            count += 1;
+                        }
+                        defmt_monitor::monitor!(["AnalyzerDebug/ThermState/chip_{=u8}/cell_{=u8}/valid", chip.as_u8(), cell.as_u8()], desc = "Whether the sanitizer currently trusts this thermistor. Once false, it stays false until reboot.", "{=bool}", !invalid)
+                    }
+                }
+                defmt_monitor::monitor!("AnalyzerDebug/ThermState/invalid_count", desc = "Number of thermistors the sanitizer currently does not trust.", "{=u32}", count);
             }
 
             can::send(
