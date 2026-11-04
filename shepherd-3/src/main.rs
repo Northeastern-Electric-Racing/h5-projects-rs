@@ -149,8 +149,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(shutdown::shutdown_task().expect("Failed to spawn shutdown::shutdown_task()."));
     spawner.spawn(hv_plate::soc_task().expect("Failed to spawn hv_plate::soc_task()."));
     spawner.spawn(hv_plate::precharge_task().expect("Failed to spawn hv_plate::precharge_task()."));
-    //spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
-    spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn statemachine::state_machine_task()"));
+    spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
     spawner.spawn(faults::task::faults_task().expect("Failed to spawn faults task."));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
     spawner.spawn(debug::faults_debug(spawner).expect("Failed to spawn faults debug task."));
