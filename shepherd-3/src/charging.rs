@@ -618,7 +618,7 @@ pub enum AreWeActivelyBalancing {
 }
 impl AreWeActivelyBalancing {
     /// Converts this to a bool. In other words, this will be `true` if this is `AreWeActivelyBalancing::Yes(..)` and
-    /// will be false if this is `AreWeActivelyBalancing::False`.
+    /// will be false if this is `AreWeActivelyBalancing::No`.
     pub const fn as_bool(&self) -> bool {
         matches!(*self, AreWeActivelyBalancing::Yes(..))
     }

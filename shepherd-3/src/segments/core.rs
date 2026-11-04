@@ -808,7 +808,7 @@ pub mod task {
             let balancing_active_payload = if charging { charging::are_we_actively_balancing() } else { AreWeActivelyBalancing::No };
 
             // Version of `balancing_active_payload` that is just a bool (for convenience).
-            let balancing_active = balancing_active_payload.is_yes();
+            let balancing_active = balancing_active_payload.as_bool();
 
             // DISABLE BALANCING
             disable_balancing_failure = '_disable_balancing: {
