@@ -617,8 +617,9 @@ pub enum AreWeActivelyBalancing {
     No,
 }
 impl AreWeActivelyBalancing {
-    /// Indicates if this is `AreWeActivelyBalancing::Yes(..)` or not.
-    pub const fn is_yes(&self) -> bool {
+    /// Converts this to a bool. In other words, this will be `true` if this is `AreWeActivelyBalancing::Yes(..)` and
+    /// will be false if this is `AreWeActivelyBalancing::False`.
+    pub const fn as_bool(&self) -> bool {
         matches!(*self, AreWeActivelyBalancing::Yes(..))
     }
 }
@@ -627,6 +628,10 @@ static PWM_DUTY_CYCLE_CONFIG: SnapshotCell<RequestedPwm> = SnapshotCell::new(Req
 static CHARGER_CONNECTED: SnapshotCell<ChargerConnected> = SnapshotCell::new(ChargerConnected::Disconnected);
 static CHARGE_STATE: LazySnapshotCell<Charger> = LazySnapshotCell::new(Charger::default);
 
+/// Returns true if we are not actively requesting any current.
+pub fn charger_output_disabled() -> bool {
+    CHARGE_STATE.partial_read(|h| h.current().is_none())
+}
 /// Gets current PWM duty cycle config.
 pub fn get_pwm_duty_cycle() -> PwmDutyCycleConfig {
     PWM_DUTY_CYCLE_CONFIG.read().inner()

@@ -500,8 +500,8 @@ pub mod analyzer {
 
             let ocv_update_allowed: bool = {
                 pack_current.abs() < OCV_CURR_THRESH
-                // u_TODO: && crate::state_machine::charger_output_disabled()
-                // u_TODO: && crate::state_machine::balancing_active()
+                && crate::charging::charger_output_disabled()
+                && crate::charging::are_we_actively_balancing().as_bool()
             };
 
             if self.ocv_is_first_reading {
