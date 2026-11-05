@@ -695,10 +695,12 @@ pub mod analyzer {
             let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| status_a.get().data()[chip].itmp);
 
             let soc_data = crate::hv_plate::soc_data();
-            // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly
-            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.and_then(|soc| soc.data.shunt_current));
+            // Three sources, in descending order of how much the number has been cross-checked:
+            // what another node reports over CAN, the shunt current the SOC estimator has calibrated, and the raw IVB1/V1A reading off our own 2950.
+            // u_TODO - just use the 2950 (swap for 27)
+            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.and_then(|soc| soc.data.shunt_current)).or_else(|| crate::hv_plate::cache().get_current_voltage().nice().try_partial_get(|nice| nice.data().pack_current));
             // u_TODO - switch to use 2950 sense for 27A.
-            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).or(crate::hv_plate::cache().get_voltages().nice().try_partial_get(|n| n.data().ts_voltage));
+            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).or_else(|| crate::hv_plate::cache().get_voltages().nice().try_partial_get(|nice| nice.data().ts_voltage));
             analyzer.soc = soc_data.and_then(|soc| soc.data.state_of_charge);
 
             // this whole section is supposed to look pretty similar to the C code just so
