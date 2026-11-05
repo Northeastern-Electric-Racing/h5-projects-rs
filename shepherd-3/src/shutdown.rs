@@ -1,5 +1,4 @@
 use core::sync::atomic::{AtomicBool, Ordering};
-use embassy_stm32::gpio::Level;
 use embassy_time::{Instant, Duration, Ticker};
 use crate::can;
 use crate::helpers::deadline::Deadline;
@@ -56,18 +55,6 @@ impl Debouncer {
             },
         }
     }
-}
-
-/// Breaks or restores the BMS's link in the shutdown loop
-/// `true` pulls PG15 low, which breaks the loop and cuts the pack off the car
-/// Low is the active state
-pub fn set_fault(faulted: bool) {
-    let level = if faulted {
-        Level::Low // should always be asserted at level low! otherwise loop won't always shut down when a node is opened!
-    } else {
-        Level::High
-    };
-    crate::gpios::pins().get().mcu_fault_pin.set_level(level);
 }
 
 /// Reads the four shutdown sense pins every 50ms, debounces them, and sends the
