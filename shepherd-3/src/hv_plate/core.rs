@@ -38,7 +38,7 @@ pub mod alias {
     /// Must be built with `ExclusiveDevice::new`, not `new_no_delay`: the driver's wake-up pulse
     /// is a delay-only transaction and panics without delay support.
     #[cfg(feature = "hil")]
-    pub type SpiDevice = super::super::hil::HilDevice;
+    pub type SpiDevice = crate::hv_plate::hil::HilDevice;
     #[cfg(not(feature = "hil"))]
     pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 
@@ -191,7 +191,6 @@ pub mod jobs {
             // Run commands in async block so fail here still tries to unsnap
             let reads = async {
                 cache::CACHE.update_flag(self.api).await?;
-                #[cfg(not(feature = "hil"))]
                 cache::CACHE.update_accumulated(self.api).await?;
                 cache::CACHE.update_current_voltage(self.api).await?;
                 Ok::<(), UpdateError>(())
@@ -268,14 +267,18 @@ pub mod task {
         const HV_PLATE_FRESH_DATA_MAX_WAITERS: usize = 10;
         pub static HV_PLATE_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, HV_PLATE_FRESH_DATA_MAX_WAITERS> = Broadcast::new();
 
-        /// Helper info about chip to do coulomb counting properly.
         #[derive(Copy, Clone)]
-        pub struct AccCycle {
-            pub restarted_at: Option<Instant>,
+        pub struct AccWindowStatus {
+            /// The chip restarted this pass, so anything derived from its counters has to
+            /// re-baseline.
+            ///
+            /// A flag rather than an instant: the consumer re-bases off the timestamp of the next
+            /// reading instead, which keeps its arithmetic on a single clock.
+            pub chip_restarted: bool,
             pub fresh: bool,
         }
-        const ACC_DATA_RECEIVERS: usize = 2;
-        pub static ACC_DATA_SIGNAL: Watch<ThreadModeRawMutex, AccCycle, ACC_DATA_RECEIVERS> = Watch::new();
+        const ACC_DATA_RECEIVERS: usize = 1;
+        pub static ACC_WINDOW_SIGNAL: Watch<ThreadModeRawMutex, AccWindowStatus, ACC_DATA_RECEIVERS> = Watch::new();
     }
 
     impl HvPlate {
@@ -321,7 +324,7 @@ pub mod task {
             let tick_start = Instant::now();
 
             // Run startup and break detection + recovery
-            let restarted_at = hv_plate.run_service().await.then(Instant::now);
+            let chip_restarted = hv_plate.run_service().await;
 
             let snap_ok = match hv_plate.job_update_snap_registers().await {
                 Ok(()) => true,
@@ -330,8 +333,7 @@ pub mod task {
                     false
                 },
             };
-            // Hand the window to `soc_task`
-            signal::ACC_DATA_SIGNAL.sender().send(signal::AccCycle { restarted_at, fresh: snap_ok });
+            signal::ACC_WINDOW_SIGNAL.sender().send(signal::AccWindowStatus { chip_restarted, fresh: snap_ok });
 
             let voltage_ok = match hv_plate.job_update_voltage_registers().await {
                 Ok(()) => true,

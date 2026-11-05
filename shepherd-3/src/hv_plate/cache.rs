@@ -326,7 +326,12 @@ pub mod accumulated {
                 batt_sum_microvolts: ivb1acc.data().vb1acc().as_microvolts(),
             };
 
-            Nice { data, oldest_read: ivb1acc.last_successful_read() }
+            #[cfg(feature = "hil")]
+            let oldest_read = crate::hv_plate::hil::sim_time::now();
+            #[cfg(not(feature = "hil"))]
+            let oldest_read = ivb1acc.last_successful_read();
+
+            Nice { data, oldest_read }
         }
     }
 
@@ -335,7 +340,6 @@ pub mod accumulated {
         ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
-        #[cfg_attr(feature = "hil", allow(dead_code))]
         async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             let nice = self.raw.update(api).await?;
             self.nice.set(nice);
@@ -345,7 +349,6 @@ pub mod accumulated {
 
     impl super::CacheData {
         /// Updates the accumulators.
-        #[cfg(not(feature = "hil"))]
         pub(in crate::hv_plate) async fn update_accumulated(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             self.accumulated.update(api).await
         }
