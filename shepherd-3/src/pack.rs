@@ -373,6 +373,11 @@ pub mod analyzer {
             let state = state_machine::bms_state();
 
             for chip in ChipId::iter() {
+                // Copy cell voltages into struct then patch
+                for cell in CellId::iter() {
+                    self.corrected_cell_voltages[chip][cell] = cell_voltages[chip][cell];
+                }
+
                 // Constants and comments from TSECU-Shepherd
                 // 25A patch only: alpha lowest and beta highest need to be offset correctly
                 const UNIT_RES: ResistancePerLength = ResistancePerLength::from_ohms_per_millimeter(0.00139_f32); // from 1/2 oz copper, 0.71mm trace width, 30C
@@ -383,7 +388,7 @@ pub mod analyzer {
                 const TRACE_RES_ONBOARD_BETA: Resistance = Resistance::from_ohms(0.20_f32); // ohms, correction offset
 
                 // The distance times the unit resistance, plus the resistance of the fuse
-                let (res, cell): (Resistance, CellId) = match chip.kind() {
+                let (res, patch_cell): (Resistance, CellId) = match chip.kind() {
                     ChipKind::Beta => {
                         let res = (UNIT_RES * TRACE_LEN_BETA) + FUSE_RES + TRACE_RES_ONBOARD_BETA;
                         (res, CellId::Cell13)
@@ -404,8 +409,7 @@ pub mod analyzer {
                 };
 
                 // I*R is the way
-                self.corrected_cell_voltages[chip][cell] = cell_voltages[chip][cell];
-                self.corrected_cell_voltages[chip][cell] += curr_bal * res;
+                self.corrected_cell_voltages[chip][patch_cell] += curr_bal * res;
             }
         }
 
@@ -677,9 +681,11 @@ pub mod analyzer {
             let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| status_a.get().data()[chip].itmp);
 
             let soc_data = crate::hv_plate::soc_data();
-            // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly
-            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.and_then(|soc| soc.data.shunt_current));
-            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get());
+            // Three sources, in descending order of how much the number has been cross-checked:
+            // what another node reports over CAN, the shunt current the SOC estimator has calibrated, and the raw IVB1/V1A reading off our own 2950.
+            // u_TODO - just use the 2950 (swap for 27)
+            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.and_then(|soc| soc.data.shunt_current)).or_else(|| crate::hv_plate::cache().get_current_voltage().nice().try_partial_get(|nice| nice.data().pack_current));
+            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).or_else(|| crate::hv_plate::cache().get_voltages().nice().try_partial_get(|nice| nice.data().ts_voltage));
             analyzer.soc = soc_data.and_then(|soc| soc.data.state_of_charge);
 
             // this whole section is supposed to look pretty similar to the C code just so

@@ -60,13 +60,20 @@ impl ErrorType for HilDevice {
     type Error = HilError;
 }
 
+fn without_cs_timing<'a, 'b>(operations: &'a mut [Operation<'b, u8>]) -> &'a mut [Operation<'b, u8>] {
+    let is_delay = |op: &Operation<'_, u8>| matches!(op, Operation::DelayNs(_));
+    let start = operations.iter().position(|op| !is_delay(op)).unwrap_or(operations.len());
+    let end = operations.iter().rposition(|op| !is_delay(op)).map_or(start, |index| index + 1);
+    &mut operations[start..end]
+}
+
 impl SpiDevice for HilDevice {
     async fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), HilError> {
         let (tx, rx) = self.0.as_mut().ok_or(HilError::DisabledLine)?;
 
-        match operations {
-            // Chip-select wakeup pulses have no UART equivalent.
-            [] | [Operation::DelayNs(_)] => Ok(()),
+        match without_cs_timing(operations) {
+            // Chip-select wakeup pulses have no UART equivalent, and trim to nothing.
+            [] => Ok(()),
 
             // Send command + PEC, then receive the fixed-size reply.
             [Operation::Write(command), Operation::Read(data)] if command.len() == 4 => {
