@@ -1,10 +1,12 @@
-use core::sync::atomic::{AtomicBool, Ordering};
-use defmt::debug;
-use embassy_stm32::{Peri, bind_interrupts, gpio::{Input, Output, Pull}, interrupt, peripherals};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
-
-use defmt::info;
-use embassy_stm32::{exti::ExtiInput, mode::Async};
+use defmt::{debug, info, warn};
+use embassy_futures::select::{Either, select};
+use embassy_stm32::{
+    Peri, bind_interrupts,
+    exti::ExtiInput,
+    gpio::{Level, Output, Pull, Speed},
+    interrupt, peripherals,
+};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::Timer;
 
 bind_interrupts!(
@@ -13,44 +15,49 @@ bind_interrupts!(
     }
 );
 
-#[derive(Clone, Copy)]
-struct LedState {
-    red: bool, 
-    green: bool,
-}
-static LED_SIGNAL: Signal<ThreadModeRawMutex, LedState> = Signal::new();
-static RED_ON: AtomicBool = AtomicBool::new(false);
-static GREEN_ON: AtomicBool = AtomicBool::new(false);
+const LED_COMMAND_QUEUE_SIZE: usize = 4;
 
-fn push_state() {
-    LED_SIGNAL.signal(LedState {
-        red: RED_ON.load(Ordering::Relaxed),
-        green: GREEN_ON.load(Ordering::Relaxed),
-    });
+#[derive(Clone, Copy)]
+enum LedCommand {
+    RedOn,
+    RedOff,
+    GreenOn,
+    GreenOff,
+}
+static LED_COMMANDS: Channel<ThreadModeRawMutex, LedCommand, LED_COMMAND_QUEUE_SIZE> =
+    Channel::new();
+
+pub struct DebugResources {
+    pub red_led: Peri<'static, peripherals::PE3>,
+    pub green_led: Peri<'static, peripherals::PE4>,
+    pub button: Peri<'static, peripherals::PE2>,
+    pub button_exti: Peri<'static, peripherals::EXTI2>,
+}
+
+fn send_led_command(command: LedCommand) {
+    if LED_COMMANDS.try_send(command).is_err() {
+        warn!("LED command queue full, dropping command");
+    }
 }
 
 pub fn enable_red_led() {
-    debug!("debug_enableRedLED called"); 
-    RED_ON.store(true, Ordering::Relaxed);
-    push_state();
+    debug!("debug_enableRedLED called");
+    send_led_command(LedCommand::RedOn);
 }
 
 pub fn enable_green_led() {
-    debug!("debug_enableGreenLED called"); 
-    GREEN_ON.store(true, Ordering::Relaxed);
-    push_state();
+    debug!("debug_enableGreenLED called");
+    send_led_command(LedCommand::GreenOn);
 }
 
 pub fn disable_red_led() {
-    debug!("debug_disableRedLED called"); 
-    RED_ON.store(false, Ordering::Relaxed);
-    push_state();
+    debug!("debug_disableRedLED called");
+    send_led_command(LedCommand::RedOff);
 }
 
 pub fn disable_green_led() {
-    debug!("debug_disableGreenLED called"); 
-    GREEN_ON.store(false, Ordering::Relaxed);
-    push_state();
+    debug!("debug_disableGreenLED called");
+    send_led_command(LedCommand::GreenOff);
 }
 
 pub fn user_button_pressed() {
@@ -58,30 +65,23 @@ pub fn user_button_pressed() {
 }
 
 #[embassy_executor::task]
-pub async fn led_task(mut red: Output<'static>, mut green: Output<'static>) {
-    red.set_low();
-    green.set_low();
-    loop{
-        let state = LED_SIGNAL.wait().await;
-            if state.red {
-                red.set_high();
-            } else {
-                red.set_low();
-            }
-            if state.green {
-                green.set_high();
-            } else {
-                green.set_low();
-            }
-    }
-}
+pub async fn debug_task(resources: DebugResources) {
+    let mut red_led = Output::new(resources.red_led, Level::Low, Speed::Low);
+    let mut green_led = Output::new(resources.green_led, Level::Low, Speed::Low);
+    let mut button = ExtiInput::new(resources.button, resources.button_exti, Pull::Up, Irqs);
 
-#[embassy_executor::task]
-pub async fn user_button_task(mut pin: Peri<'static, peripherals::PE2>, mut ext: Peri<'static, peripherals::EXTI2>) {
-    let mut button = ExtiInput::new(pin, ext, Pull::Up, Irqs);
     loop {
-        button.wait_for_falling_edge().await;
-        user_button_pressed(); 
-        Timer::after_millis(50).await;
+        match select(LED_COMMANDS.receive(), button.wait_for_falling_edge()).await {
+            Either::First(command) => match command {
+                LedCommand::RedOn => red_led.set_high(),
+                LedCommand::RedOff => red_led.set_low(),
+                LedCommand::GreenOn => green_led.set_high(),
+                LedCommand::GreenOff => green_led.set_low(),
+            },
+            Either::Second(()) => {
+                user_button_pressed();
+                Timer::after_millis(50).await; // debounce
+            }
+        }
     }
 }
