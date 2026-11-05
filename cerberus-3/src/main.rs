@@ -19,6 +19,7 @@ mod adc;
 mod bms;
 mod buttons;
 mod can;
+mod debug;
 mod efuses;
 mod pedals;
 mod peripherals;
@@ -85,10 +86,6 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     let p = embassy_stm32::init(config);
-
-    // initials Debug LEDs
-    let mut red_led = Output::new(p.PE3, Level::Low, Speed::Low);
-    let mut green_led = Output::new(p.PE4, Level::Low, Speed::Low);
 
     // CAN
     let (can_tx_half, can_rx_half) = can::init(CanPins {
@@ -221,17 +218,28 @@ async fn main(spawner: Spawner) -> ! {
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
     watchdog.unleash();
 
+    // Debug
+    spawner.spawn(
+        debug::debug_task(debug::DebugResources {
+            red_led: p.PE3,
+            green_led: p.PE4,
+            button: p.PE2,
+            button_exti: p.EXTI2,
+        })
+        .expect("Failed to spawn debug::debug_task()."),
+    );
+
     let _can_fault = Output::new(p.PG15, Level::High, Speed::Low);
 
     loop {
         debug!("Status: Alive");
         watchdog.pet();
-        red_led.set_high();
-        green_led.set_low();
+        debug::enable_red_led();
+        debug::disable_green_led();
         Timer::after_millis(500).await;
         watchdog.pet();
-        red_led.set_low();
-        green_led.set_high();
+        debug::disable_red_led();
+        debug::enable_green_led();
         Timer::after_millis(500).await;
     }
 }
