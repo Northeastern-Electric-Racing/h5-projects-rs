@@ -690,7 +690,7 @@ pub async fn charger_task() -> ! {
 
     let mut ticker = Ticker::every(CHARGER_TASK_FREQUENCY);
     let mut current_request_deadline = Deadline::expire_now();
-    let mut current_off_deadline_for_faulted = Deadline::expire_now();
+    let mut current_off_deadline_for_not_charging = Deadline::expire_now();
 
     loop {
         /// Voltage to request from the charger.
@@ -735,7 +735,7 @@ pub async fn charger_task() -> ! {
             // u_TODO maybe send motor controller zero commands every charger tick (look at C code)
         }
 
-        if state_machine::state().is_faulted() && current_off_deadline_for_faulted.past() {
+        if !state_machine::state().is_charging() && current_off_deadline_for_not_charging.past() {
             can::send(
                 BmsChargeMessageSend {
                     charge_volts: 0_f32,
@@ -748,7 +748,7 @@ pub async fn charger_task() -> ! {
             )
             .await;
 
-            current_off_deadline_for_faulted = Deadline::expire_in(CHARGER_COMMAND_SEND_FREQUENCY);
+            current_off_deadline_for_not_charging = Deadline::expire_in(CHARGER_COMMAND_SEND_FREQUENCY);
         }
 
         ticker.next().await;

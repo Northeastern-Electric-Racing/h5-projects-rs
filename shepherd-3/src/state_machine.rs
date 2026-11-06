@@ -2,6 +2,7 @@ use strum::FromRepr;
 use crate::{
     charging, faults,
     faults::{FaultPin},
+    shutdown,
 };
 use core::cell::Cell;
 use embassy_sync::blocking_mutex::ThreadModeMutex;
@@ -17,6 +18,10 @@ pub enum BmsState {
     Charging,
     /// A critical fault is active. The shutdown circuit is asserted.
     Faulted,
+    /// Weird state where shutdown is open but we are not faulted or anything. This is meant to
+    /// be a semi-functional state where things like Charging are not enabled but normal non-invasive
+    /// tasks are still running.
+    ShutdownOpen,
 }
 
 /// INTERNAL API FOR STATE ADVANCEMENT.
@@ -28,18 +33,21 @@ impl BmsState {
         match self {
             BmsState::Boot => {
                 if faults::are_critical_faults_active()  { BmsState::Faulted }
+                else if !shutdown::circuit_closed()      { BmsState::ShutdownOpen }
                 else if charging::is_charger_connected() { BmsState::Charging }
                 else                                     { BmsState::Ready }
             },
 
             BmsState::Ready => {
                 if faults::are_critical_faults_active()  { BmsState::Faulted }
+                else if !shutdown::circuit_closed()      { BmsState::ShutdownOpen }
                 else if charging::is_charger_connected() { BmsState::Charging }
                 else                                     { BmsState::Ready }
             },
 
             BmsState::Charging => {
                 if faults::are_critical_faults_active()  { BmsState::Faulted }
+                else if !shutdown::circuit_closed()      { BmsState::ShutdownOpen }
                 else if charging::is_charger_connected() { BmsState::Charging }
                 else                                     { BmsState::Charging } // we shouldn't go back to READY after in charging even if the charger isn't connected
             },
@@ -48,6 +56,12 @@ impl BmsState {
                 if faults::are_critical_faults_active()  { BmsState::Faulted }
                 else                                     { BmsState::Boot }
             },
+
+            BmsState::ShutdownOpen => {
+                if faults::are_critical_faults_active()  { BmsState::Faulted }
+                else if shutdown::circuit_closed()       { BmsState::Boot }
+                else                                     { BmsState::ShutdownOpen }
+            }
         }
     }
 
@@ -67,6 +81,8 @@ impl BmsState {
             BmsState::Charging => {},
 
             BmsState::Faulted => {},
+
+            BmsState::ShutdownOpen => {},
         }
     }
 
@@ -84,6 +100,8 @@ impl BmsState {
             BmsState::Faulted => {
                 faults::set_fault(FaultPin::Active);
             },
+
+            BmsState::ShutdownOpen => {},
         }
     }
 
@@ -101,6 +119,8 @@ impl BmsState {
             BmsState::Faulted => {
                 faults::set_fault(FaultPin::Inactive);
             },
+
+            BmsState::ShutdownOpen => {},
         }
     }
 }
