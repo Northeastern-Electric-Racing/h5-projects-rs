@@ -1,8 +1,7 @@
 use crate::{
     helpers::deadline::Deadline,
     state_machine::{BmsState},
-    state_machine,
-    segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
+    segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, IndexByOnboardTherm, ThermistorTemperatures, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
     units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm},
 };
 
@@ -188,6 +187,9 @@ pub mod analyzer {
         pub min_temp: CriticalCellValue<Temperature>,
         pub avg_temp: Temperature,
 
+        // On board temps
+        pub on_board_temps: IndexByChip<IndexByOnboardTherm<Temperature>>,
+
         // Max, min, and avg voltage of the cells
         pub max_voltage: CriticalCellValue<Voltage>,
         pub min_voltage: CriticalCellValue<Voltage>,
@@ -250,6 +252,8 @@ pub mod analyzer {
                     cell: CellId::Cell1,
                 },
                 avg_temp: Temperature::new::<degree_celsius>(f32::MIN),
+
+                on_board_temps: IndexByChip::from_fn(|_| IndexByOnboardTherm::from_fn(|_| Temperature::new::<degree_celsius>(f32::MIN))),
 
                 max_voltage: CriticalCellValue {
                     value: Voltage::new::<volt>(f32::MIN),
@@ -370,7 +374,7 @@ pub mod analyzer {
         /// register depending on if we are charging or not. Also has to do some post-processing corrections for 25A specifically (since this was in TSECU-Shepherd code).
         /// This doesn't modify anything in the cache itself (since that's raw reads), this just initializes (and post-processes) the Analyzer's cell voltage data.
         fn calc_cell_voltages(&mut self, cell_voltages: &IndexByChip<IndexByCell<Voltage>>) {
-            let state = state_machine::bms_state();
+            let state = crate::state_machine::state();
 
             for chip in ChipId::iter() {
                 // Constants and comments from TSECU-Shepherd
@@ -381,6 +385,10 @@ pub mod analyzer {
                 const FUSE_RES: Resistance = Resistance::from_ohms(0.1637_f32);
                 const TRACE_RES_ONBOARD_ALPHA: Resistance = Resistance::from_ohms(0.015_f32); // ohms, correction offset
                 const TRACE_RES_ONBOARD_BETA: Resistance = Resistance::from_ohms(0.20_f32); // ohms, correction offset
+
+                self.corrected_cell_voltages[chip].iter_mut().for_each(|(cell, voltage)| {
+                    *voltage = cell_voltages[chip][cell];
+                });
 
                 // The distance times the unit resistance, plus the resistance of the fuse
                 let (res, cell): (Resistance, CellId) = match chip.kind() {
@@ -493,7 +501,7 @@ pub mod analyzer {
 
                 // Update cell voltage too high fault
                 // (note: the separate CellChargeVoltageTooHigh fault from TSECU-Shepherd is combined with CellVoltageTooHigh now, they just check different values depending on state)
-                let max = if crate::state_machine::bms_state().is_charging() { Voltage::from_volts(4.193) } else { Voltage::from_volts(4.2) };
+                let max = if crate::state_machine::state().is_charging() { Voltage::from_volts(4.2) } else { Voltage::from_volts(4.2) };
                 if self.max_ocv.value() > max {
                     faults::queue(FaultCommand::CellVoltageTooHigh(PassFailAction::NotifyBad)).await;
                 } else {
@@ -569,11 +577,7 @@ pub mod analyzer {
             let mut pack_current = data.data().pack_current;
             let mut update_ocv = false;
 
-            let ocv_update_allowed: bool = {
-                pack_current.abs() < OCV_CURR_THRESH
-                // u_TODO: && crate::state_machine::charger_output_disabled()
-                // u_TODO: && crate::state_machine::balancing_active()
-            };
+            let ocv_update_allowed: bool = { pack_current.abs() < OCV_CURR_THRESH && crate::charging::charger_output_disabled() && !crate::charging::are_we_actively_balancing().as_bool() };
 
             if self.ocv_is_first_reading {
                 let last_cell: Voltage = self.corrected_cell_voltages[ChipId::last()][CellId::last()];
@@ -656,7 +660,7 @@ pub mod analyzer {
             segments_freshdata_subscription.wait().await;
 
             // Get cell voltages depending on if we are charging or not.
-            let cell_voltages = match state_machine::bms_state() {
+            let cell_voltages = match crate::state_machine::state() {
                 // If we are charging, get normal cell voltages.
                 BmsState::Charging => *normal_cell_voltages.get().data(),
                 // If we are not charging, get filtered cell voltages.
@@ -665,14 +669,14 @@ pub mod analyzer {
 
             let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new());
 
-            let cell_temps: IndexByChip<IndexByCell<Temperature>> = {
+            let temps: IndexByChip<ThermistorTemperatures> = {
                 let rdax = *redundant_aux.get().data();
 
-                IndexByChip::from_fn(|chip| {
-                    let temps = rdax[chip].to_temps().cell_temperatures;
-                    IndexByCell::from_fn(|cell| temps[cell])
-                })
+                IndexByChip::from_fn(|chip| rdax[chip].to_temps())
             };
+            let cell_temps = IndexByChip::from_fn(|chip| temps[chip].cell_temperatures);
+            let onboard_temps = IndexByChip::from_fn(|chip| temps[chip].on_board_temps);
+            analyzer.on_board_temps = onboard_temps;
 
             let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| status_a.get().data()[chip].itmp);
 
@@ -742,7 +746,14 @@ pub mod analyzer {
                     seg2: analyzer.segment_average_volts[SegmentId::Segment1].get::<volt>(),
                     seg3: analyzer.segment_average_volts[SegmentId::Segment2].get::<volt>(),
                     seg4: analyzer.segment_average_volts[SegmentId::Segment3].get::<volt>(),
-                    seg5: analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>(),
+
+                    seg5: {
+                        #[cfg(feature = "four-segments")]
+                        { 0_f32 }
+
+                        #[cfg(not(feature = "four-segments"))]
+                        { analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>() } 
+                    }
                 }
                 .as_frame(),
             )
@@ -761,7 +772,14 @@ pub mod analyzer {
                     seg2: analyzer.segment_total_volts[SegmentId::Segment1].get::<volt>(),
                     seg3: analyzer.segment_total_volts[SegmentId::Segment2].get::<volt>(),
                     seg4: analyzer.segment_total_volts[SegmentId::Segment3].get::<volt>(),
-                    seg5: analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>(),
+
+                    seg5: {
+                        #[cfg(feature = "four-segments")]
+                        { 0_f32 }
+
+                        #[cfg(not(feature = "four-segments"))]
+                        { analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>() }
+                    }
                 }
                 .as_frame(),
             )
@@ -805,7 +823,14 @@ pub mod analyzer {
                     seg2: analyzer.segment_average_temps[SegmentId::Segment1].get::<degree_celsius>(),
                     seg3: analyzer.segment_average_temps[SegmentId::Segment2].get::<degree_celsius>(),
                     seg4: analyzer.segment_average_temps[SegmentId::Segment3].get::<degree_celsius>(),
-                    seg5: analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>(),
+
+                    seg5: {
+                        #[cfg(feature = "four-segments")]
+                        { 0_f32 }
+
+                        #[cfg(not(feature = "four-segments"))]
+                        { analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>() }
+                    }
                 }
                 .as_frame(),
             )

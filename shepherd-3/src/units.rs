@@ -16,6 +16,7 @@ pub mod voltage {
     use super::consts;
     use uom::Conversion;
     use uom::si::electric_potential::Unit;
+    use uom::si::electric_potential::volt;
 
     // Module forces rust-analyzer to use the clean type name instead of ugly full type
     mod alias {
@@ -69,6 +70,10 @@ pub mod voltage {
         pub const fn from_inner(inner: UomVoltage) -> Self {
             Self { volts: inner.value }
         }
+        /// Gets this data in units of Volts. This is just a wrapper around `.get::<volt>()`, but it looks nicer.
+        pub fn as_volts(&self) -> f32 {
+            self.get::<volt>()
+        }
     }
 }
 pub use voltage::*;
@@ -120,6 +125,11 @@ pub mod temperature {
         pub const fn from_inner(inner: UomTemperature) -> Self {
             Self { kelvin: inner.value }
         }
+
+        /// Returns whichever one of `self` or `other` is larger. If they are equal, returns `self`.
+        pub fn max(&self, other: Temperature) -> Self {
+            if *self >= other { *self } else { other }
+        }
     }
 }
 pub use temperature::*;
@@ -128,6 +138,7 @@ pub mod current {
     use super::consts;
     use uom::Conversion;
     use uom::si::electric_current::Unit;
+    use uom::si::electric_current::ampere;
 
     /// Current!
     pub type UomCurrent = uom::si::f32::ElectricCurrent;
@@ -178,6 +189,10 @@ pub mod current {
         /// Computes the absolute value of this.
         pub const fn abs(&mut self) -> Self {
             Self { amps: self.amps.abs() }
+        }
+        /// Gets this data in units of Amps. This is just a wrapper around `.get::<ampere>()`, but it looks nicer.
+        pub fn as_amps(&self) -> f32 {
+            self.get::<ampere>()
         }
     }
 }
@@ -483,6 +498,15 @@ pub mod ops {
             forward_assign_op!($wrapper, $inner, SubAssign, sub_assign);
 
             // Scaling by a plain number.
+            impl $wrapper {
+                /// Scales this by `factor`. This is equivalent to (self * factor), but it can be used in const contexts.
+                pub const fn scale(self, factor: f32) -> Self {
+                    let mut inner = self.as_inner();
+                    inner.value *= factor;
+                    Self::from_inner(inner)
+                }
+            }
+
             impl Mul<f32> for $wrapper {
                 type Output = Self;
                 fn mul(self, rhs: f32) -> Self {

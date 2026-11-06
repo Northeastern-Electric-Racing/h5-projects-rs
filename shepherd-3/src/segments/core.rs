@@ -48,8 +48,12 @@ pub mod alias {
     pub type Api = adbms6830b::turnkey::api::Api<SpiDevice, ADBMS6830B_NUM_CHIPS>;
 }
 
+use crate::segments::cache::UpdateError;
 /// Guy in charge of the segments.
 pub(super) struct Segments {
+    /// ConfigB from startup.
+    startup_config_b: Option<adbms6830b::chip::registers::config_b::ConfigB>,
+
     pub(super) service: &'static mut alias::Service,
     #[cfg(feature = "hil")]
     hil_initialized: bool,
@@ -106,10 +110,18 @@ impl Segments {
         ));
 
         Self {
+            startup_config_b: None,
             service,
             #[cfg(feature = "hil")]
             hil_initialized: false,
         }
+    }
+
+    /// Helper to start continuous conversions.
+    pub async fn start_continuous_conversions(api: &mut alias::Api) -> Result<(), UpdateError> {
+        use adbms6830b::chip::commands;
+        use adbms6830b::chip::commands::adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire};
+        api.command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::Continuous, ResetFilter::Reset, OpenWire::OffForAll)).await.map_err(UpdateError::StartContinuousConversionsError)
     }
 
     /// Wrapper function to run the service and handle diagnostics.
@@ -130,10 +142,7 @@ impl Segments {
                     types::{OvervoltageThreshold, UndervoltageThreshold, DischargeTimerMonitor, DischargeTimerStatus, DischargeTimerRange, DischargeCellConfig},
                 },
             };
-            use adbms6830b::chip::{
-                commands,
-                commands::adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire},
-            };
+            use adbms6830b::chip::{commands};
             use adbms6830b::turnkey::service::StartupResult;
 
             // Reset chips to blank state.
@@ -208,6 +217,7 @@ impl Segments {
                     .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
                     .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
             };
+            self.startup_config_b = Some(config_b);
             if let Err(err) = api.set_configb(&[config_b; ADBMS6830B_NUM_CHIPS]).await {
                 defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
                 return StartupResult::Incomplete;
@@ -220,8 +230,8 @@ impl Segments {
             }
 
             // Start the ADCV conversions.
-            if let Err(err) = api.command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::Continuous, ResetFilter::Reset, OpenWire::OffForAll)).await {
-                defmt::error!("Segments: Failed to send command to start adcv() conversions during ADBMS6830B Service startup. Error = {}", err.to_kind());
+            if let Err(err) = Self::start_continuous_conversions(api).await {
+                defmt::error!("Segments: Failed to send command to start adcv() conversions during ADBMS6830B Service startup. Error = {}", err);
                 return StartupResult::Incomplete;
             }
 
@@ -232,7 +242,7 @@ impl Segments {
         };
         #[cfg(feature = "hil")]
         {
-            let startup = startup;
+            let mut startup = startup;
             self.hil_initialized = !startup(self.service.api(), adbms6830b::turnkey::service::StartupReason::FromSleep).await.is_incomplete();
         }
         #[cfg(not(feature = "hil"))]
@@ -404,6 +414,47 @@ pub mod jobs {
             Ok(())
         }
 
+        /// Updates registers that we read during charging.
+        pub async fn job_update_charging_registers(&mut self) -> Result<(), UpdateError> {
+            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
+
+            /// Autoconvert timeout in ms.
+            #[cfg(not(feature = "hil"))]
+            const TIMEOUT_MS: u64 = 100;
+
+            #[cfg(feature = "hil")]
+            {
+                use adbms6830b::chip::commands::{
+                    self,
+                    adc::{AdcvRedundancy, Acquisition, ResetFilter, OpenWire},
+                };
+                self.service.api().command(commands::adc::adcv(AdcvRedundancy::Enabled, Acquisition::SingleShot, ResetFilter::NoReset, OpenWire::OffForAll)).await.map_err(UpdateError::PollError)?;
+            }
+            #[cfg(not(feature = "hil"))]
+            {
+                use adbms6830b::chip::commands::adc::{AdcvRedundancy, AutoAcquisition, ResetFilter, OpenWire};
+                self.service.api().adcv_autoconvert(AdcvRedundancy::Enabled, AutoAcquisition::SingleShot, ResetFilter::NoReset, OpenWire::OffForAll, TIMEOUT_MS).await.map_err(UpdateError::PollError)?;
+            }
+            cache::CACHE.update_cell_voltages(self.service.api()).await?;
+            cache::CACHE.update_s_voltages(self.service.api()).await?;
+            cache::CACHE.update_average_cell_voltages(self.service.api()).await?;
+
+            // u_TODO - we should probably be able to use continuous conversions in charging, just not when we are balancing. but the C code turns them off for the whole
+            // charging state so for now that is what we are doing for parity and simplicity
+
+            // We technically shouldnt need to do this in charging, but it is convinient to have this cache always
+            // filled with data for Analyzer.
+            cache::CACHE.update_filtered_cell_voltages(self.service.api()).await?;
+
+            cache::CACHE.update_status_c(self.service.api()).await?;
+            cache::CACHE.update_status_d(self.service.api()).await?;
+
+            job_diagnostics::log_job_diagnostics!("Segments", "job_update_charging_registers", run.finish());
+
+            Ok(())
+        }
+
         /// Updates the registers that require the SNAP command. This includes the following registers: CellVoltages, AverageCellVoltages, FilteredCellVoltages, SVotlages, StatusC, StatusD.
         ///
         /// This is done as a single job so there is only one SNAP window. This allows the data from the registers to be compared coherently.
@@ -471,6 +522,18 @@ pub mod jobs {
             Ok(())
         }
 
+        /// Update the Config registers cache.
+        pub async fn job_update_config_registers(&mut self) -> Result<(), UpdateError> {
+            static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
+            let run = DIAGNOSTICS.start();
+
+            cache::CACHE.update_config(self.service.api()).await?;
+
+            job_diagnostics::log_job_diagnostics!("Segments", "job_update_config_registers", run.finish());
+
+            Ok(())
+        }
+
         /// Update the OpenWire parts of the S voltages.
         ///
         /// This probably shouldn't be called at the same frequency as the normal s voltages because then the OpenWire mode would
@@ -479,7 +542,7 @@ pub mod jobs {
         /// Also, this basically takes the place of `segment_run_cell_open_wire_test()`, except for the fact that it
         /// doesn't read the normal S ADC voltages beforehand (since those are already read by the snap job).
         #[cfg(not(feature = "hil"))]
-        pub async fn job_update_open_wire(&mut self) -> Result<(), UpdateError> {
+        pub async fn job_update_open_wire(&mut self, charging: bool) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands::{
                 self,
                 adc::{AutoAcquisition, OpenWire, Acquisition},
@@ -500,7 +563,7 @@ pub mod jobs {
 
             // Unless we are not charging, restart continuous redundant conversions (since that is what we
             // normally use outside of this function when we aren't charging).
-            if !crate::state_machine::bms_state().is_charging() {
+            if !charging {
                 self.service.api().command(commands::adc::adsv(Acquisition::Continuous, OpenWire::OffForAll)).await.map_err(UpdateError::PollError)?;
             }
 
@@ -515,9 +578,93 @@ pub mod jobs {
 pub mod task {
     use super::{Segments};
     use crate::broadcast::Broadcast;
+    use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
     use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
     use embassy_time::{Instant, Duration, Timer};
     use crate::helpers::deadline::Deadline;
+    use crate::units::Temperature;
+    use crate::segments::{IndexByChip, OnboardThermIndex, ChipId, SegmentId};
+    use crate::helpers::hysteresis::Hysteresis;
+    use crate::pack::analyzer;
+    use crate::segments;
+    use crate::state_machine;
+    use crate::charging::{self, AreWeActivelyBalancing};
+
+    pub mod balancing {
+        use super::*;
+
+        const BALANCE_CHIP_DIE_DISABLE_TEMP: Temperature = Temperature::from_celsius(55.0_f32);
+        const BALANCE_CHIP_DIE_ENABLE_TEMP: Temperature = Temperature::from_celsius(50.0_f32);
+        const BALANCE_CHIP_ONBOARD_DISABLE_TEMP: Temperature = Temperature::from_celsius(55.0_f32);
+        const BALANCE_CHIP_ONBOARD_ENABLE_TEMP: Temperature = Temperature::from_celsius(50.0_f32);
+        const BALANCE_RESISTOR_DISABLE_TEMP: Temperature = Temperature::from_celsius(80.0_f32);
+        const BALANCE_RESISTOR_ENABLE_TEMP: Temperature = Temperature::from_celsius(60.0_f32);
+
+        /// Persistent state for balancing.
+        #[derive(Copy, Clone)]
+        pub struct BalancingThermalState {
+            chip_die_too_hot: IndexByChip<Hysteresis<Temperature>>,
+            chip_onboard_therm_too_hot: IndexByChip<Hysteresis<Temperature>>,
+            balancing_resistor_too_hot: IndexByChip<Hysteresis<Temperature>>,
+        }
+        impl BalancingThermalState {
+            pub const fn new() -> Self {
+                Self {
+                    chip_die_too_hot: IndexByChip::from_value(Hysteresis::new(BALANCE_CHIP_DIE_DISABLE_TEMP, BALANCE_CHIP_DIE_ENABLE_TEMP)),
+                    chip_onboard_therm_too_hot: IndexByChip::from_value(Hysteresis::new(BALANCE_CHIP_ONBOARD_DISABLE_TEMP, BALANCE_CHIP_ONBOARD_ENABLE_TEMP)),
+                    balancing_resistor_too_hot: IndexByChip::from_value(Hysteresis::new(BALANCE_RESISTOR_DISABLE_TEMP, BALANCE_RESISTOR_ENABLE_TEMP)),
+                }
+            }
+
+            /// If balancing is blocked or not for `chip`.
+            pub fn balance_blocked(&self, chip: ChipId) -> bool {
+                self.chip_die_too_hot[chip].active() || self.chip_onboard_therm_too_hot[chip].active() || self.balancing_resistor_too_hot[chip].active()
+            }
+
+            /// Returns `true` if the value of `balance_blocked()` changed for any chip after this call. Returns `false` if there was no state change for any chip.
+            pub fn update_chip_balance_thermal_limits(&mut self) -> bool {
+                let Some(temps) = analyzer::analyzer().try_partial_get(|h| h.data.on_board_temps) else {
+                    return false;
+                };
+                let Some(stata) = segments::cache().get_status_a().nice().try_partial_get(|h| *h.data()) else {
+                    return false;
+                };
+
+                let mut state_change = false;
+
+                let mut die_temp: IndexByChip<Temperature> = IndexByChip::from_value(Temperature::from_celsius(0.0));
+                let mut chip_temp: IndexByChip<Temperature> = IndexByChip::from_value(Temperature::from_celsius(0.0));
+                let mut resistor_temp: IndexByChip<Temperature> = IndexByChip::from_value(Temperature::from_celsius(0.0));
+
+                for segment in SegmentId::iter() {
+                    let alpha = segment.alpha();
+                    let beta = segment.beta();
+                    die_temp[alpha] = stata[alpha].itmp;
+                    die_temp[beta] = stata[beta].itmp;
+
+                    let greater_chip_temp = temps[alpha][OnboardThermIndex::ThermChips].max(temps[beta][OnboardThermIndex::ThermChips]);
+                    chip_temp[alpha] = greater_chip_temp;
+                    chip_temp[beta] = greater_chip_temp;
+
+                    // the fact that they both come from `temps[alpha]` is intentional based on C shep
+                    resistor_temp[alpha] = temps[alpha][OnboardThermIndex::ThermAlphaBalancingBank];
+                    resistor_temp[beta] = temps[alpha][OnboardThermIndex::ThermBetaBalancingBank];
+                }
+
+                for chip in ChipId::iter() {
+                    let was_blocked = self.balance_blocked(chip);
+
+                    self.balancing_resistor_too_hot[chip].update(resistor_temp[chip]);
+                    self.chip_die_too_hot[chip].update(die_temp[chip]);
+                    self.chip_onboard_therm_too_hot[chip].update(chip_temp[chip]);
+
+                    state_change |= was_blocked != self.balance_blocked(chip);
+                }
+
+                return state_change;
+            }
+        }
+    }
 
     /// `Broadcast` static for segments task. This allows the Segments task to flag other tasks when it successfully runs the jobs.
     ///
@@ -535,41 +682,24 @@ pub mod task {
     /// How often the open wire test/update should run.
     pub const OPEN_WIRE_FREQUENCY: Duration = Duration::from_secs(30);
 
+    /// Assumes a DCTO of 1 minute for PWM balancing in extended balancing mode
+    pub const PWM_UPDATE_FREQUENCY: Duration = Duration::from_millis(55_000);
+
     /// Frequency (in ms) at which the segments task should run.
     pub const SEGMENTS_TASK_FREQUENCY: Duration = Duration::from_millis(300);
-
-    /// Helper that converts `duration` to a "lapses of `task_frequency`" value. Will return `None` if `duration` isn't an exact
-    /// multiple of `task_frequency` or if either isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
-    /// call inside a `const{}` block for compile-time error checking purposes.
-    pub const fn duration_to_task_cycles(task_frequency: Duration, duration: Duration) -> Option<usize> {
-        // Converts `duration` into a whole number of milliseconds. If `duration` cannot be represented in a whole number of milliseconds, this returns `None`.
-        const fn whole_millis(duration: Duration) -> Option<u64> {
-            let millis = duration.as_millis();
-            if Duration::from_millis(millis).as_ticks() == duration.as_ticks() { Some(millis) } else { None }
-        }
-
-        let (Some(duration_ms), Some(period_ms)) = (whole_millis(duration), whole_millis(task_frequency)) else {
-            return None;
-        };
-
-        match duration_ms.checked_rem(period_ms) {
-            Some(0) => Some((duration_ms / period_ms) as usize),
-            _ => None,
-        }
-    }
 
     /// Converts a duration to a "number of segments task cycles" value. Will return `None` if `duration` isn't an exact multiple of
     /// `SEGMENTS_TASK_FREQUENCY` or if either one isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
     /// call inside a `const{}` block for compile-time error checking purposes.
     pub const fn duration_to_segments_task_cycles(duration: Duration) -> Option<usize> {
-        duration_to_task_cycles(SEGMENTS_TASK_FREQUENCY, duration)
+        crate::helpers::duration_to_task_cycles(SEGMENTS_TASK_FREQUENCY, duration)
     }
 
     /// Converts a duration to a "number of open wire test cycles" value. Will return `None` if `duration` isn't an exact multiple of
     /// `OPEN_WIRE_FREQUENCY` or if either one isn't a whole number of milliseconds. So, it is recommended to `.unwrap()` or `.expect()` this
     /// call inside a `const{}` block for compile-time error checking purposes.
     pub const fn duration_to_open_wire_cycles(duration: Duration) -> Option<usize> {
-        duration_to_task_cycles(OPEN_WIRE_FREQUENCY, duration)
+        crate::helpers::duration_to_task_cycles(OPEN_WIRE_FREQUENCY, duration)
     }
 
     /// Main task in charge of managing the segments.
@@ -580,6 +710,12 @@ pub mod task {
     /// shouldn't do any processing on that read data though. Once the data is cached, it should generally be read by other tasks since reading the data doesn't require making any actual SPI transactions.
     #[embassy_executor::task]
     pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) {
+        use adbms6830b::chip::commands;
+        use adbms6830b::chip::registers::pwm::{PwmA, PwmB};
+        use super::ADBMS6830B_NUM_CHIPS;
+        use adbms6830b::chip::registers::config_b::{ConfigB, types::DischargeTimerStatus};
+        use crate::segments::IndexByCell;
+
         let mut segments = Segments::new(r_linea, r_lineb);
 
         /// Timing diagnostics for the segments task.
@@ -624,14 +760,73 @@ pub mod task {
         #[cfg_attr(feature = "hil", allow(unused_mut, unused_variables))]
         let mut open_wire_deadline = Deadline::expire_now();
 
+        let mut pwm_deadline = Deadline::expire_now();
+
+        let mut balancing_thermal_state = balancing::BalancingThermalState::new();
+
+        let mut prev_state;
+        let mut current_state = state_machine::BmsState::Boot;
+        let mut prev_balancing_active = false;
+
+        // Continuous conversions are running by default at startup.
+        let mut continuous_conversions_running = true;
+
+        // Flag for when the DISABLE BALANCING block fails. This is set to `true` if we enter DISABLE BALANCING but then
+        // don't complete it fully due to an error. Then, the task will keep retrying DISABLE BALANCING every time until it
+        // is successful, in which this gets set to false.
+        let mut disable_balancing_failure = false;
+
+        // Same thing but for ENABLE BALANCING
+        let mut enable_balancing_failure = false;
+
         loop {
             let start_time = Instant::now();
 
             // Run the segments service.
             segments.run_service().await;
 
+            prev_state = current_state;
+            current_state = state_machine::state();
+            let charging = current_state.is_charging();
+            let thermal_state_changed = balancing_thermal_state.update_chip_balance_thermal_limits();
+
+            // Carries the payload for `balancing_active`.
+            let balancing_active_payload = if charging { charging::are_we_actively_balancing() } else { AreWeActivelyBalancing::No };
+
+            // Version of `balancing_active_payload` that is just a bool (for convenience).
+            let balancing_active = balancing_active_payload.as_bool();
+
+            // DISABLE BALANCING
+            disable_balancing_failure = '_disable_balancing: {
+                if (prev_state != current_state && !charging) || (prev_balancing_active && !balancing_active) || disable_balancing_failure {
+                    if let Err(err) = segments.service.api().command(commands::discharge::mute()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Failed to send the MUTE command to disable balancing. Error: {}", err);
+                        break '_disable_balancing true;
+                    }
+
+                    // Disable all PWM.
+                    if let Err(err) = segments.service.api().write(&[PwmA::all_disabled(); ADBMS6830B_NUM_CHIPS]).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Failed to send write command for PwmA to disable balancing. Error: {}", err);
+                        break '_disable_balancing true;
+                    }
+                    if let Err(err) = segments.service.api().write(&[PwmB::all_disabled(); ADBMS6830B_NUM_CHIPS]).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Failed to send write command for PwmB to disable balancing. Error: {}", err);
+                        break '_disable_balancing true;
+                    }
+
+                    // Read/update PWM registers
+                    // u_TODO idk why we need to do this? but c shepherd does it. job_
+                    if let Err(err) = segments.job_update_pwm_registers().await {
+                        defmt::error!("Segments: Inside `segments_task()`: `job_update_pwm_registers()` failed when trying to disable balancing. Error: {}", err);
+                        break '_disable_balancing true;
+                    }
+                }
+
+                break '_disable_balancing false;
+            };
+
             // These are the normal updates we do every time this task runs.
-            '_normal: {
+            '_reads: {
                 let mut all_successful: bool = true;
 
                 if let Err(err) = segments.job_update_aux_registers().await {
@@ -639,9 +834,16 @@ pub mod task {
                     all_successful = false;
                 }
 
-                if let Err(err) = segments.job_update_snap_registers().await {
-                    defmt::error!("Segments: Inside `segments_task()`: `job_update_snap_registers()` failed. Error: {}", err);
-                    all_successful = false;
+                if charging {
+                    if let Err(err) = segments.job_update_charging_registers().await {
+                        defmt::error!("Segments: Inside `segments_task()`: `job_update_charging_registers()` failed. Error: {}", err);
+                        all_successful = false;
+                    }
+                } else {
+                    if let Err(err) = segments.job_update_snap_registers().await {
+                        defmt::error!("Segments: Inside `segments_task()`: `job_update_snap_registers()` failed. Error: {}", err);
+                        all_successful = false;
+                    }
                 }
 
                 if let Err(err) = segments.job_update_redundant_aux().await {
@@ -654,6 +856,12 @@ pub mod task {
                     all_successful = false;
                 }
 
+                if let Err(err) = segments.job_update_config_registers().await {
+                    // We probably don't need to do this job every loop but it is easier to for consistency
+                    defmt::error!("Segments: Inside `segments_task()`: `job_update_config_registers()` failed. Error: {}", err);
+                    all_successful = false;
+                }
+
                 if all_successful {
                     signal::SEGMENTS_FRESH_DATA_SIGNAL.signal();
                 }
@@ -663,7 +871,7 @@ pub mod task {
             #[cfg(not(feature = "hil"))]
             '_open_wire: {
                 if open_wire_deadline.past() {
-                    match segments.job_update_open_wire().await {
+                    match segments.job_update_open_wire(charging).await {
                         Ok(()) => {
                             // only schedule the next deadline if we were successful. if the read failed we should try again
                             // the next time this task runs and keep doing so until it is successful
@@ -677,8 +885,88 @@ pub mod task {
                 }
             }
 
+            // ENTER BALANCING
+            enable_balancing_failure = '_enter_balancing: {
+                if charging && balancing_active && (!prev_balancing_active || thermal_state_changed || pwm_deadline.past() || enable_balancing_failure) {
+                    let cells_to_balance = match balancing_active_payload {
+                        AreWeActivelyBalancing::No => {
+                            defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: Somehow, `balancing_active_payload` is `AreWeActivelyBalancing::No` even though we have entered this `if` block. This should not be possible, and means there is a logical error somewhere.");
+                            break '_enter_balancing true;
+                        },
+                        AreWeActivelyBalancing::Yes(b) => b.cells_to_balance(),
+                    };
+
+                    if let Err(err) = segments.service.api().command(commands::discharge::mute()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: Failed to send the MUTE command before enabling balancing. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+
+                    // Write ConfigB to set DCTO
+                    // u_TODO - we should be able to replace segments.startup_config_b with just storing a cached ConfigB on `Api` in the driver (like we do with ConfigA) and then allowing it to be read from Api
+                    let cfgb = match segments.startup_config_b {
+                        Some(cfgb) => cfgb,
+                        None => {
+                            defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: There is no cached ConfigB from startup to write from. This means that something is probably definitely wrong with the logic here.");
+                            break '_enter_balancing true;
+                        },
+                    };
+                    let cfgb_to_write: IndexByChip<ConfigB> = IndexByChip::from_fn(|_| {
+                        // Strange thing: We set DCTO to 0 at init, but then we set it to 1 here (when entering balancing). But then we never reset it
+                        // back to 0 upon leaving balancing. This is what C shepherd does! So it is probably fine. Just maybe kind of weird. But it would be
+                        // kind of annoying to read-write-modify ConfigB to set this back to 0 at the end of balancing so it is being kept.
+                        cfgb.with_dcto(DischargeTimerStatus::new().with_increments(1))
+                    });
+                    if let Err(err) = segments.service.api().set_configb(&cfgb_to_write.into_array()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to write ConfigB, but an error occured. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+
+                    // Write PWM configs.
+                    let desired_pwm = charging::get_pwm_duty_cycle();
+                    let configs: IndexByChip<IndexByCell<PwmDutyCycleConfig>> = { IndexByChip::from_fn(|chip| if balancing_thermal_state.balance_blocked(chip) { IndexByCell::from_value(PwmDutyCycleConfig::Disabled) } else { IndexByCell::from_fn(|cell| if cells_to_balance[chip][cell] { desired_pwm } else { PwmDutyCycleConfig::Disabled }) }) };
+
+                    let pwma: IndexByChip<PwmA> = IndexByChip::from_fn(|chip| configs[chip].destructure().0);
+                    let pwmb: IndexByChip<PwmB> = IndexByChip::from_fn(|chip| configs[chip].destructure().1);
+                    if let Err(err) = segments.service.api().write(&pwma.into_array()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to write PwmA, but an error occured. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+                    if let Err(err) = segments.service.api().write(&pwmb.into_array()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried to write PwmB, but an error occured. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+
+                    // Read back PWM configs? C Shepherd does this. not sure why. maybe to read back and see if they were actually written? But i don't think
+                    // C shepherd checks if the values were written so idk. (could be wrong)
+                    if let Err(err) = segments.job_update_pwm_registers().await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `'_enter_balancing`: Tried run `job_update_pwm_registers()`, but it failed. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+
+                    if let Err(err) = segments.service.api().command(commands::discharge::unmute()).await {
+                        defmt::error!("Segments: Inside `segments_task()`: Inside `_enter_balancing`: Failed to send the UNMUTE command. Error: {}", err);
+                        break '_enter_balancing true;
+                    }
+
+                    pwm_deadline = Deadline::expire_in(PWM_UPDATE_FREQUENCY);
+                }
+
+                false
+            };
+
+            if charging {
+                continuous_conversions_running = false;
+            } else if !continuous_conversions_running {
+                match Segments::start_continuous_conversions(segments.service.api()).await {
+                    Ok(()) => continuous_conversions_running = true,
+                    Err(err) => defmt::error!("In segments_task: Failed to start continuous conversions. Error: {}", err),
+                }
+            }
+
             diagnostics.update(start_time);
             diagnostics.log();
+
+            prev_balancing_active = balancing_active;
 
             // u_TODO maybe eventually try making this a Ticker or something, for now though this is closest to tx_thread_sleep so probably should keep it for now until we know everything else works
             Timer::after(SEGMENTS_TASK_FREQUENCY).await;

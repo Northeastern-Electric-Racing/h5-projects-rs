@@ -258,10 +258,10 @@ mod system {
         DischargeLimitEnforcementFault => Critical, Automatic { timeout: Duration::from_secs(5) },
         ChargeLimitEnforcement         => Critical, Automatic { timeout: Duration::from_secs(5) },
         PackTooHot                     => Critical, Automatic { timeout: Duration::from_secs(5) },
-        HvPlateCommsFault              => Critical, PassFail  { consecutive_bads: 0, consecutive_okays: 0 },
+        HvPlateCommsFault              => Critical, PassFail { consecutive_bads: 0, consecutive_okays: 0 },
         SegmentCommsFault              => Critical, Automatic { timeout: Duration::from_secs(5) },
-        FakeFault1                     => Critical, Automatic { timeout: Duration::from_millis(1000) },
-        FakeFault2                     => Critical, Automatic { timeout: Duration::from_millis(2500) },
+        FakeFault1                     => NonCritical, Automatic { timeout: Duration::from_millis(1000) },
+        FakeFault2                     => NonCritical, Automatic { timeout: Duration::from_millis(2500) },
         CellOpenWireFault              => Critical, PassFail { consecutive_bads: const { duration_to_open_wire_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
         CellVoltageTooLow              => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
         CellVoltageTooHigh             => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
@@ -408,7 +408,6 @@ mod api {
         IndexByFaultId::from_fn(|fault| FaultState::from_bool(*faults.fault(fault)))
     }
 
-    /// Checks if any critical faults are currently active.
     pub fn are_critical_faults_active() -> bool {
         FLAGS.are_critical_faults_active()
     }
@@ -430,6 +429,29 @@ mod api {
     pub fn try_queue(message: FaultCommand) -> Result<(), ()> {
         // Throwing away the specific error in map_err is fine here since Err always means "channel was full". This is also what can.rs does
         FAULT_QUEUE.try_send(message).map_err(|_| ())
+    }
+
+    pub enum FaultPin {
+        /// Set MCU fault ACTIVE (we are faulted).
+        ///
+        /// This corresponds to LOW pinstate, since this pin is active-low.
+        Active,
+        /// Set MCU fault INACTIVE (we are not faulted).
+        ///
+        /// This corresponds to a HIGH pinstate, since this pin is active-low.
+        Inactive,
+    }
+
+    /// Sets state of MCU fault.
+    pub fn set_fault(state: FaultPin) {
+        match state {
+            FaultPin::Active => {
+                crate::gpios::pins().get().mcu_fault_pin.set_low();
+            },
+            FaultPin::Inactive => {
+                crate::gpios::pins().get().mcu_fault_pin.set_high();
+            },
+        }
     }
 }
 pub use api::*;
