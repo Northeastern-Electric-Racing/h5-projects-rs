@@ -164,7 +164,6 @@ impl CerberusState {
 
         match new_state {
             FuncState::Ready => {
-                // mcu_fault_setter.set_mcu_fault(false);
                 self.set_func_state(FuncState::Ready);
                 Ok(())
             }
@@ -368,7 +367,6 @@ pub(crate) async fn set_fault_state() {
 pub async fn statemachine_task(mcu_pin: Peri<'static, PG15>) -> ! {
     let mut state = CerberusState::INIT;
     let mut mcu_output = Output::new(mcu_pin, Level::High, Speed::Low);
-    faults::set_mcu_fault(&mut mcu_output, false);
     loop {
         match select3(
             TRANSITION_QUEUE.receive(),      // On a new command, handle it
@@ -397,6 +395,7 @@ pub async fn statemachine_task(mcu_pin: Peri<'static, PG15>) -> ! {
             Either3::Third(_) => {}
         }
 
+        faults::set_mcu_fault(&mut mcu_output, false);
         *STATE_MUTEX.lock().await = state; // Copy the edited state into the readable mutex
         crate::can::OUTGOING
             .send(state.to_frame().to_can_frame())
