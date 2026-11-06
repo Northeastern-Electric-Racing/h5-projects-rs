@@ -13,6 +13,7 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Duration, Ticker};
 use embedded_sht3x::{Repeatability::Medium, Sht3x, Status, Temperature};
+use lsm6dsv16x_ner::NerLsm6dsv16x;
 use static_cell::StaticCell;
 use uom::si::f32::{Ratio, ThermodynamicTemperature};
 use uom::si::ratio::percent;
@@ -149,6 +150,35 @@ pub async fn imu_task(r: SPI2Resources) -> ! {
     );
     let bus = IMU_SPI_BUS.init(Mutex::new(spi));
     let cs = Output::new(r.cs, Level::High, Speed::VeryHigh);
-
-    lsm6dsv16x_ner::imu_loop(SpiDevice::new(bus, cs), can::OUTGOING.dyn_sender()).await
+    let delay: Delay = Delay {};
+    let mut imu = NerLsm6dsv16x::new(SpiDevice::new(bus, cs), delay);
+    imu.init().await.expect("Creating IMU failed");
+    loop {
+        if let Some(accel) = imu.get_accel().await {
+            let frame = cangen::ImuAccelerometer::new()
+                .with_imu_accelerometer_x(accel.x.get::<lsm6dsv16x_ner::milligravity>())
+                .with_imu_accelerometer_y(accel.y.get::<lsm6dsv16x_ner::milligravity>())
+                .with_imu_accelerometer_z(accel.z.get::<lsm6dsv16x_ner::milligravity>());
+            can::OUTGOING.send(frame.to_can_frame()).await;
+        }
+        if let Some(ang_vel) = imu.get_anguar_vel().await {
+            let frame = cangen::ImuGyro::new()
+                .with_imu_gyro_x(
+                    ang_vel
+                        .roll_rate
+                        .get::<lsm6dsv16x_ner::mdps::millidegree_per_second>(),
+                )
+                .with_imu_gyro_y(
+                    ang_vel
+                        .pitch_rate
+                        .get::<lsm6dsv16x_ner::mdps::millidegree_per_second>(),
+                )
+                .with_imu_gyro_z(
+                    ang_vel
+                        .yaw_rate
+                        .get::<lsm6dsv16x_ner::mdps::millidegree_per_second>(),
+                );
+            can::OUTGOING.send(frame.to_can_frame()).await;
+        }
+    }
 }
