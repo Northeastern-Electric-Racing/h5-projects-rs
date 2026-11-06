@@ -20,6 +20,7 @@ mod bms;
 mod buttons;
 mod can;
 mod efuses;
+mod faults;
 mod pedals;
 mod peripherals;
 mod rtds;
@@ -180,9 +181,10 @@ async fn main(spawner: Spawner) -> ! {
 
     // Statemachine
     spawner.spawn(
-        statemachine::statemachine_task()
+        statemachine::statemachine_task(p.PG15)
             .expect("Failed to spawn statemachine::statemachine_task()."),
     );
+    spawner.spawn(faults::fault_task().expect("failed to spawn faults::fault_task()"));
 
     // Buttons
     spawner.spawn(buttons::button_task().expect("Failed to spawn buttons::button_task()."));
@@ -220,8 +222,6 @@ async fn main(spawner: Spawner) -> ! {
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
     watchdog.unleash();
-
-    let _can_fault = Output::new(p.PG15, Level::High, Speed::Low);
 
     loop {
         debug!("Status: Alive");

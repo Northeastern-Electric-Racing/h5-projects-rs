@@ -4,6 +4,7 @@
 //! Performance, Efficiency, Faulted) and the NERO dash menu position
 //! (`NeroMenu`), and arbitrates transitions between them.
 
+use crate::faults;
 use crate::pedals::{
     get_accel_pressed, get_brake_pressed, get_launch_control_enabled, get_torque_limit,
 };
@@ -12,6 +13,9 @@ use crate::shutdown::{self, BmsShutdownState};
 use cangen::ToCanFrame;
 use defmt::{bitflags, debug, info, warn};
 use embassy_futures::select::{Either3, select3};
+use embassy_stm32::Peri;
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::peripherals::PG15;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
@@ -124,8 +128,6 @@ fn get_mph() -> f32 {
     0.0f32
 }
 
-fn set_mcu_fault(_faulted: bool) {}
-
 // ---------------------------------------------------------------------------
 // END TEMP functions
 // ---------------------------------------------------------------------------
@@ -164,12 +166,10 @@ impl CerberusState {
 
         match new_state {
             FuncState::Ready => {
-                set_mcu_fault(false);
                 self.set_func_state(FuncState::Ready);
                 Ok(())
             }
             FuncState::Faulted => {
-                set_mcu_fault(true);
                 self.nero_menu = NeroMenu::Off;
                 self.set_func_state(FuncState::Faulted);
                 self.home_mode = true;
@@ -366,9 +366,9 @@ pub(crate) async fn set_fault_state() {
 }
 
 #[embassy_executor::task]
-pub async fn statemachine_task() -> ! {
+pub async fn statemachine_task(mcu_pin: Peri<'static, PG15>) -> ! {
     let mut state = CerberusState::INIT;
-
+    let mut mcu_output = Output::new(mcu_pin, Level::High, Speed::Low);
     loop {
         match select3(
             TRANSITION_QUEUE.receive(),      // On a new command, handle it
@@ -378,7 +378,13 @@ pub async fn statemachine_task() -> ! {
         .await
         {
             Either3::First(command) => {
-                if state.handle_command(command).is_err() {
+                let was_faulted = state.state == FuncState::Faulted;
+                let result = state.handle_command(command);
+                let is_faulted = state.state == FuncState::Faulted;
+                if was_faulted != is_faulted {
+                    faults::set_mcu_fault(&mut mcu_output, is_faulted);
+                }
+                if result.is_err() {
                     debug!("Error handling NERO command");
                 } else {
                     debug!("Now state: {}", state);
@@ -391,6 +397,7 @@ pub async fn statemachine_task() -> ! {
             Either3::Third(_) => {}
         }
 
+        faults::set_mcu_fault(&mut mcu_output, false);
         *STATE_MUTEX.lock().await = state; // Copy the edited state into the readable mutex
         crate::can::OUTGOING
             .send(state.to_frame().to_can_frame())
