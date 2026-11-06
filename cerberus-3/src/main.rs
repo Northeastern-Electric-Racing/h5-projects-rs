@@ -230,7 +230,6 @@ async fn main(spawner: Spawner) -> ! {
     // RTDS
     let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
     spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
-
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
     watchdog.unleash();
