@@ -12,8 +12,6 @@ use crate::{
     statemachine::{self, set_ready_state},
 };
 
-pub static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, 32> = Channel::new();
-
 #[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, FromRepr, EnumCount, defmt::Format)]
 
@@ -38,6 +36,8 @@ pub enum Fault {
     LV_LOW_VOLTAGE_FAULT,
     // DO NOT ADD MORE THAN 32 FAULTS. THIS MUST FIT NEATLY IN A U32
 }
+
+pub static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, { Fault::COUNT }> = Channel::new();
 const _: () = assert!(Fault::COUNT <= 32);
 
 impl Fault {
@@ -48,10 +48,10 @@ impl Fault {
         1 << (*self as u32)
     }
     fn get_timeout(&self) -> Duration {
+        // This should be made into a match if different faults are to get different timeouts
         Duration::from_millis(500)
     }
 
-    // fn get_duration(&self) -> Duration {}
     const CRITICAL_MASK: u32 = (1 << Fault::CAN_OUTGOING_FAULT as u32)
         | (1 << Fault::CAN_INCOMING_FAULT as u32)
         | (1 << Fault::BMS_CAN_MONITOR_FAULT as u32)
@@ -102,14 +102,11 @@ impl AllFaults {
         info!("Reset fault: {:?}", fault);
     }
     pub fn as_can_frame(&self) -> Frame {
-        // WARN: MOTOR_TEMP_SENSOR_FAULT has no field in the Faults CAN message.
         cangen::Faults::new()
             .with_CAN_OUTGOING_FAULT(self.get_fault(Fault::CAN_OUTGOING_FAULT))
             .with_CAN_INCOMING_FAULT(self.get_fault(Fault::CAN_INCOMING_FAULT))
             .with_BMS_CAN_MONITOR_FAULT(self.get_fault(Fault::BMS_CAN_MONITOR_FAULT))
             .with_LIGHTNING_CAN_MONITOR_FAULT(self.get_fault(Fault::LIGHTNING_CAN_MONITOR_FAULT))
-            // .with_MOTOR_TEMP_SENSOR_FAULT(self.get_fault(Fault::MOTOR_TEMP_SENSOR_FAULT)) This
-            // one doesn't exist
             .with_ONBOARD_TEMP_FAULT(self.get_fault(Fault::ONBOARD_TEMP_FAULT))
             .with_IMU_ACCEL_FAULT(self.get_fault(Fault::IMU_ACCEL_FAULT))
             .with_IMU_GYRO_FAULT(self.get_fault(Fault::IMU_GYRO_FAULT))
@@ -134,13 +131,29 @@ impl AllFaults {
             .with_PRECHARGE_FLOATING_FAULT(self.get_fault(Fault::PRECHARGE_FLOATING_FAULT))
             .to_can_frame()
     }
+    pub fn reset_expired_faults(&mut self) {
+        self.expirations
+            .clone()
+            .iter_mut()
+            .enumerate()
+            .for_each(|(id, deadline)| {
+                if *deadline <= Instant::now()
+                    && let Some(some_fault) = Fault::from_repr(id)
+                {
+                    self.reset_fault(some_fault);
+                }
+            })
+    }
+    pub async fn raise_fault(&mut self, fault: Fault) {
+        INBOUND_FAULTS.send(fault).await;
+    }
 }
 
 /// To trigger a fault, simply append it to the channel and the task takes care of the rest
 #[embassy_executor::task]
 pub async fn fault_task() {
     let mut faults = AllFaults::new();
-    const TIMEOUT_DURATION: Duration = Duration::from_millis(5000);
+    const TIMEOUT_DURATION: Duration = Duration::from_millis(500);
 
     loop {
         let (position, deadline) = faults
@@ -156,23 +169,18 @@ pub async fn fault_task() {
                 Timer::at(deadline).await;
                 (deadline, position)
             },
-            Timer::after(TIMEOUT_DURATION),
             INBOUND_FAULTS.receive(),
+            Timer::after(TIMEOUT_DURATION),
         )
         .await
         {
-            Either3::First(expired_fault) => {
-                if let Some(expired_fault) = Fault::from_repr(expired_fault.1) {
-                    faults.reset_fault(expired_fault);
-                    if !faults.critical_fault_present() {
-                        set_ready_state().await;
-                    }
+            Either3::First(_) => {
+                faults.reset_expired_faults();
+                if !faults.critical_fault_present() {
+                    set_ready_state().await;
                 }
             }
-            Either3::Second(_) => {
-                info!("Timed out");
-            }
-            Either3::Third(newfault) => {
+            Either3::Second(newfault) => {
                 faults.trigger_fault(newfault);
                 if faults.critical_fault_present()
                     && statemachine::get_func_state().await != statemachine::FuncState::Faulted
@@ -180,6 +188,7 @@ pub async fn fault_task() {
                     statemachine::set_fault_state().await;
                 }
             }
+            Either3::Third(_) => {}
         };
         can::OUTGOING.send(faults.as_can_frame()).await;
     }
