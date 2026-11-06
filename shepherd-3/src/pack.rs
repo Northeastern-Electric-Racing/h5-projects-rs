@@ -386,6 +386,10 @@ pub mod analyzer {
                 const TRACE_RES_ONBOARD_ALPHA: Resistance = Resistance::from_ohms(0.015_f32); // ohms, correction offset
                 const TRACE_RES_ONBOARD_BETA: Resistance = Resistance::from_ohms(0.20_f32); // ohms, correction offset
 
+                self.corrected_cell_voltages[chip].iter_mut().for_each(|(cell, voltage)| {
+                    *voltage = cell_voltages[chip][cell];
+                });
+
                 // The distance times the unit resistance, plus the resistance of the fuse
                 let (res, cell): (Resistance, CellId) = match chip.kind() {
                     ChipKind::Beta => {
@@ -406,10 +410,6 @@ pub mod analyzer {
                     // measured on 4/5/2026, the current through the cells when in active mode continous C/S read compare
                     _ => Current::from_amps(0.031_f32),
                 };
-
-                self.corrected_cell_voltages[chip].iter_mut().for_each(|(cell, voltage)| {
-                    *voltage = cell_voltages[chip][cell];
-                });
 
                 // I*R is the way
                 self.corrected_cell_voltages[chip][cell] = cell_voltages[chip][cell];
@@ -746,7 +746,14 @@ pub mod analyzer {
                     seg2: analyzer.segment_average_volts[SegmentId::Segment1].get::<volt>(),
                     seg3: analyzer.segment_average_volts[SegmentId::Segment2].get::<volt>(),
                     seg4: analyzer.segment_average_volts[SegmentId::Segment3].get::<volt>(),
-                    seg5: analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>(),
+
+                    seg5: {
+                        #[cfg(feature = "four-segments")]
+                        { 0_f32 }
+
+                        #[cfg(not(feature = "four-segments"))]
+                        { analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>() } 
+                    }
                 }
                 .as_frame(),
             )
@@ -765,7 +772,14 @@ pub mod analyzer {
                     seg2: analyzer.segment_total_volts[SegmentId::Segment1].get::<volt>(),
                     seg3: analyzer.segment_total_volts[SegmentId::Segment2].get::<volt>(),
                     seg4: analyzer.segment_total_volts[SegmentId::Segment3].get::<volt>(),
-                    seg5: analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>(),
+
+                    seg5: {
+                        #[cfg(feature = "four-segments")]
+                        { 0_f32 }
+
+                        #[cfg(not(feature = "four-segments"))]
+                        { analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>() }
+                    }
                 }
                 .as_frame(),
             )
@@ -809,7 +823,14 @@ pub mod analyzer {
                     seg2: analyzer.segment_average_temps[SegmentId::Segment1].get::<degree_celsius>(),
                     seg3: analyzer.segment_average_temps[SegmentId::Segment2].get::<degree_celsius>(),
                     seg4: analyzer.segment_average_temps[SegmentId::Segment3].get::<degree_celsius>(),
-                    seg5: analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>(),
+
+                    seg5: {
+                        #[cfg(feature = "four-segments")]
+                        { 0_f32 }
+
+                        #[cfg(not(feature = "four-segments"))]
+                        { analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>() }
+                    }
                 }
                 .as_frame(),
             )

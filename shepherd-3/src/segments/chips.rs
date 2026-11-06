@@ -208,8 +208,12 @@ pub enum ChipId {
     Chip6,
     /// Segment 3, Beta Chip
     Chip7,
+
+    #[cfg(not(feature = "four-segments"))]
     /// Segment 4, Alpha Chip
     Chip8,
+
+    #[cfg(not(feature = "four-segments"))]
     /// Segment 4, Beta Chip
     Chip9,
 }
@@ -278,7 +282,11 @@ impl ChipId {
             ChipId::Chip5 => segments::SegmentId::Segment2,
             ChipId::Chip6 => segments::SegmentId::Segment3,
             ChipId::Chip7 => segments::SegmentId::Segment3,
+
+            #[cfg(not(feature = "four-segments"))]
             ChipId::Chip8 => segments::SegmentId::Segment4,
+
+            #[cfg(not(feature = "four-segments"))]
             ChipId::Chip9 => segments::SegmentId::Segment4,
         }
     }
@@ -324,6 +332,8 @@ pub mod segments {
         Segment1,
         Segment2,
         Segment3,
+
+        #[cfg(not(feature = "four-segments"))]
         Segment4,
     }
     impl SegmentId {
@@ -362,6 +372,8 @@ pub mod segments {
                 SegmentId::Segment1 => ChipId::Chip2,
                 SegmentId::Segment2 => ChipId::Chip4,
                 SegmentId::Segment3 => ChipId::Chip6,
+
+                #[cfg(not(feature = "four-segments"))]
                 SegmentId::Segment4 => ChipId::Chip8,
             }
         }
@@ -373,6 +385,8 @@ pub mod segments {
                 SegmentId::Segment1 => ChipId::Chip3,
                 SegmentId::Segment2 => ChipId::Chip5,
                 SegmentId::Segment3 => ChipId::Chip7,
+
+                #[cfg(not(feature = "four-segments"))]
                 SegmentId::Segment4 => ChipId::Chip9,
             }
         }
