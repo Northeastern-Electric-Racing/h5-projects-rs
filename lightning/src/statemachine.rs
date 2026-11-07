@@ -1,10 +1,11 @@
+use crate::can::CAN_TIMEOUT;
 use crate::can::FaultframeState;
 use crate::can::GRACE_PERIOD_DURATION;
 use crate::lights;
 use defmt::warn;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-
+use embassy_time::{Instant, TimeoutError, with_deadline};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 enum State {
     Red,
@@ -17,16 +18,18 @@ pub static FAULT_QUEUE: Channel<ThreadModeRawMutex, FaultframeState, QUEUE_SIZE>
 
 fn next_state(
     state: State,
-    event: FaultframeState,
+    event: Result<FaultframeState, TimeoutError>,
+    any_timeout: bool,
     awaiting_contact: bool,
     any_fault: bool,
 ) -> State {
     use FaultframeState::*;
 
     match (state, event) {
+        _ if any_timeout => State::Red,
         _ if awaiting_contact => State::Startup,
         _ if any_fault => State::Red,
-        (State::Red, ResetRequested) => State::Green,
+        (State::Red, Ok(ResetRequested)) => State::Green,
         (State::Red, _) => State::Red,
         _ => State::Green,
     }
@@ -45,23 +48,53 @@ pub async fn statemachine_task(mut leds: lights::Leds) -> ! {
     embassy_time::Timer::after(GRACE_PERIOD_DURATION).await; //Wait until the end of the grace period
 
     leds.set_all_off();
-    loop {
-        let event = FAULT_QUEUE.receive().await;
-        match event {
-            FaultframeState::BMSFault | FaultframeState::BMSOk => {
-                bms_seen = true;
-                bms_faulted = event == FaultframeState::BMSFault;
-            }
-            FaultframeState::IMDFault | FaultframeState::IMDOk => {
-                imd_seen = true;
-                imd_faulted = event == FaultframeState::IMDFault;
-            }
-            FaultframeState::ResetRequested => {}
-        }
 
+    // Setup for CAN Timeout
+    let mut last_bms = Instant::now();
+    let mut last_imd = Instant::now();
+    let mut bms_timed_out = false;
+    let mut imd_timed_out = false;
+
+    loop {
+        let bms_deadline = if bms_timed_out {
+            Instant::MAX
+        } else {
+            last_bms + CAN_TIMEOUT
+        };
+        let imd_deadline = if imd_timed_out {
+            Instant::MAX
+        } else {
+            last_imd + CAN_TIMEOUT
+        };
+        let deadline = bms_deadline.min(imd_deadline);
+        let event = with_deadline(deadline, FAULT_QUEUE.receive()).await;
+        match event {
+            Ok(FaultframeState::BMSFault | FaultframeState::BMSOk) => {
+                bms_seen = true;
+                last_bms = Instant::now();
+                bms_timed_out = false;
+                bms_faulted = event == Ok(FaultframeState::BMSFault);
+            }
+            Ok(FaultframeState::IMDFault | FaultframeState::IMDOk) => {
+                imd_seen = true;
+                last_imd = Instant::now();
+                imd_timed_out = false;
+                imd_faulted = event == Ok(FaultframeState::IMDFault);
+            }
+            Ok(FaultframeState::ResetRequested) | Err(_) => {}
+        }
+        let now = Instant::now();
+        if !bms_timed_out && now >= last_bms + CAN_TIMEOUT {
+            bms_timed_out = true;
+            warn!("BMS CAN timeout");
+        } else if !imd_timed_out && now >= last_imd + CAN_TIMEOUT {
+            imd_timed_out = true;
+            warn!("IMD CAN timeout");
+        }
         let new = next_state(
             state,
             event,
+            bms_timed_out || imd_timed_out,
             !bms_seen || !imd_seen,
             bms_faulted || imd_faulted,
         );
