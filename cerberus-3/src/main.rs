@@ -203,7 +203,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Peripherals (temp sensor)
     spawner.spawn(
-        peripherals::peripherals_task(I2C2Resources {
+        peripherals::i2c_peripherals_task(I2C2Resources {
             i2c: p.I2C2,
             scl: p.PF1,
             sda: p.PF0,
@@ -213,7 +213,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // IMU
     spawner.spawn(
-        peripherals::imu_task(SPI2Resources {
+        peripherals::spi_peripherals_task(SPI2Resources {
             spi: p.SPI2,
             sck: p.PA12,
             mosi: p.PG1,
