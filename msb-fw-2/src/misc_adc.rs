@@ -1,5 +1,5 @@
 use crate::analog_sensor::{self, AnalogSensor, SensorData};
-use crate::multiplexor_handler::{MuxChannel, MuxId, MuxInput, MuxSource};
+use crate::multiplexer_handler::{MuxChannel, MuxId, MuxInput, MuxSource};
 use embassy_sync::watch::Watch;
 use embassy_time::Duration;
 
@@ -20,26 +20,26 @@ pub enum MiscAdc {
 impl MiscAdc {
     const fn name(self) -> &'static str {
         match self {
-            MiscAdc::Ext1 => "1", 
-            MiscAdc::Ext2 => "2", 
-            MiscAdc::Ext3 => "3", 
+            MiscAdc::Ext1 => "1",
+            MiscAdc::Ext2 => "2",
+            MiscAdc::Ext3 => "3",
         }
     }
 
-const fn source(self) -> MuxSource {
-    match self {
-        MiscAdc::Ext1 => (MuxId::U19, MuxChannel::Ch3, MuxInput::B),
-        MiscAdc::Ext2 => (MuxId::U19, MuxChannel::Ch4, MuxInput::A),
-        MiscAdc::Ext3 => (MuxId::U19, MuxChannel::Ch4, MuxInput::B),
+    const fn source(self) -> MuxSource {
+        match self {
+            MiscAdc::Ext1 => (MuxId::U19, MuxChannel::Ch3, MuxInput::B),
+            MiscAdc::Ext2 => (MuxId::U19, MuxChannel::Ch4, MuxInput::A),
+            MiscAdc::Ext3 => (MuxId::U19, MuxChannel::Ch4, MuxInput::B),
+        }
     }
-}
 }
 
 #[derive(Clone, Copy, Default, defmt::Format)]
 pub struct MiscAdcReading {
     pub raw: u16,
     pub volts: f32,
-    pub value: f32
+    pub value: f32,
 }
 
 pub struct MiscAdcs;
@@ -64,11 +64,20 @@ impl AnalogSensor<NUM_MISC_ADCS> for MiscAdcs {
         MiscAdcReading { raw, volts, value }
     }
     fn log(name: &'static str, r: &MiscAdcReading) {
-        defmt::info!("Misc ADC {=str}: raw={=u16} volts={=f32} value={=f32}", name, r.raw, r.volts, r.value);
+        defmt::debug!(
+            "Misc ADC {=str}: raw={=u16} volts={=f32} value={=f32}",
+            name,
+            r.raw,
+            r.volts,
+            r.value
+        );
     }
-    fn data() -> &'static SensorData<MiscAdcReading, NUM_MISC_ADCS> { &MISC_ADC_DATA}
-
+    fn data() -> &'static SensorData<MiscAdcReading, NUM_MISC_ADCS> {
+        &MISC_ADC_DATA
+    }
 }
 
-#[embassy_executor::task] 
-pub async fn misc_adc_task() { analog_sensor::run::<MiscAdcs, NUM_MISC_ADCS>().await }
+#[embassy_executor::task]
+pub async fn misc_adc_task() {
+    analog_sensor::run::<MiscAdcs, NUM_MISC_ADCS>().await
+}
