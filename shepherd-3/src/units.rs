@@ -143,7 +143,7 @@ pub mod current {
     /// Current!
     pub type UomCurrent = uom::si::f32::ElectricCurrent;
 
-    #[derive(Clone, Copy, PartialEq, PartialOrd)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd, defmt::Format)]
     pub struct Current {
         amps: f32,
     }

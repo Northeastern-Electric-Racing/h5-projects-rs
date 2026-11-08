@@ -37,7 +37,7 @@ mod state {
     const LONG_CHARGE_DURATION: Duration = Duration::from_secs(15 * 60);
     /// How much current we should request from the charger while in `LongChargeUp`.
     const LONG_CHARGE_CURRENT: Current = Current::from_amps(5.0);
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, defmt::Format)]
     pub struct LongChargeUp {
         /// RUNTIME FIELD. When this `LongChargeUp` session should expire (based on LONG_CHARGE_DURATION).
         deadline: Deadline,
@@ -60,7 +60,7 @@ mod state {
     const SHORT_CHARGE_START_CURRENT: Current = Current::from_amps(5.0);
     /// The rate at which we step down the current.
     const SHORT_CHARGE_CURRENT_STEP: Current = Current::from_amps(1.0);
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, defmt::Format)]
     pub struct ShortChargeUp {
         /// RUNTIME FIELD. When this `ShortChargeUp` should check to step down the voltage next.
         deadline: Deadline,
@@ -95,7 +95,7 @@ mod state {
     }
 
     /// Data structure to store the state of the most-recently-active charge stage (either LongChargeUp or ShortChargeUp) so it can be restored.
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, defmt::Format)]
     enum ChargeRestoreCache {
         /// The most-recently-active charge stage was LongChargeUp.
         LongChargeUp,
@@ -129,7 +129,7 @@ mod state {
     /// Current to request from the charger while in the "active" stage.
     const BALANCING_ACTIVE_CURRENT: Current = Current::from_amps(0.5);
 
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, defmt::Format)]
 
     enum BalancingDeadline {
         /// We are actively in the "active" stage of balancing, so this is our deadline for that ending.
@@ -162,7 +162,7 @@ mod state {
         }
     }
 
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, defmt::Format)]
     enum BalancingKind {
         /// Balancing is not allowed to draw current right now. We are just going balancing.
         NoCurrent,
@@ -170,7 +170,7 @@ mod state {
         Current(Current),
     }
 
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, defmt::Format)]
     pub struct Balance {
         /// RUNTIME FIELD. When this `BalanceAndChargeUp` should expire.
         deadline: BalancingDeadline,
@@ -279,7 +279,7 @@ mod state {
     /// How long a `Settle` should last before expiring.
     const SETTLE_DURATION: Duration = Duration::from_secs(60);
 
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, defmt::Format)]
     pub struct Settle {
         /// RUNTIME FIELD. When this `Settle` should expire.
         deadline: Deadline,
@@ -299,7 +299,7 @@ mod state {
         }
     }
 
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, defmt::Format)]
     pub enum ChargeStage {
         /// First charging stage, in which we pull full current from the charger. This is what is used for like the first 90%+ percent of charge.
         LongChargeUp(LongChargeUp),
@@ -531,7 +531,7 @@ mod state {
 }
 pub use state::*;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
 pub enum ChargerConnected {
     /// We have not received a ping from the charger in a bit, so we consider it disconnected.
     Disconnected,
@@ -610,6 +610,7 @@ impl RequestedPwm {
 /// Enum to indicate if we are actively balancing or not.
 ///
 /// "Actively balancing" means the charge stage is currently in `ChargeStage::Balance`, with `BalancingDeadline::Active`.
+#[derive(defmt::Format)]
 pub enum AreWeActivelyBalancing {
     /// We are actively balancing, so here is the current `Balance` to read.
     Yes(Balance),
@@ -749,6 +750,17 @@ pub async fn charger_task() -> ! {
             .await;
 
             current_off_deadline_for_not_charging = Deadline::expire_in(CHARGER_COMMAND_SEND_FREQUENCY);
+        }
+
+        #[cfg(defmt_monitor)]
+        '_defmt_monitor: {
+            let charger = CHARGE_STATE.read();
+            defmt_monitor::monitor!("Charging/ChargeStage", desc = "Current ChargeStage", "{}", charger.stage());
+            defmt_monitor::monitor!("Charging/Current", desc = "Current that we should be requesting from the charger right now.", "{}", charger.current());
+            defmt_monitor::monitor!("Charging/PwmDutyCycle", desc = "PWM Duty Cycle that is currently stored (based on Calypso command).", "{}", get_pwm_duty_cycle());
+            defmt_monitor::monitor!("Charging/ChargerConnected/CHARGER_CONNECTED", desc = "Current state of CHARGER_CONNECTED static.", "{}", CHARGER_CONNECTED.read());
+            defmt_monitor::monitor!("Charging/ChargerConnected/is_charger_connected()", desc = "Current reading of is_charger_conntected(). Literally just CHARGER_CONNECTED but in bool form.", "{}", is_charger_connected());
+            defmt_monitor::monitor!("Charging/AreWeActivelyBalancing", desc = "Are we actively balancing?", "{}", are_we_actively_balancing());
         }
 
         ticker.next().await;
