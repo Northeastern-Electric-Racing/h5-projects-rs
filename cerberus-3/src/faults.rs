@@ -1,4 +1,4 @@
-use defmt::{info, warn};
+use defmt::{debug, info, warn};
 use embassy_futures::select::{Either3, select3};
 use embassy_stm32::{can::Frame, gpio::Output};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
@@ -7,14 +7,11 @@ use strum::{EnumCount, FromRepr};
 
 use cangen::ToCanFrame;
 
-use crate::{
-    can,
-    statemachine::{self, set_ready_state},
-};
+use crate::can;
+use crate::statemachine::{self, set_ready_state};
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, FromRepr, EnumCount, defmt::Format)]
-
 pub enum Fault {
     CAN_OUTGOING_FAULT = 0,
     CAN_INCOMING_FAULT,
@@ -36,9 +33,11 @@ pub enum Fault {
     LV_LOW_VOLTAGE_FAULT,
     // DO NOT ADD MORE THAN 32 FAULTS. THIS MUST FIT NEATLY IN A U32
 }
-
-pub static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, { Fault::COUNT }> = Channel::new();
 const _: () = assert!(Fault::COUNT <= 32);
+
+const FAULT_CHANNEL_SIZE: usize = 32;
+
+pub static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, FAULT_CHANNEL_SIZE> = Channel::new();
 
 impl Fault {
     pub fn is_critical(&self) -> bool {
@@ -78,29 +77,34 @@ impl AllFaults {
     pub fn bitmap(&self) -> u32 {
         self.faults
     }
+
     pub fn get_fault(&self, fault: Fault) -> bool {
         self.faults & fault.as_bitmap_component() != 0
     }
+
     pub fn has_a_fault(&self) -> bool {
         self.faults != 0
     }
+
     pub fn critical_fault_present(&self) -> bool {
         self.faults & Fault::CRITICAL_MASK != 0
     }
 
     pub fn trigger_fault(&mut self, fault: Fault) {
-        info!("Fault triggered: {:?}", fault);
+        debug!("Fault triggered: {:?}", fault);
         if fault.is_critical() {
-            warn!("Critical fault!");
+            warn!("Critical fault triggered! {:?}", &fault);
         }
         self.faults |= fault.as_bitmap_component();
         self.expirations[fault as usize] = Instant::now() + fault.get_timeout();
     }
+
     pub fn reset_fault(&mut self, fault: Fault) {
         self.faults &= !fault.as_bitmap_component();
         self.expirations[fault as usize] = Instant::MAX;
         info!("Reset fault: {:?}", fault);
     }
+
     pub fn as_can_frame(&self) -> Frame {
         cangen::Faults::new()
             .with_CAN_OUTGOING_FAULT(self.get_fault(Fault::CAN_OUTGOING_FAULT))
@@ -131,22 +135,24 @@ impl AllFaults {
             .with_PRECHARGE_FLOATING_FAULT(self.get_fault(Fault::PRECHARGE_FLOATING_FAULT))
             .to_can_frame()
     }
+
     pub fn reset_expired_faults(&mut self) {
         self.expirations
             .clone()
             .iter_mut()
             .enumerate()
             .for_each(|(id, deadline)| {
-                if *deadline <= Instant::now()
+                if deadline.elapsed() >= Duration::from_ticks(0)
                     && let Some(some_fault) = Fault::from_repr(id)
                 {
                     self.reset_fault(some_fault);
                 }
             })
     }
-    pub async fn raise_fault(&mut self, fault: Fault) {
-        INBOUND_FAULTS.send(fault).await;
-    }
+}
+
+pub async fn raise_fault(fault: Fault) {
+    INBOUND_FAULTS.send(fault).await;
 }
 
 /// To trigger a fault, simply append it to the channel and the task takes care of the rest
@@ -156,19 +162,16 @@ pub async fn fault_task() {
     const TIMEOUT_DURATION: Duration = Duration::from_millis(500);
 
     loop {
-        let (position, deadline) = faults
+        let (_, deadline) = faults
             .expirations
             .iter()
             .copied()
             .enumerate()
             .min_by_key(|&(_, deadline)| deadline)
-            .unwrap();
+            .unwrap_or((0, Instant::MAX));
 
         match select3(
-            async move {
-                Timer::at(deadline).await;
-                (deadline, position)
-            },
+            async move { Timer::at(deadline).await },
             INBOUND_FAULTS.receive(),
             Timer::after(TIMEOUT_DURATION),
         )

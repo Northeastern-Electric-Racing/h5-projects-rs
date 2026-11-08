@@ -395,7 +395,7 @@ pub async fn statemachine_task(mcu_pin: Peri<'static, PG15>) -> ! {
             Either3::Third(_) => {}
         }
 
-        faults::set_mcu_fault(&mut mcu_output, false);
+        faults::set_mcu_fault(&mut mcu_output, state.state == FuncState::Faulted);
         *STATE_MUTEX.lock().await = state; // Copy the edited state into the readable mutex
         crate::can::OUTGOING
             .send(state.to_frame().to_can_frame())
