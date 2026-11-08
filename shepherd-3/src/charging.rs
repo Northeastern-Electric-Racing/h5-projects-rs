@@ -36,7 +36,7 @@ mod state {
     // How long a `LongChargeUp` session should last before expiring.
     const LONG_CHARGE_DURATION: Duration = Duration::from_secs(15 * 60);
     /// How much current we should request from the charger while in `LongChargeUp`.
-    const LONG_CHARGE_CURRENT: Current = Current::from_amps(5.0);
+    const LONG_CHARGE_CURRENT: Current = Current::from_amps(10.0); // u_TODO reduce this when not HIL
     #[derive(Copy, Clone, defmt::Format)]
     pub struct LongChargeUp {
         /// RUNTIME FIELD. When this `LongChargeUp` session should expire (based on LONG_CHARGE_DURATION).
@@ -57,7 +57,7 @@ mod state {
     /// How long the `ShortCharge` should run before checking if it should step down voltage again.
     const SHORT_CHARGE_CHECK_DURATION: Duration = Duration::from_secs(5);
     /// The starting current for `ShortChargeUp`.
-    const SHORT_CHARGE_START_CURRENT: Current = Current::from_amps(5.0);
+    const SHORT_CHARGE_START_CURRENT: Current = LONG_CHARGE_CURRENT;
     /// The rate at which we step down the current.
     const SHORT_CHARGE_CURRENT_STEP: Current = Current::from_amps(1.0);
     #[derive(Copy, Clone, defmt::Format)]
@@ -357,6 +357,7 @@ mod state {
     const MAX_CHARGE_VOLT_FLT: Voltage = Voltage::from_volts(4.25);
 
     /// Charge statemachine inputs.
+    #[derive(Copy, Clone, defmt::Format)]
     struct Inputs {
         max_ocv: Voltage,
         max_voltage: Voltage,
@@ -426,7 +427,7 @@ mod state {
     }
 
     /// Cell voltage that ends a charge phase.
-    pub const MAX_CHARGE_VOLT: Voltage = Voltage::from_volts(4.193);
+    pub const MAX_CHARGE_VOLT: Voltage = Voltage::from_volts(4.16);
     /// `delta_ocv` at which balancing should start.
     const BALANCE_START_DELTA_V: Voltage = Voltage::from_volts(0.020);
     /// `delta_ocv` at which balancing should stop.
@@ -522,7 +523,11 @@ mod state {
                 return;
             };
 
-            self.stage = self.stage.tick(Inputs { max_ocv, max_voltage, delta_ocv, charge_restore_cache: self.cache });
+            let inputs = Inputs { max_ocv, max_voltage, delta_ocv, charge_restore_cache: self.cache };
+
+            defmt_monitor::monitor!("Charging/Inputs", desc = "Inputs into tick().", "{}", inputs);
+
+            self.stage = self.stage.tick(inputs);
 
             self.cache.update_from_chargestage(self.stage);
             self.current = self.stage.current_we_should_request();
@@ -693,6 +698,8 @@ pub async fn charger_task() -> ! {
     let mut current_request_deadline = Deadline::expire_now();
     let mut current_off_deadline_for_not_charging = Deadline::expire_now();
 
+    let mut charging_message_sent_count: usize = 0;
+
     loop {
         /// Voltage to request from the charger.
         const VOLTAGE_TO_REQUEST: Voltage = state::MAX_CHARGE_VOLT.scale(NUM_CELLS_TOTAL as f32);
@@ -729,6 +736,7 @@ pub async fn charger_task() -> ! {
                     },
                 };
                 can::send(message).await;
+                charging_message_sent_count += 1;
 
                 current_request_deadline = Deadline::expire_in(CHARGER_COMMAND_SEND_FREQUENCY);
             }
@@ -761,6 +769,8 @@ pub async fn charger_task() -> ! {
             defmt_monitor::monitor!("Charging/ChargerConnected/CHARGER_CONNECTED", desc = "Current state of CHARGER_CONNECTED static.", "{}", CHARGER_CONNECTED.read());
             defmt_monitor::monitor!("Charging/ChargerConnected/is_charger_connected()", desc = "Current reading of is_charger_conntected(). Literally just CHARGER_CONNECTED but in bool form.", "{}", is_charger_connected());
             defmt_monitor::monitor!("Charging/AreWeActivelyBalancing", desc = "Are we actively balancing?", "{}", are_we_actively_balancing());
+            defmt_monitor::monitor!("Charging/ChargingMessageSentCount", desc = "Times we have sent the message to request current from the charger (or not request current).", "{}", charging_message_sent_count);
+            defmt_monitor::monitor!("Charging/charger_output_disabled()", desc = "", "{}", &charger_output_disabled());
         }
 
         ticker.next().await;

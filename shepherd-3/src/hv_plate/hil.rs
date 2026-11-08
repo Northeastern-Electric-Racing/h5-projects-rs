@@ -9,6 +9,10 @@ use embedded_hal_async::spi::{ErrorType, Operation, SpiDevice};
 
 const READ_TIMEOUT: Duration = Duration::from_secs(1);
 const READ_RETRIES: usize = 2;
+// About two byte times at 115200 baud: once the line is quiet this long, RX is drained.
+const DRAIN_IDLE: Duration = Duration::from_micros(200);
+// Bounds the drain so a stream of noise or errors can't stall the transaction.
+const DRAIN_MAX_BYTES: usize = 64;
 
 embassy_stm32::bind_interrupts!(struct Irqs {
     UART4 => usart::InterruptHandler<embassy_stm32::peripherals::UART4>;
@@ -55,6 +59,9 @@ impl SpiDevice for HilDevice {
             [Operation::Write(command), Operation::Read(data)] if command.len() == 4 => {
                 // Retry read timeouts; report only the final failure.
                 for attempt in 0..=READ_RETRIES {
+                    // Drop stale bytes (e.g. a late reply to a timed-out attempt) so the reply lands at data[0].
+                    drain_rx(rx).await;
+
                     let result = with_timeout(READ_TIMEOUT, async {
                         tx.write(command).await?;
                         tx.flush().await?;
@@ -93,5 +100,24 @@ impl SpiDevice for HilDevice {
 
             _ => Err(HilError::UnsupportedTransaction),
         }
+    }
+}
+
+/// Discards bytes waiting in the RX FIFO. `UartRx::read` puts already-received bytes at the front of
+/// its buffer, so anything left over would shift the next reply.
+async fn drain_rx(rx: &mut UartRx<'static, Async>) {
+    let mut byte = [0u8; 1];
+    let mut dropped = 0usize;
+    for _ in 0..DRAIN_MAX_BYTES {
+        match with_timeout(DRAIN_IDLE, rx.read(&mut byte)).await {
+            Ok(Ok(())) => dropped += 1,
+            // Errors clear their flags; keep draining.
+            Ok(Err(_)) => {},
+            // Line is quiet.
+            Err(_) => break,
+        }
+    }
+    if dropped > 0 {
+        defmt::warn!("HIL: dropped {} stale RX bytes", dropped);
     }
 }

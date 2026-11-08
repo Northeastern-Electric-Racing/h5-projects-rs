@@ -27,7 +27,7 @@ pub mod voltage {
     }
     pub use alias::*;
 
-    #[derive(Clone, Copy, PartialEq, PartialOrd)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd, defmt::Format)]
     pub struct Voltage {
         volts: f32,
     }
