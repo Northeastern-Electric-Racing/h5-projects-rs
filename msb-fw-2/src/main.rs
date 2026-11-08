@@ -18,7 +18,7 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 
 use msb_fw_2::bind_interrupts::Irqs;
 use msb_fw_2::can::{self, CanResources};
-use msb_fw_2::multiplexor_handler::{self, MuxResources};
+use msb_fw_2::multiplexer_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
 use msb_fw_2::{
     imu, load_cell, magnetometer, shock_pot, steering_angle, strain_guage, thermocouple,
@@ -101,8 +101,8 @@ async fn main(spawner: Spawner) -> ! {
     };
 
     spawner.spawn(
-        multiplexor_handler::mux_scan_task(mux_resources)
-            .expect("Failed to spawn multiplexor_handler::mux_scan_task()."),
+        multiplexer_handler::mux_scan_task(mux_resources)
+            .expect("Failed to spawn multiplexer_handler::mux_scan_task()."),
     );
     spawner
         .spawn(shock_pot::shock_pot_task().expect("Failed to spawn shock_pot::shock_pot_task()."));
