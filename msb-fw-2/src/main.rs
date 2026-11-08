@@ -21,7 +21,9 @@ use msb_fw_2::bind_interrupts::Irqs;
 use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexor_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
-use msb_fw_2::{hdc2021, load_cell, shock_pot, steering_angle, strain_guage, thermocouple, misc_adc}; //, ,magnetometer, , imu}; 
+use msb_fw_2::{
+    hdc2021, load_cell, misc_adc, shock_pot, steering_angle, strain_guage, thermocouple,
+}; //, ,magnetometer, , imu}; 
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -119,10 +121,7 @@ async fn main(spawner: Spawner) -> ! {
         thermocouple::thermocouple_task()
             .expect("Failed to spawn thermocouple::thermocouple_task()."),
     );
-    spawner.spawn(
-        misc_adc::misc_adc_task()
-        .expect("Failed to spawn misc_adc::misc_adc_task()."),
-    );
+    spawner.spawn(misc_adc::misc_adc_task().expect("Failed to spawn misc_adc::misc_adc_task()."));
     // /// magnetometer on SPI2 -> need to chk this too
     // ///
     // let mut spi2_config = spi::Config::default();
