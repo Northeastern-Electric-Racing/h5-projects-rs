@@ -1,12 +1,17 @@
-use defmt::{debug, info, warn};
+use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
-use embassy_stm32::{
-    Peri, bind_interrupts,
-    exti::ExtiInput,
-    gpio::{Level, Output, Pull, Speed},
-    interrupt, peripherals,
+use embassy_stm32::{ 
+    Peri, 
+    bind_interrupts, 
+    exti::ExtiInput, 
+    gpio::{Level, Output, Pull, Speed}, 
+    interrupt, 
+    peripherals
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex, 
+    channel::Channel
+};
 use embassy_time::Timer;
 
 bind_interrupts!(
@@ -41,22 +46,18 @@ fn send_led_command(command: LedCommand) {
 }
 
 pub fn enable_red_led() {
-    debug!("debug_enableRedLED called");
     send_led_command(LedCommand::RedOn);
 }
 
 pub fn enable_green_led() {
-    debug!("debug_enableGreenLED called");
     send_led_command(LedCommand::GreenOn);
 }
 
 pub fn disable_red_led() {
-    debug!("debug_disableRedLED called");
     send_led_command(LedCommand::RedOff);
 }
 
 pub fn disable_green_led() {
-    debug!("debug_disableGreenLED called");
     send_led_command(LedCommand::GreenOff);
 }
 
