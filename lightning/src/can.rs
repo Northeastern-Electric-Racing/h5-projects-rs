@@ -10,14 +10,13 @@ use embassy_time::{Duration, Instant, Ticker};
 use ner_can::{ExtFilter, NerCan, StdFilter};
 
 pub const GRACE_PERIOD_DURATION: Duration = Duration::from_secs(5); // Needs to be public such that state can read it
-pub const CAN_TIMEOUT: Duration = Duration::from_secs(5); // Needs to be public such that state can read it
 
 bind_interrupts!(struct IrqsCan {
     FDCAN2_IT0 => can::IT0InterruptHandler<peripherals::FDCAN2>;
     FDCAN2_IT1 => can::IT1InterruptHandler<peripherals::FDCAN2>;
 });
 
-#[derive(Debug, PartialEq, defmt::Format)]
+#[derive(Debug, PartialEq, defmt::Format, Clone, Copy)]
 pub enum FaultframeState {
     BMSFault,
     BMSOk,
