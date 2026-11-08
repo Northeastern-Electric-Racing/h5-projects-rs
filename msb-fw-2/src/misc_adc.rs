@@ -22,7 +22,7 @@ impl MiscAdc {
         match self {
             MiscAdc::Ext1 => "1", 
             MiscAdc::Ext2 => "2", 
-            MiscAdc::Ext2 => "2", 
+            MiscAdc::Ext3 => "3", 
         }
     }
 
@@ -59,7 +59,7 @@ impl AnalogSensor<NUM_MISC_ADCS> for MiscAdcs {
 
     type Reading = MiscAdcReading;
 
-    fn convert(i: usize, raw: u16, volts: f32) -> MiscAdcreading {
+    fn convert(i: usize, raw: u16, volts: f32) -> MiscAdcReading {
         let value = (volts - ZERO_OFFSET[i]) * SCALE_FACTOR[i];
         MiscAdcReading { raw, volts, value }
     }
