@@ -43,9 +43,11 @@ impl Fault {
     pub fn is_critical(&self) -> bool {
         self.as_bitmap_component() & Fault::CRITICAL_MASK != 0
     }
+
     fn as_bitmap_component(&self) -> u32 {
         1 << (*self as u32)
     }
+
     fn get_timeout(&self) -> Duration {
         // This should be made into a match if different faults are to get different timeouts
         Duration::from_millis(500)
@@ -66,7 +68,6 @@ pub struct AllFaults {
     expirations: [Instant; Fault::COUNT],
 }
 
-#[allow(dead_code)]
 impl AllFaults {
     pub fn new() -> Self {
         AllFaults {
@@ -74,6 +75,7 @@ impl AllFaults {
             expirations: [Instant::MAX; Fault::COUNT],
         }
     }
+
     pub fn bitmap(&self) -> u32 {
         self.faults
     }
@@ -82,7 +84,7 @@ impl AllFaults {
         self.faults & fault.as_bitmap_component() != 0
     }
 
-    pub fn has_a_fault(&self) -> bool {
+    pub fn fault_present(&self) -> bool {
         self.faults != 0
     }
 
@@ -90,7 +92,7 @@ impl AllFaults {
         self.faults & Fault::CRITICAL_MASK != 0
     }
 
-    pub fn trigger_fault(&mut self, fault: Fault) {
+    pub fn set_fault(&mut self, fault: Fault) {
         debug!("Fault triggered: {:?}", fault);
         if fault.is_critical() {
             warn!("Critical fault triggered! {:?}", &fault);
@@ -159,6 +161,7 @@ pub async fn raise_fault(fault: Fault) {
 #[embassy_executor::task]
 pub async fn fault_task() {
     let mut faults = AllFaults::new();
+
     const TIMEOUT_DURATION: Duration = Duration::from_millis(500);
 
     loop {
@@ -171,7 +174,7 @@ pub async fn fault_task() {
             .unwrap_or((0, Instant::MAX));
 
         match select3(
-            async move { Timer::at(deadline).await },
+            Timer::at(deadline),
             INBOUND_FAULTS.receive(),
             Timer::after(TIMEOUT_DURATION),
         )
@@ -184,7 +187,7 @@ pub async fn fault_task() {
                 }
             }
             Either3::Second(newfault) => {
-                faults.trigger_fault(newfault);
+                faults.set_fault(newfault);
                 if faults.critical_fault_present()
                     && statemachine::get_func_state().await != statemachine::FuncState::Faulted
                 {
@@ -197,7 +200,6 @@ pub async fn fault_task() {
     }
 }
 
-/// The MCU Fault pin is kind of "swapped".
 /// Setting the pin to HIGH indicates that there is no fault.
 /// Setting the pin to LOW indicates that there is a fault.
 /// The pin has a default state of HIGH (i.e. no fault).
