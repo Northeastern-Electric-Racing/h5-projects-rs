@@ -3,7 +3,7 @@
 use crate::bms::{PrechargeState, set_precharge_state};
 use crate::efuses::EfuseCommand;
 use crate::efuses::EfuseId::*;
-use crate::{bms, buttons, rtds, shutdown};
+use crate::{bms, buttons, dti, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -144,7 +144,7 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
 
             Some(Msg::FrontWheelRpm(_)) => {}
-            Some(Msg::TempsFaultCodeStatus(_)) => {}
+            Some(Msg::TempsFaultCodeStatus(_)) => dti::handle_temps_message(frame.data()),
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
             Some(Msg::CurrentsStatus(_)) => {}
 

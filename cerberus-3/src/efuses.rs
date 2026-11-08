@@ -5,18 +5,20 @@
 //! The efuse condition can also be updated using update_control_state <br>
 
 use cangen::ToCanFrame;
+use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::debug;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::{Duration, Timer};
-use uom::si::ratio::percent;
+use embassy_time::{Duration, Instant, Timer};
+use uom::si::thermodynamic_temperature::degree_celsius;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
-use crate::can;
+use crate::statemachine::{self, FuncState};
+use crate::{bms, can, dti, pedals};
 
 const V_REF: f32 = 3.3;
 const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
@@ -26,8 +28,8 @@ const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
 #[repr(u8)]
 pub enum EfuseControlState {
     EfuseOn = 0,   // Hard set on
-    EfuseAuto = 1, // Hard set off
-    EfuseOff = 2,  // Turns on and off under a specific predicate condition
+    EfuseAuto = 1, // Turns on and off under a specific predicate condition
+    EfuseOff = 2,  // Hard set off
 }
 
 impl TryFrom<u8> for EfuseControlState {
@@ -85,6 +87,8 @@ pub struct Efuse {
     control_state: EfuseControlState,
     auto_on_predicate: Option<AutoPredicate>,
     auto_off_predicate: Option<AutoPredicate>,
+    min_switch_interval: Option<Duration>,
+    last_auto_switch: Option<Instant>,
     to_frame: fn(&EfuseTelemetry) -> Frame,
 }
 
@@ -201,6 +205,58 @@ pub struct EfusePins {
 const ER_PULL: Pull = Pull::Up;
 const EN_SPEED: Speed = Speed::Low;
 
+const COOLING_ON_TEMP: f32 = 45.0;
+const COOLING_OFF_TEMP: f32 = 40.0;
+const PUMP_SWITCH_INTERVAL: Duration = Duration::from_secs(5);
+const MOTOR_TEMP_SENSOR_MAX: f32 = 125.0;
+const MOTOR_TEMP_SENSOR_FAULT_TIMEOUT: Duration = Duration::from_secs(5);
+
+static MOTOR_TEMP_SENSOR_FAULT: AtomicBool = AtomicBool::new(false);
+
+fn motor_temp() -> f32 {
+    dti::get_motor_temp().get::<degree_celsius>()
+}
+
+fn motor_temp_if_sensor_ok() -> f32 {
+    if MOTOR_TEMP_SENSOR_FAULT.load(Ordering::Relaxed) {
+        f32::MIN
+    } else {
+        motor_temp()
+    }
+}
+
+fn controller_temp() -> f32 {
+    dti::get_controller_temp().get::<degree_celsius>()
+}
+
+fn battery_box_temp() -> f32 {
+    bms::get_battery_box_temp().get::<degree_celsius>()
+}
+
+fn brake_pressed() -> f32 {
+    if pedals::get_brake_pressed() {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+fn cooling_on(temp: fn() -> f32) -> Option<AutoPredicate> {
+    Some(AutoPredicate {
+        value1: temp,
+        value2: || COOLING_ON_TEMP,
+        operation: PredicateOperation::GREQ,
+    })
+}
+
+fn cooling_off(temp: fn() -> f32) -> Option<AutoPredicate> {
+    Some(AutoPredicate {
+        value1: temp,
+        value2: || COOLING_OFF_TEMP,
+        operation: PredicateOperation::LEQ,
+    })
+}
+
 impl Efuse {
     pub fn new(
         efuse_id: EfuseId,
@@ -220,8 +276,29 @@ impl Efuse {
             control_state: default_state,
             auto_on_predicate,
             auto_off_predicate,
+            min_switch_interval: None,
+            last_auto_switch: None,
             to_frame,
         }
+    }
+
+    fn with_min_switch_interval(mut self, interval: Duration) -> Self {
+        self.min_switch_interval = Some(interval);
+        self
+    }
+
+    fn auto_set(&mut self, on: bool) {
+        if let (Some(interval), Some(last)) = (self.min_switch_interval, self.last_auto_switch)
+            && last.elapsed() < interval
+        {
+            return;
+        }
+        if on {
+            self.enable();
+        } else {
+            self.disable();
+        }
+        self.last_auto_switch = Some(Instant::now());
     }
 
     pub fn init_all(pins: EfusePins) -> [Efuse; EfuseId::VARIANT_COUNT] {
@@ -243,18 +320,14 @@ impl Efuse {
                 200.0,
                 EfuseControlState::EfuseAuto,
                 Some(AutoPredicate {
-                    value1: || 0.0, /* pedals brake percentage */
-                    value2: || crate::pedals::constants::PEDAL_BRAKE_THRESH.get::<percent>(),
-                    operation: PredicateOperation::GREATER,
+                    value1: brake_pressed,
+                    value2: || 1.0,
+                    operation: PredicateOperation::EQ,
                 }),
                 Some(AutoPredicate {
-                    value1: || 0.0, /* pedals brake threshold */
-                    value2: || {
-                        (crate::pedals::constants::PEDAL_BRAKE_THRESH
-                            - crate::pedals::constants::PEDAL_BRAKE_TURNOFF_THRESH)
-                            .get::<percent>()
-                    },
-                    operation: PredicateOperation::LESS,
+                    value1: brake_pressed,
+                    value2: || 0.0,
+                    operation: PredicateOperation::EQ,
                 }),
                 frame_for::<cangen::BrakeEfuse>,
             ),
@@ -283,9 +356,9 @@ impl Efuse {
                 Output::new(pins.radfan_en, Level::Low, EN_SPEED),
                 Input::new(pins.radfan_er, ER_PULL),
                 56.0,
-                EfuseControlState::EfuseOff,
-                None,
-                None,
+                EfuseControlState::EfuseAuto,
+                cooling_on(motor_temp_if_sensor_ok),
+                cooling_off(motor_temp),
                 frame_for::<cangen::RadfanEfuse>,
             ),
             Efuse::new(
@@ -293,9 +366,9 @@ impl Efuse {
                 Output::new(pins.fanbatt_en, Level::Low, EN_SPEED),
                 Input::new(pins.fanbatt_er, ER_PULL),
                 27.0,
-                EfuseControlState::EfuseOff,
-                None,
-                None,
+                EfuseControlState::EfuseAuto,
+                cooling_on(battery_box_temp),
+                cooling_off(battery_box_temp),
                 frame_for::<cangen::FanbattEfuse>,
             ),
             Efuse::new(
@@ -303,21 +376,23 @@ impl Efuse {
                 Output::new(pins.pump1_en, Level::Low, EN_SPEED),
                 Input::new(pins.pump1_er, ER_PULL),
                 47.0,
-                EfuseControlState::EfuseOff,
-                None,
-                None,
+                EfuseControlState::EfuseAuto,
+                cooling_on(controller_temp),
+                cooling_off(controller_temp),
                 frame_for::<cangen::PumponeEfuse>,
-            ),
+            )
+            .with_min_switch_interval(PUMP_SWITCH_INTERVAL),
             Efuse::new(
                 EfuseId::EfusePump2,
                 Output::new(pins.pump2_en, Level::Low, EN_SPEED),
                 Input::new(pins.pump2_er, ER_PULL),
                 47.0,
-                EfuseControlState::EfuseOff,
-                None,
-                None,
+                EfuseControlState::EfuseAuto,
+                cooling_on(motor_temp_if_sensor_ok),
+                cooling_off(motor_temp),
                 frame_for::<cangen::PumptwoEfuse>,
-            ),
+            )
+            .with_min_switch_interval(PUMP_SWITCH_INTERVAL),
             Efuse::new(
                 EfuseId::EfuseBattbox,
                 Output::new(pins.battbox_en, Level::High, EN_SPEED),
@@ -345,17 +420,9 @@ impl Efuse {
                 Output::new(pins.spare_en, Level::Low, EN_SPEED),
                 Input::new(pins.spare_er, ER_PULL),
                 0.0,
-                EfuseControlState::EfuseOff,
-                Some(AutoPredicate {
-                    value1: || 0.0,
-                    value2: || 0.0,
-                    operation: PredicateOperation::EQ,
-                }),
-                Some(AutoPredicate {
-                    value1: || 0.0,
-                    value2: || 0.0,
-                    operation: PredicateOperation::EQ,
-                }),
+                EfuseControlState::EfuseAuto,
+                cooling_on(controller_temp),
+                cooling_off(controller_temp),
                 frame_for::<cangen::SpareEfuse>,
             ),
         ]
@@ -421,8 +488,23 @@ const EFUSE_PERIOD: Duration = Duration::from_millis(100);
 #[embassy_executor::task]
 pub async fn efuse_task(pins: EfusePins) {
     let mut efuses: [Efuse; _] = Efuse::init_all(pins);
+    let mut last_sensor_fault: Option<Instant> = None;
 
     loop {
+        if motor_temp() >= MOTOR_TEMP_SENSOR_MAX {
+            MOTOR_TEMP_SENSOR_FAULT.store(true, Ordering::Relaxed);
+            last_sensor_fault = Some(Instant::now());
+            statemachine::set_fault_state().await;
+        } else if let Some(last) = last_sensor_fault
+            && last.elapsed() >= MOTOR_TEMP_SENSOR_FAULT_TIMEOUT
+        {
+            MOTOR_TEMP_SENSOR_FAULT.store(false, Ordering::Relaxed);
+            last_sensor_fault = None;
+            if statemachine::get_func_state().await == FuncState::Faulted {
+                statemachine::set_ready_state().await;
+            }
+        }
+
         while let Ok(command) = COMMAND.try_receive() {
             if let Some(efuse) = efuses.get_mut(command.get_id() as usize) {
                 efuse.update_control_state(command.efuse_control_state);
@@ -473,13 +555,13 @@ pub async fn efuse_task(pins: EfusePins) {
                                 (auto_mode_predicate.value1)() == (auto_mode_predicate.value2)()
                             }
                         },
-                        None => true,
+                        None => false,
                     };
 
                     if turn_off {
-                        efuse.disable();
+                        efuse.auto_set(false);
                     } else if turn_on {
-                        efuse.enable();
+                        efuse.auto_set(true);
                     }
                 }
             }

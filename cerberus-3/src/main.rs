@@ -19,6 +19,7 @@ mod adc;
 mod bms;
 mod buttons;
 mod can;
+mod dti;
 mod efuses;
 mod pedals;
 mod peripherals;
