@@ -376,12 +376,7 @@ pub async fn statemachine_task(mcu_pin: Peri<'static, PG15>) -> ! {
         .await
         {
             Either3::First(command) => {
-                let was_faulted = state.state == FuncState::Faulted;
                 let result = state.handle_command(command);
-                let is_faulted = state.state == FuncState::Faulted;
-                if was_faulted != is_faulted {
-                    faults::set_mcu_fault(&mut mcu_output, is_faulted);
-                }
                 if result.is_err() {
                     debug!("Error handling NERO command");
                 } else {
