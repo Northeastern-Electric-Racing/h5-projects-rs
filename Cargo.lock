@@ -104,18 +104,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "bisync"
-version = "0.3.1"
-source = "git+https://github.com/JM4ier/bisync?rev=be3a0a6#be3a0a6255a0af592e66be8614a149151f67fdf5"
+name = "bisync2"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "658874e13c636fdc15ecf8216421aec97113dc6256c1d2d506cd9b8f50b726e6"
 dependencies = [
- "bisync_macros",
+ "bisync2-macros",
 ]
 
 [[package]]
-name = "bisync_macros"
-version = "0.2.3"
+name = "bisync2-macros"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d21f40d350a700f6aa107e45fb26448cf489d34794b2ba4522181dc9f1173af6"
+checksum = "74205a74ee286fb937a71ab95ad3ebddf3c34650ae45dd755a3617c7c7dd1a26"
 
 [[package]]
 name = "bit_field"
@@ -1021,7 +1022,7 @@ dependencies = [
 [[package]]
 name = "lis2mdl-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lis2mdl-ner#18f959c633f6be90a30150eddcc9030857bd092c"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lis2mdl-ner#38dd0db159cfcf0ae010413d8cf14e7f74b6f8b0"
 dependencies = [
  "defmt 1.2.0",
  "embedded-hal-async",
@@ -1031,10 +1032,10 @@ dependencies = [
 
 [[package]]
 name = "lis2mdl-rs"
-version = "2.0.0"
-source = "git+https://github.com/STMicroelectronics/lis2mdl-rs.git?branch=main#b50828099aa1079802732b9f42df504e5a704d23"
+version = "2.1.0"
+source = "git+https://github.com/STMicroelectronics/lis2mdl-rs.git?branch=main#b02659727d1993068da9ea5d89997d1fbb37bbf3"
 dependencies = [
- "bisync",
+ "bisync2",
  "bitfield-struct 0.10.1",
  "derive_more",
  "embedded-hal 1.0.0",
@@ -1083,11 +1084,11 @@ dependencies = [
 
 [[package]]
 name = "lsm6dsv16x-rs"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2d4f1ffdca07fcadf6585bcc68702211d2b99f36863f4544c4e0f6f07f74aa9"
+checksum = "60cf071ee18f3a43faf15e02151324f917241896917babfa31bb6df37932a7b8"
 dependencies = [
- "bisync",
+ "bisync2",
  "bitfield-struct 0.10.1",
  "derive_more",
  "embedded-hal 1.0.0",
@@ -1095,6 +1096,9 @@ dependencies = [
  "half",
  "st-mem-bank-macro",
  "st-mems-bus",
+]
+
+[[package]]
 name = "manyhow"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1586,11 +1590,11 @@ dependencies = [
 
 [[package]]
 name = "st-mems-bus"
-version = "2.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc4e334a8bc732d12f9089350847d9986005f04ebf2e65a83fdc45a6e6296471"
+checksum = "c991302fa54c5e0ff81fa9c72e2ebdfc3d80934e54d92cfb3744c8c9f85397e8"
 dependencies = [
- "bisync",
+ "bisync2",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
 ]
@@ -1960,3 +1964,8 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "bisync"
+version = "0.3.1"
+source = "git+https://github.com/JM4ier/bisync?rev=be3a0a6#be3a0a6255a0af592e66be8614a149151f67fdf5"
