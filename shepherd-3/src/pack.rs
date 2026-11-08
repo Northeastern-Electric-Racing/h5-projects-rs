@@ -749,11 +749,15 @@ pub mod analyzer {
 
                     seg5: {
                         #[cfg(feature = "four-segments")]
-                        { 0_f32 }
+                        {
+                            0_f32
+                        }
 
                         #[cfg(not(feature = "four-segments"))]
-                        { analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>() } 
-                    }
+                        {
+                            analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>()
+                        }
+                    },
                 }
                 .as_frame(),
             )
@@ -775,11 +779,15 @@ pub mod analyzer {
 
                     seg5: {
                         #[cfg(feature = "four-segments")]
-                        { 0_f32 }
+                        {
+                            0_f32
+                        }
 
                         #[cfg(not(feature = "four-segments"))]
-                        { analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>() }
-                    }
+                        {
+                            analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>()
+                        }
+                    },
                 }
                 .as_frame(),
             )
@@ -826,11 +834,15 @@ pub mod analyzer {
 
                     seg5: {
                         #[cfg(feature = "four-segments")]
-                        { 0_f32 }
+                        {
+                            0_f32
+                        }
 
                         #[cfg(not(feature = "four-segments"))]
-                        { analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>() }
-                    }
+                        {
+                            analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>()
+                        }
+                    },
                 }
                 .as_frame(),
             )
