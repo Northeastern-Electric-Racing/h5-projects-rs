@@ -156,7 +156,7 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
             can::OUTGOING.send(frame.to_can_frame()).await;
         }
 
-        if let Some(ang_vel) = imu.get_anguar_vel().await {
+        if let Some(ang_vel) = imu.get_angular_vel().await {
             let frame = cangen::ImuGyro::new()
                 .with_imu_gyro_x(
                     ang_vel

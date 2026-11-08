@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "adbms-register-macros"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#ba03e1d7e526ec7f41ec65305e19bf3956753b16"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -37,7 +37,7 @@ dependencies = [
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#45c9c098e9f729812cfbe101cc7d9747759f0a2e"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#ba03e1d7e526ec7f41ec65305e19bf3956753b16"
 dependencies = [
  "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "bitfield-struct 0.13.0",
@@ -182,7 +182,7 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#ba03e1d7e526ec7f41ec65305e19bf3956753b16"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
@@ -197,7 +197,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#ba03e1d7e526ec7f41ec65305e19bf3956753b16"
 dependencies = [
  "bitfield-struct 0.13.0",
  "cangen-macro",
@@ -207,7 +207,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#ba03e1d7e526ec7f41ec65305e19bf3956753b16"
 dependencies = [
  "definition-rs",
  "heck",
@@ -219,9 +219,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.9.0"
+version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877bf67ac8e52449eb2f9e98a344ea163beb70dd1f9eebe3cc5357dcfeaee4df"
+checksum = "4ff2a8126fff0f8c839080d619675a585e61720bb12d2baceae45769fd66f155"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -280,9 +280,9 @@ dependencies = [
 
 [[package]]
 name = "cortex-m"
-version = "0.7.9"
+version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "844b9697e922c99847eed515c6eb6d101e7ce62ff556fcaec243798291427ee8"
+checksum = "408ca8c6d703a196b73219fdb68fd8914d4fda90c34e2bd6859d4842f761bd5f"
 dependencies = [
  "bare-metal",
  "bitfield",
@@ -348,7 +348,7 @@ checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#575576d2792beb3f04c5f59a16f31cb799599f60"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#ba03e1d7e526ec7f41ec65305e19bf3956753b16"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -828,17 +828,16 @@ checksum = "1944426bf7d03f1d14f708785e4b33efd750b36d48a157b836b3efc15ede8e1d"
 
 [[package]]
 name = "generator"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1be81b31c9ce4caf7f3178eeb90662bb1864d3ad363ec6bdada3201adff19c37"
+checksum = "ea6c6a73cd1aa4f4f00c02b109fa55d3a9d6ecc2fc4f53177b74ed6ee23b0c53"
 dependencies = [
  "cc",
- "cfg-if",
  "libc",
  "log",
  "rustversion",
- "windows-link",
- "windows-result",
+ "windows-core",
+ "windows-sys",
 ]
 
 [[package]]
@@ -935,15 +934,15 @@ checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
 
 [[package]]
 name = "log"
-version = "0.4.34"
+version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "loom"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "419e0dc8046cb947daa77eb95ae174acfbddb7673b4151f56d1eed8e93fbfaca"
+checksum = "f1611ddbf89dc6ae42cfbd51fc207836140130257646eab8d6d2fb16577db2d2"
 dependencies = [
  "cfg-if",
  "generator",
@@ -955,7 +954,7 @@ dependencies = [
 [[package]]
 name = "lsm6dsv16x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lsm6dsv16x-ner#0b46dc46938696c49c3db879c1cc5fc66041181c"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lsm6dsv16x-ner#867d98fbde67f629a773b471cd132201ae46286e"
 dependencies = [
  "defmt 1.2.0",
  "embassy-time",
@@ -1411,7 +1410,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "sht3x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#575576d2792beb3f04c5f59a16f31cb799599f60"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git#ba03e1d7e526ec7f41ec65305e19bf3956753b16"
 dependencies = [
  "defmt 1.2.0",
  "embedded-hal-async",
@@ -1419,9 +1418,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.16.3"
+version = "1.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
+checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
 
 [[package]]
 name = "st-mem-bank-macro"
@@ -1736,18 +1735,68 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows-core"
+version = "0.100.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "803590c6856f51d15fa2e9fabe4f4703122c8737f72ef2741b4ac09d4c2192f5"
+dependencies = [
+ "windows-implement",
+ "windows-interface",
+ "windows-link 0.100.0",
+ "windows-result",
+ "windows-strings",
+]
+
+[[package]]
+name = "windows-implement"
+version = "0.100.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bc1bc82e5a1b1a4d7255861b07881a0407b552f50a4d8543c0c7276fa96f6e8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "windows-interface"
+version = "0.100.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3f7005c3b757b9b82c2f40c0e71094ff1080adddaf3e8b6ce99b545d3c48796"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 
 [[package]]
-name = "windows-result"
-version = "0.4.1"
+name = "windows-link"
+version = "0.100.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
+checksum = "9b39de7c7fe78858b0144c50c3fc000bab3be17d5e9b85b1053871693c7f7415"
+
+[[package]]
+name = "windows-result"
+version = "0.100.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44873a1ef61c85d5e2991db91fe656cfcf0731097e00dff1ac860f1cb3b752a0"
 dependencies = [
- "windows-link",
+ "windows-link 0.100.0",
+]
+
+[[package]]
+name = "windows-strings"
+version = "0.100.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a70b590c684f1d2854f74999896f7c0558f1bdde62f599088599e20ea1d2f60"
+dependencies = [
+ "windows-link 0.100.0",
 ]
 
 [[package]]
@@ -1756,7 +1805,7 @@ version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
 dependencies = [
- "windows-link",
+ "windows-link 0.2.1",
 ]
 
 [[package]]
