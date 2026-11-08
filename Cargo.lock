@@ -1030,14 +1030,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "lsm6dsv-ner"
+name = "lsm6dsv16x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lsm6dsv-ner#d6cdd4b04618ca914c865613930e82bf795076f9"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lsm6dsv16x-ner#0b46dc46938696c49c3db879c1cc5fc66041181c"
 dependencies = [
  "defmt 1.2.0",
+ "embassy-time",
  "embedded-hal-async",
  "lsm6dsv16x-rs",
  "st-mems-bus",
+ "uom",
 ]
 
 [[package]]
@@ -1091,7 +1093,7 @@ dependencies = [
  "hdc2021-ner",
  "heapless",
  "lis2mdl-ner",
- "lsm6dsv-ner",
+ "lsm6dsv16x-ner",
  "panic-probe",
  "static_cell",
 ]
