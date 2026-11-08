@@ -1,6 +1,9 @@
 //! CAN bring-up for Cerberus.
 
-use crate::{buttons, rtds, shutdown};
+use crate::bms::{PrechargeState, set_precharge_state};
+use crate::efuses::EfuseCommand;
+use crate::efuses::EfuseId::*;
+use crate::{bms, buttons, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -11,6 +14,8 @@ use embassy_stm32::can::{
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use uom::si::f32::ThermodynamicTemperature as Temperature;
+use uom::si::thermodynamic_temperature::degree_celsius;
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -39,7 +44,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     const SLOT_1: StdFilter = StdFilter {
         slot: StandardFilterSlot::_1,
         id1: cangen::CellTemperatures::ID,
-        id2: None,
+        id2: Some(cangen::MaxDcCurrentCommand::ID),
     };
 
     const SLOT_2: StdFilter = StdFilter {
@@ -123,39 +128,51 @@ pub async fn can_inbox_task() -> ! {
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
-            Some(Msg::CellTemperatures(_)) => {}
-            Some(Msg::LightningPulseMessage(_)) => {}
+            Some(Msg::CellTemperatures(m)) => {
+                bms::set_battery_box_temp(Temperature::new::<degree_celsius>(m.avg_val()))
+            }
+            Some(Msg::PrechargeStatus(m)) => match PrechargeState::try_from(m.precharge_status()) {
+                Ok(state) => set_precharge_state(state),
+                Err(state) => debug!(
+                    "Received invalid precharge state from CAN message: {}",
+                    state
+                ),
+            },
+            Some(Msg::ShutdownAsReadByBms(m)) => {
+                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
+            }
+            Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
+
             Some(Msg::FrontWheelRpm(_)) => {}
             Some(Msg::TempsFaultCodeStatus(_)) => {}
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
             Some(Msg::CurrentsStatus(_)) => {}
 
-            Some(Msg::DashboardEfuseState(_)) => {}
-            Some(Msg::BrakeEfuseState(_)) => {}
-            Some(Msg::ShutdownEfuseState(_)) => {}
-            Some(Msg::LvEfuseState(_)) => {}
-            Some(Msg::RadfanEfuseState(_)) => {}
-            Some(Msg::FanbattEfuseState(_)) => {}
-            Some(Msg::PumponeEfuseState(_)) => {}
-            Some(Msg::PumptwoEfuseState(_)) => {}
-            Some(Msg::BattboxEfuseState(_)) => {}
-            Some(Msg::McEfuseState(_)) => {}
-            Some(Msg::SpareEfuseState(_)) => {}
+            Some(Msg::DashboardEfuseState(m)) => {
+                EfuseCommand::add_command(EfuseDashboard, m.state())
+            }
+            Some(Msg::BrakeEfuseState(m)) => EfuseCommand::add_command(EfuseBrake, m.state()),
+            Some(Msg::ShutdownEfuseState(m)) => EfuseCommand::add_command(EfuseShutdown, m.state()),
+            Some(Msg::LvEfuseState(m)) => EfuseCommand::add_command(EfuseLV, m.state()),
+            Some(Msg::RadfanEfuseState(m)) => EfuseCommand::add_command(EfuseRadfan, m.state()),
+            Some(Msg::FanbattEfuseState(m)) => EfuseCommand::add_command(EfuseFanbatt, m.state()),
+            Some(Msg::PumponeEfuseState(m)) => EfuseCommand::add_command(EfusePump1, m.state()),
+            Some(Msg::PumptwoEfuseState(m)) => EfuseCommand::add_command(EfusePump2, m.state()),
+            Some(Msg::BattboxEfuseState(m)) => EfuseCommand::add_command(EfuseBattbox, m.state()),
+            Some(Msg::McEfuseState(m)) => EfuseCommand::add_command(EfuseMC, m.state()),
+            Some(Msg::SpareEfuseState(m)) => EfuseCommand::add_command(EfuseSpare, m.state()),
 
-            Some(Msg::PrechargeStatus(_)) => {}
             Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
                 Ok(cmd) => {
                     if rtds::send(cmd).is_err() {
-                        debug!("Failed to forward RTDS CAN command");
+                        debug!("Failed to forward RTDS CAN command")
                     }
                 }
                 Err(byte) => debug!("Unknown message {}", byte),
             },
-
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
-            Some(Msg::ShutdownAsReadByBms(m)) => {
-                shutdown::update_bms_shutdown(m.shutdown_state().into()).await
-            }
+            Some(Msg::LightningPulseMessage(_)) => {}
+
             Some(_) => debug!("Unknown message"),
             _ => {
                 debug!("failed to parse id")
