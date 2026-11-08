@@ -385,6 +385,7 @@ pub mod analyzer {
             let state = crate::state_machine::state();
 
             for chip in ChipId::iter() {
+                // Copy cell voltages into struct then patch
                 self.corrected_cell_voltages[chip].iter_mut().for_each(|(cell, voltage)| {
                     *voltage = cell_voltages[chip][cell];
                 });

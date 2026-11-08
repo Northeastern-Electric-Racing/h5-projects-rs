@@ -36,7 +36,7 @@ atomic_enum = { version = "0.3.0" }
 uom = { version = "0.38.0", default-features = false, features = ["si", "f32"] }
 
 adbms6830b = { git = "https://github.com/bjackson312006/firmware-rs.git", branch = "adbms6830b.pwm-helper", features = ["defmt"] }
-adbms2950 = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "810be7e0b5a0c0162be26917e0dbce41af545b79", features = ["defmt"] }
+adbms2950 = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "01a83b6f425c33ca6e99cb921622aa144eaa1abd", features = ["defmt"] }
 defmt-monitor = { git = "https://github.com/bjackson312006/defmt-monitor.git", branch = "main" }
 libm = { version = "0.2.16" }
 
