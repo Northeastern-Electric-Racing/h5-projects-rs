@@ -948,7 +948,7 @@ dependencies = [
 [[package]]
 name = "lsm6dsv16x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lsm6dsv16x-ner#867d98fbde67f629a773b471cd132201ae46286e"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
 dependencies = [
  "defmt 1.2.0",
  "embassy-time",
