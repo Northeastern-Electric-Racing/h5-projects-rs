@@ -9,13 +9,12 @@ use embassy_stm32::spi::Spi;
 use embassy_stm32::spi::mode::Master;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
-use embassy_time::{Delay, Duration, Ticker};
+use embassy_time::{Delay, Duration, Ticker, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use lis2mdl_ner::{Lis2mdl, MagneticField};
 
-/// PI2 plus the magnetometer's chip select pin. `ExclusiveDevice` pulls CS low around every
+/// SPI2 plus the magnetometer's chip select pin. `ExclusiveDevice` pulls CS low around every
 /// transaction, which the C firmware never did
-/// if this doesn't compile, check the `Spi` type parameters for your embassy-stm32 version
 pub type MagSpi = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 
 /// How often to check for new data. Matches the sensor's 50 Hz output data rate.
@@ -29,10 +28,18 @@ pub static MAG_DATA: Watch<ThreadModeRawMutex, MagneticField, MAX_RECEIVERS> = W
 
 #[embassy_executor::task]
 pub async fn magnetometer_task(spi: MagSpi) {
+    Timer::after_millis(20).await; // let the sensor finish booting after power-up
     let mut mag = Lis2mdl::new(spi, Delay);
-    if let Err(e) = mag.init().await {
-        defmt::error!("LIS2MDL init failed: {} (check SPI wiring/mode)", e);
-        return;
+
+    // keep retrying instead of giving up, so a loose wire or slow power-up recovers
+    loop {
+        match mag.init().await {
+            Ok(()) => break,
+            Err(e) => {
+                defmt::error!("LIS2MDL init failed: {} (retrying)", e);
+                Timer::after_millis(100).await;
+            }
+        }
     }
     defmt::info!("LIS2MDL initialised");
 
@@ -42,7 +49,7 @@ pub async fn magnetometer_task(spi: MagSpi) {
     loop {
         match mag.read().await {
             Ok(Some(field)) => {
-                defmt::info!("Magnetometer: {}", field);
+                defmt::trace!("Magnetometer: {}", field);
                 sender.send(field);
             }
             Ok(None) => {} // no new sample yet

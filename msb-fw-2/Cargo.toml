@@ -20,6 +20,7 @@ embedded-hal-bus.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 static_cell.workspace = true
+vqf-rs = { version = "0.3", default-features = false, features = ["f32", "libm"] }
 hdc2021-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "hdc2021-ner" }
 lis2mdl-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "lis2mdl-ner" }
 lsm6dsv16x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "lsm6dsv16x-ner" }
