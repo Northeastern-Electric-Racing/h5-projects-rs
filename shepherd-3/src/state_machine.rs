@@ -179,6 +179,12 @@ pub async fn state_machine_task() -> ! {
     let mut ticker = Ticker::every(Duration::from_millis(TICK_PERIOD_MS));
     loop {
         STATE.tick();
+
+        #[cfg(defmt_monitor)]
+        '_defmt_monitor: {
+            defmt_monitor::monitor!("StateMachine/state", desc = "Current BmsState", "{}", state());
+        }
+
         ticker.next().await;
     }
 }
