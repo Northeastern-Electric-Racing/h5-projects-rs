@@ -1,30 +1,30 @@
 use crate::hv_plate;
-use adbms2950::chip::registers::config_a::types::AccumulatorDepth;
-use adbms2950::chip::registers::measurement::accumulation_count;
 
-/// Accumulation depth, written into ConfigA's `ACCI` by `HvPlate::startup`.
-pub(in crate::hv_plate) const ACCUMULATOR_DEPTH: AccumulatorDepth = AccumulatorDepth::Samples32;
-const ACCN: u16 = accumulation_count(ACCUMULATOR_DEPTH as u8);
+/// Samples each accumulator window sums, from the depth `core` configures the chip with.
+const ACCN: u16 = hv_plate::core::ACCUMULATOR_DEPTH.samples();
 
 const NANOS_PER_MICRO: u32 = 1_000;
 
 /// Handles reading 2950's acc registers - does window bookkeeping, `t_CONV` measurement, restart handling.
 mod accumulator {
     use super::{ACCN, NANOS_PER_MICRO, hv_plate};
+    use adbms2950::chip::registers::flag::Flag;
+    use adbms2950::line::conversion_times;
     use embassy_time::{Duration, Instant};
 
-    const I1CNTPHA_MODULUS: u32 = 1 << 13;
-    const PHA_PER_CNT: u32 = 4;
+    /// Phase ticks per conversion, as [`Flag::i1cntpha`] packs them.
+    const PHA_PER_CNT: u32 = Flag::PHASES_PER_CONVERSION as u32;
 
-    const CONVERSION_STARTUP_MASK: Duration = Duration::from_micros(adbms2950::line::conversion_times::IXADC_INIT_MAX_MS as u64 * 1_000 + NOMINAL_CONVERSION_NANOS as u64 * ACCN as u64 / 1_000);
-    pub const NOMINAL_CONVERSION_NANOS: u32 = adbms2950::line::conversion_times::IXADC_CONVERSION_MS * 1_000_000;
+    const CONVERSION_STARTUP_MASK: Duration = Duration::from_micros(conversion_times::IXADC_INIT_MAX_MS as u64 * 1_000 + NOMINAL_CONVERSION_NANOS as u64 * ACCN as u64 / 1_000);
+    pub const NOMINAL_CONVERSION_NANOS: u32 = conversion_times::IXADC_CONVERSION_NS;
 
     /// Derived from this equation: `elapsed(in micros) * NANOS_PER_MICRO * PHASE_PER_CONVERSION / ticks`, such that the result doesn't overflow or narrow.
     const MAX_ELAPSED_MICROS: u32 = u32::MAX / (NANOS_PER_MICRO * PHA_PER_CNT);
     const MAX_ELAPSED: Duration = Duration::from_micros(MAX_ELAPSED_MICROS as u64);
 
-    /// Any measured window > ~20% (datasheet says worst case of +- 10%) of nominal isn't measured as drift but a desync.
-    const CONVERSION_TOLERANCE_NANOS: u32 = NOMINAL_CONVERSION_NANOS / 5;
+    /// Twice the datasheet's worst-case oscillator tolerance. Beyond that a measured window is
+    /// taken as a desynced counter rather than real drift.
+    const CONVERSION_TOLERANCE_NANOS: u32 = NOMINAL_CONVERSION_NANOS * conversion_times::IXADC_CONVERSION_TOLERANCE_PERCENT * 2 / 100;
 
     /// How long `I1CNTPHA` has to run before the measurement against it is worth believing.
     /// Jitter in tick will go down 1/x with this duration
@@ -40,12 +40,13 @@ mod accumulator {
         read_at: Instant,
     }
 
+    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     impl Registers {
         pub fn read(flag: &hv_plate::cache::flag::Nice, accumulated: &hv_plate::cache::accumulated::Nice) -> Self {
             Self {
                 i1cnt: flag.data().i1cnt,
                 i1cntpha: flag.data().i1cntpha,
-                current_sum_microvolts: hv_plate::board::discharge_positive(accumulated.data().current_sum_microvolts),
+                current_sum_microvolts: accumulated.data().current_sum_microvolts,
                 batt_sum_microvolts: accumulated.data().batt_sum_microvolts,
                 read_at: accumulated.oldest_read(),
             }
@@ -113,6 +114,8 @@ mod accumulator {
         desyncs: u32,
     }
 
+    // `missed_windows` and `desyncs` are read only by the `#[cfg(defmt_monitor)]` block in `task`.
+    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     impl Reader {
         pub const fn new() -> Self {
             Self {
@@ -193,17 +196,17 @@ mod accumulator {
             // Reset base and measure conversion nanos
             self.measurement_base = Some((i1cntpha, read_at));
 
-            let mesaured_cntpha = (u32::from(i1cntpha) + I1CNTPHA_MODULUS - u32::from(base_pha)) % I1CNTPHA_MODULUS;
+            let measured_cntpha = u32::from(Flag::i1cntpha_delta(base_pha, i1cntpha));
 
-            if mesaured_cntpha == 0 || elapsed > MAX_ELAPSED {
+            if measured_cntpha == 0 || elapsed > MAX_ELAPSED {
                 self.desyncs = self.desyncs.saturating_add(1);
-                defmt::warn!("HvPlate: soc: no usable conversion time: {} phase ticks across {=u64} us.", mesaured_cntpha, elapsed.as_micros());
+                defmt::warn!("HvPlate: soc: no usable conversion time: {} phase ticks across {=u64} us.", measured_cntpha, elapsed.as_micros());
                 return self.measured_conversion_nanos;
             }
 
             // Bounded by MAX_ELAPSED above, so neither the narrowing nor the product can overflow.
             let elapsed_micros = elapsed.as_micros() as u32;
-            let conversion_nanos = (elapsed_micros * NANOS_PER_MICRO * PHA_PER_CNT) / mesaured_cntpha;
+            let conversion_nanos = (elapsed_micros * NANOS_PER_MICRO * PHA_PER_CNT) / measured_cntpha;
             if conversion_nanos.abs_diff(NOMINAL_CONVERSION_NANOS) > CONVERSION_TOLERANCE_NANOS {
                 self.desyncs = self.desyncs.saturating_add(1);
                 defmt::warn!("HvPlate: soc: measured a conversion time of {} ns, too far from nominal to believe.", conversion_nanos);
@@ -258,6 +261,7 @@ mod shunt {
     const CALIBRATION_MAX_REFERENCE_AMPS: f32 = 0.15;
 
     /// One window, corrected and in physical units. What every estimator consumes.
+    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     #[derive(Copy, Clone)]
     pub struct Measurement {
         /// Mean current across the window. Positive is discharge.
@@ -287,6 +291,8 @@ mod shunt {
         runs_rejected: u32,
     }
 
+    // The offset and run tallies are read only by the `#[cfg(defmt_monitor)]` block in `task`.
+    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     impl Calibrator {
         pub const fn new() -> Self {
             Self {
@@ -424,6 +430,7 @@ mod charge {
         seeded_from: Option<Instant>,
     }
 
+    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     impl Counter {
         pub const fn new() -> Self {
             Self {
@@ -498,6 +505,7 @@ pub mod api {
         pub drift: f32,
     }
 
+    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     #[derive(Copy, Clone)]
     pub struct SocDataHolder {
         /// The actual estimator data.
@@ -522,12 +530,17 @@ pub mod api {
 
 mod task {
     use super::*;
+    #[cfg(defmt_monitor)]
     use crate::helpers::deadline::Deadline;
     use crate::{hv_plate, pack};
+    #[cfg(defmt_monitor)]
     use crate::units::{degree_celsius, volt};
+    #[cfg(defmt_monitor)]
     use uom::si::electric_current::ampere;
+    #[cfg(defmt_monitor)]
     use embassy_time::Duration;
 
+    #[cfg(defmt_monitor)]
     const DIAGNOSTIC_PERIOD: Duration = Duration::from_millis(500);
 
     #[embassy_executor::task]
@@ -540,6 +553,7 @@ mod task {
         let mut counter = charge::Counter::new();
 
         let mut latest_measurement: Option<shunt::Measurement> = None;
+        #[cfg(defmt_monitor)]
         let mut latest_window: Option<accumulator::Window> = None;
         let mut latest_registers: Option<accumulator::Registers> = None;
 
@@ -552,6 +566,7 @@ mod task {
         let accumulated = hv_plate::cache().get_accumulated().nice().ready().await;
         let voltages = hv_plate::cache().get_voltages().nice().ready().await;
 
+        #[cfg(defmt_monitor)]
         let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
         loop {
             // Period of ~25ms (how often we read acc data registers)
@@ -602,7 +617,10 @@ mod task {
                 }
 
                 latest_measurement = Some(measurement);
-                latest_window = Some(window);
+                #[cfg(defmt_monitor)]
+                {
+                    latest_window = Some(window);
+                }
             }
 
             // Store

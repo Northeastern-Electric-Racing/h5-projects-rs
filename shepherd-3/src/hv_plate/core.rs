@@ -7,12 +7,15 @@ use static_cell::StaticCell;
 use super::cache::{self, UpdateError};
 use super::isospi_recovery;
 use super::precharge;
-use super::soc;
 use crate::broadcast::Broadcast;
 use crate::helpers::deadline::Deadline;
 use crate::job_diagnostics::JobDiagnosticsContainer;
+use adbms2950::chip::registers::config_a::types::AccumulatorDepth;
 use adbms2950::line::Error;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+
+/// Accumulation depth (`ACCN`), written into ConfigA's `ACCI` by [`HvPlate::startup`].
+pub(in crate::hv_plate) const ACCUMULATOR_DEPTH: AccumulatorDepth = AccumulatorDepth::Samples32;
 
 #[cfg(not(feature = "hil"))]
 embassy_stm32::bind_interrupts!(struct Irqs {
@@ -112,7 +115,7 @@ impl HvPlate {
                     .with_vs1(VoltageReferenceWide::Vref1p25)
                     .with_vs2(VoltageReferenceWide::Vref1p25)
                     .with_vs7(VoltageReference::Sgnd)
-                    .with_acci(soc::ACCUMULATOR_DEPTH)
+                    .with_acci(ACCUMULATOR_DEPTH)
                     // Enables HV sense dividers, so TS and BATT can be read
                     .with_gpo2c(GpoOutputState::Driven)
                     .with_gpo2od(GpoDriveMode::PushPull)

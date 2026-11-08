@@ -215,7 +215,7 @@ pub async fn hv_plate_debug() {
 
             #[cfg(not(feature = "hil"))]
             {
-                defmt_monitor::monitor!("HvPlate/Accumulated/CurrentSumMicrovolts", desc = "Summed shunt voltage across ACCN conversions, in microvolts. A running total, never reset here.", "{=i32}", accumulated.current_sum_microvolts);
+                defmt_monitor::monitor!("HvPlate/Accumulated/CurrentSumMicrovolts", desc = "Summed shunt voltage across ACCN conversions, in microvolts, discharge positive. A running total, never reset here.", "{=i32}", accumulated.current_sum_microvolts);
                 defmt_monitor::monitor!("HvPlate/Accumulated/BattSumMicrovolts", desc = "Summed BATT-tap voltage across ACCN conversions, in microvolts.", "{=i32}", accumulated.batt_sum_microvolts);
             }
             defmt_monitor::monitor!("HvPlate/Accumulated/I1Cnt", desc = "I1ADC conversion counter. Says how many conversions the accumulator sums cover.", "{=u16}", flag.i1cnt);
