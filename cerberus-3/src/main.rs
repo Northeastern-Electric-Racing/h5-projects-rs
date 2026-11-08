@@ -208,7 +208,7 @@ async fn main(spawner: Spawner) -> ! {
             scl: p.PF1,
             sda: p.PF0,
         })
-        .expect("Failed to spawn peripherals::peripherals_task()."),
+        .expect("Failed to spawn peripherals::i2c_peripherals_task()."),
     );
 
     // IMU
@@ -222,7 +222,7 @@ async fn main(spawner: Spawner) -> ! {
             tx_dma: p.GPDMA1_CH2,
             rx_dma: p.GPDMA1_CH3,
         })
-        .expect("Failed to spawn peripherals::imu_task()."),
+        .expect("Failed to spawn peripherals::spi_peripherals_task()."),
     );
 
     // RTDS

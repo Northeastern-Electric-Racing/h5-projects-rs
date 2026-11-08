@@ -148,8 +148,6 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
 
     let mut ticker = Ticker::every(IMU_POLL_INTERVAL);
     loop {
-        ticker.next().await;
-
         if let Some(accel) = imu.get_accel().await {
             let frame = cangen::ImuAccelerometer::new()
                 .with_imu_accelerometer_x(accel.x.get::<lsm6dsv16x_ner::milligravity>())
@@ -175,7 +173,10 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
                         .yaw_rate
                         .get::<lsm6dsv16x_ner::mdps::millidegree_per_second>(),
                 );
+
             can::OUTGOING.send(frame.to_can_frame()).await;
         }
+
+        ticker.next().await;
     }
 }
