@@ -1,17 +1,10 @@
 use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
-use embassy_stm32::{ 
-    Peri, 
-    bind_interrupts, 
-    exti::ExtiInput, 
-    gpio::{Level, Output, Pull, Speed}, 
-    interrupt, 
-    peripherals
-};
-use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex, 
-    channel::Channel
-};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::{Peri, bind_interrupts, exti::ExtiInput};
+use embassy_stm32::{interrupt, peripherals};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_time::Timer;
 
 bind_interrupts!(
