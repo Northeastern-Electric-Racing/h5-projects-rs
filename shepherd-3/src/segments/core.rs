@@ -867,8 +867,6 @@ pub mod task {
                 }
             }
 
-            #[cfg(feature = "hil")]
-
             // We only run the open wire test every so often
             #[cfg(not(feature = "hil"))]
             '_open_wire: {
