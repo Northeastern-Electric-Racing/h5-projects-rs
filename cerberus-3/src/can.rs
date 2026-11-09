@@ -3,7 +3,7 @@
 use crate::bms::{PrechargeState, set_precharge_state};
 use crate::efuses::EfuseCommand;
 use crate::efuses::EfuseId::*;
-use crate::{bms, buttons, rtds, shutdown};
+use crate::{bms, buttons, lightning, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -137,6 +137,7 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
             Some(Msg::VcuBootRequest(_)) => bootloader
                 .handle_request(frame.data())
                 .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
+            Some(Msg::LightningPulseMessage(_)) => lightning::lightning_handle_pulse_message(),
             Some(Msg::CellTemperatures(m)) => {
                 bms::set_battery_box_temp(Temperature::new::<degree_celsius>(m.avg_val()))
             }
@@ -180,7 +181,6 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
                 Err(byte) => debug!("Unknown message {}", byte),
             },
             Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
-            Some(Msg::LightningPulseMessage(_)) => {}
 
             Some(_) => debug!("Unknown message"),
             _ => {
