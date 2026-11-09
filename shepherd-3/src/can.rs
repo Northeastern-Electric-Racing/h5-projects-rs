@@ -8,6 +8,7 @@ mod rx_ids {
     pub const CHARGER_BOX: u32 = 0x18FF_50E5;
     pub const DTI_DC_CURRENT: u16 = 0x436;
     pub const DTI_INPUT_VOLTAGE: u16 = 0x416;
+    pub const SHEPHERD_BMS_PWM_PERCENT: u16 = 0x455;
 }
 
 /// MAIN PUBLIC API THE REST OF THE PROGRAM USES TO INTERACT WITH CAN.
@@ -49,8 +50,9 @@ mod api {
         let can = handler::NerCan::init(configurator)
             .add_standard_filter(StandardFilterSlot::_0, rx_ids::DTI_INPUT_VOLTAGE, None)
             .add_standard_filter(StandardFilterSlot::_1, rx_ids::DTI_DC_CURRENT, None)
+            .add_standard_filter(StandardFilterSlot::_2, rx_ids::SHEPHERD_BMS_PWM_PERCENT, None)
             .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None)
-            .add_standard_filter(StandardFilterSlot::_2, crate::BOOT_REQUEST_ID, None);
+            .add_standard_filter(StandardFilterSlot::_3, crate::BOOT_REQUEST_ID, None);
 
         let (tx, rx, _props) = can.start();
 
@@ -207,6 +209,20 @@ pub mod types {
         }
     }
 
+    pub struct BmsChargeMessageSend {
+        pub charge_volts: f32,
+        pub charge_current: f32,
+
+        /// 0xFF = stop charging, 0 = yes charge
+        pub charging_state: u8,
+    }
+    impl BmsChargeMessageSend {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BmsChargeMessageSend::new().with_charge_volts(self.charge_volts).with_charge_current(self.charge_current).with_enable_charging(self.charging_state);
+            frame.to_can_frame()
+        }
+    }
+
     pub struct ShutdownAsReadByBms {
         pub shutdown_state: bool,
         pub shutdown_ts_minus_sense: bool,
@@ -217,7 +233,6 @@ pub mod types {
     impl ShutdownAsReadByBms {
         pub fn as_frame(&self) -> Frame {
             let frame = cangen::ShutdownAsReadByBms::new().with_shutdown_state(self.shutdown_state).with_shutdown_ts_minus_sense(self.shutdown_ts_minus_sense).with_shutdown_ts_plus_sense(self.shutdown_ts_plus_sense).with_shutdown_acc_sense(self.shutdown_acc_sense).with_shutdown_tsip_sense(self.shutdown_tsip_sense);
-
             frame.to_can_frame()
         }
     }
@@ -290,6 +305,7 @@ mod channels {
 }
 
 mod handler {
+    use cangen::FromCanFrame;
     use defmt::warn;
     use embassy_stm32::can::filter::FilterType::{DedicatedDual, DedicatedSingle};
     use embassy_stm32::can::filter::{Action, ExtendedFilter, ExtendedFilterSlot, StandardFilter, StandardFilterSlot};
@@ -462,7 +478,7 @@ mod handler {
     #[embassy_executor::task]
     pub async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) -> ! {
         use super::rx_ids::*;
-        use crate::{pack, state_machine};
+        use crate::{pack, charging};
         use embedded_can::Id;
 
         loop {
@@ -475,7 +491,7 @@ mod handler {
                     }
                 },
                 Id::Extended(id) if id.as_raw() == CHARGER_BOX => {
-                    state_machine::charger_frame_received();
+                    charging::alert_charger_received();
                     if let Some(current) = decode_current(frame.data()) {
                         pack::analyzer::store_can_pack_current(current);
                     }
@@ -483,14 +499,19 @@ mod handler {
                         pack::analyzer::store_can_ts_voltage(voltage);
                     }
                 },
-                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !state_machine::charger_connected() => {
+                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !charging::is_charger_connected() => {
                     if let Some(current) = decode_current(frame.data()) {
                         pack::analyzer::store_can_pack_current(current);
                     }
                 },
-                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !state_machine::charger_connected() => {
+                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !charging::is_charger_connected() => {
                     if let Some(voltage) = decode_dti_voltage(frame.data()) {
                         pack::analyzer::store_can_ts_voltage(voltage);
+                    }
+                },
+                Id::Standard(id) if id.as_raw() == SHEPHERD_BMS_PWM_PERCENT => {
+                    if let Some(pwm) = cangen::ShepherdBmsPwmPercent::from_can_frame(&frame) {
+                        charging::update_pwm_duty_cycle(&pwm);
                     }
                 },
                 _ => {},
