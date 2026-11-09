@@ -588,7 +588,6 @@ mod drive_modes {
     }
 }
 
-const PEDALS_TASK_PERIOD: Duration = Duration::from_millis(100);
 static LOCK_MUTEX: Mutex<ThreadModeRawMutex, locks::State> = Mutex::new(locks::State::INIT);
 
 static BRAKE_PRESSED: AtomicBool = AtomicBool::new(false);
@@ -717,7 +716,7 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
     let mut drive_lock: locks::State = locks::State::INIT;
     let mut torque_lock: drive_modes::State = drive_modes::State::INIT;
 
-    let mut ticker = Ticker::every(PEDALS_TASK_PERIOD);
+    let mut ticker = Ticker::every(Duration::from_millis(10));
 
     loop {
         if adc.read_latest(&mut pedal_buffer.data) != analog::Adc2Channels::VARIANT_COUNT {
