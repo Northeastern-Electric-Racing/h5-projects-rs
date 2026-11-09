@@ -3,6 +3,7 @@
 //! determines how to handle the torque and regen
 //! values based on the current drive mode.
 
+use crate::can;
 use crate::statemachine;
 use crate::statemachine::FuncState;
 use cangen::ToCanFrame;
@@ -265,6 +266,18 @@ mod locks {
                 self.motor_disabled = false;
                 self.unset_lock(Locks::BspdPref);
             }
+        }
+
+        pub(crate) fn to_locks_frame(&self) -> cangen::DriveLockStates {
+            use Locks::*;
+            cangen::DriveLockStates::new()
+                .with_ACCEL_DIFF(self.get_lock_state(AccelDiff))
+                .with_ACCEL_OC(self.get_lock_state(AccelOc))
+                .with_ACCEL_SC(self.get_lock_state(AccelSc))
+                .with_BMS_NOT_PRECHARGED_YET(self.get_lock_state(BmsNotPrechargedYet))
+                .with_BRAKE_OC(self.get_lock_state(BrakeOc))
+                .with_BRAKE_SC(self.get_lock_state(BrakeSc))
+                .with_BSPD_PREF(self.get_lock_state(BspdPref))
         }
     }
 }
@@ -773,12 +786,16 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
         }
         *LOCK_MUTEX.lock().await = drive_lock;
 
-        crate::can::OUTGOING
+        can::OUTGOING
             .send(pedal_data.to_volt_frame().to_can_frame())
             .await;
-        crate::can::OUTGOING
+        can::OUTGOING
             .send(pedal_data.to_per_frame().to_can_frame())
             .await;
+        can::OUTGOING
+            .send(drive_lock.to_locks_frame().to_can_frame())
+            .await;
+
         ticker.next().await;
     }
 }
