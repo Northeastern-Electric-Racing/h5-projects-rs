@@ -268,7 +268,7 @@ mod locks {
             }
         }
 
-        pub(crate) fn to_locks_frame(&self) -> cangen::DriveLockStates {
+        pub(crate) fn to_locks_frame(self) -> cangen::DriveLockStates {
             use Locks::*;
             cangen::DriveLockStates::new()
                 .with_ACCEL_DIFF(self.get_lock_state(AccelDiff))
