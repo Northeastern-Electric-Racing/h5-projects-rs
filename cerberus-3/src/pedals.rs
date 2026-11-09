@@ -12,7 +12,7 @@ use defmt::debug;
 use embassy_stm32::adc::{Adc, AdcChannel, Clock, Config, Prescaler, Resolution};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Ticker};
+use embassy_time::{Duration, Instant, Ticker};
 use uom::si::electric_current::ampere;
 use uom::si::f32::{ElectricCurrent, Ratio, Torque, Velocity};
 use uom::si::ratio::{percent, ratio};
@@ -730,6 +730,7 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
     let mut torque_lock: drive_modes::State = drive_modes::State::INIT;
 
     let mut ticker = Ticker::every(Duration::from_millis(10));
+    let mut last_can_send_time = Instant::now();
 
     loop {
         if adc.read_latest(&mut pedal_buffer.data) != analog::Adc2Channels::VARIANT_COUNT {
@@ -786,15 +787,19 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
         }
         *LOCK_MUTEX.lock().await = drive_lock;
 
-        can::OUTGOING
-            .send(pedal_data.to_volt_frame().to_can_frame())
-            .await;
-        can::OUTGOING
-            .send(pedal_data.to_per_frame().to_can_frame())
-            .await;
-        can::OUTGOING
-            .send(drive_lock.to_locks_frame().to_can_frame())
-            .await;
+        if last_can_send_time.elapsed() >= Duration::from_millis(100) {
+            can::OUTGOING
+                .send(pedal_data.to_volt_frame().to_can_frame())
+                .await;
+            can::OUTGOING
+                .send(pedal_data.to_per_frame().to_can_frame())
+                .await;
+            can::OUTGOING
+                .send(drive_lock.to_locks_frame().to_can_frame())
+                .await;
+
+            last_can_send_time = Instant::now();
+        }
 
         ticker.next().await;
     }
