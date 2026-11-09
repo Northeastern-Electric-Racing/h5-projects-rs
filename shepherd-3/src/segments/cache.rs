@@ -14,6 +14,8 @@ use adbms6830b::{
         status::{StatusC, StatusD, StatusA, StatusB},
         clear::{ClearFlags, types::ClearAction, ClearOvervoltageUndervoltage},
         results::{AuxillaryA, AuxillaryB, AuxillaryC, AuxillaryD},
+        config_b::ConfigB,
+        config_a::ConfigA,
     },
     turnkey::api::LineId,
 };
@@ -51,6 +53,8 @@ pub enum UpdateError {
     /// Impossible error that should not be possible to happen. Using this instead of unreachable!()
     /// or an unwrap/expect so an impossible error that somehow happens doesn't panic the whole bms
     ImpossibleError,
+    /// Error starting continuous conversions.
+    StartContinuousConversionsError(Error<SpiError>),
 }
 
 /// Register reading for a single chip.
@@ -432,6 +436,7 @@ pub struct CacheData {
     status_a: status_a::CacheData,
     status_b: status_b::CacheData,
     pwm: pwm::CacheData,
+    config: config::CacheData,
 }
 impl CacheData {
     pub(super) const fn new() -> Self {
@@ -449,6 +454,7 @@ impl CacheData {
             status_a: status_a::CacheData::new(),
             status_b: status_b::CacheData::new(),
             pwm: pwm::CacheData::new(),
+            config: config::CacheData::new(),
         }
     }
 }
@@ -2329,6 +2335,30 @@ pub mod pwm {
     /// so you should probably look at the Raw readings if interested in that.
     pub type NiceData = IndexByChip<IndexByCell<PwmDutyCycleConfig>>;
 
+    impl IndexByCell<PwmDutyCycleConfig> {
+        /// Destructures an `IndexByCell<PwmDutyCycleConfig>` into an `(PwmA, PwmB)` tuple so it can be written to registers.
+        pub fn destructure(&self) -> (PwmA, PwmB) {
+            let pwma = PwmA::all_disabled()
+                .with_pwm1(self[CellId::Cell1])
+                .with_pwm2(self[CellId::Cell2])
+                .with_pwm3(self[CellId::Cell3])
+                .with_pwm4(self[CellId::Cell4])
+                .with_pwm5(self[CellId::Cell5])
+                .with_pwm6(self[CellId::Cell6])
+                .with_pwm7(self[CellId::Cell7])
+                .with_pwm8(self[CellId::Cell8])
+                .with_pwm9(self[CellId::Cell9])
+                .with_pwm10(self[CellId::Cell10])
+                .with_pwm11(self[CellId::Cell11])
+                .with_pwm12(self[CellId::Cell12]);
+
+            // 14, 15, and 16 will stay disabled
+            let pwmb = PwmB::all_disabled().with_pwm13(self[CellId::Cell13]);
+
+            (pwma, pwmb)
+        }
+    }
+
     /// Container for "nice" data.
     #[derive(Copy, Clone)]
     pub struct Nice {
@@ -2449,6 +2479,77 @@ pub mod pwm {
         /// Gets the current cached PwmA/B data.
         pub fn get_pwm(&self) -> &CacheData {
             &self.pwm
+        }
+    }
+}
+
+/// Cache for `ConfigA` and `ConfigB` register groups.
+pub mod config {
+    use super::{RegisterCache, ConfigB, ConfigA, UpdateError, RegisterCacheReadHandle};
+    use super::alias;
+
+    /// Stored Cache Data for Config register groups.
+    pub struct CacheData {
+        raw: Raw,
+    }
+    impl CacheData {
+        /// Creates a new `CacheData` with uninitialized values.
+        pub(super) const fn new() -> Self {
+            Self { raw: Raw::new() }
+        }
+        /// Gets the "raw" version of this data.
+        pub const fn raw(&self) -> &Raw {
+            &self.raw
+        }
+    }
+
+    /// Raw ConfigA/B register readings.
+    pub struct Raw {
+        configa: RegisterCache<ConfigA>,
+        configb: RegisterCache<ConfigB>,
+    }
+    impl Raw {
+        pub fn config_a(&self) -> &RegisterCacheReadHandle<ConfigA> {
+            self.configa.read_handle()
+        }
+        pub fn config_b(&self) -> &RegisterCacheReadHandle<ConfigB> {
+            self.configb.read_handle()
+        }
+
+        /// Creates new uninitialized `Raw`.
+        const fn new() -> Self {
+            Self { configa: RegisterCache::new(), configb: RegisterCache::new() }
+        }
+
+        /// Updates the Raw.
+        async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.configa.update(api).await?;
+            self.configb.update(api).await?;
+
+            Ok(())
+        }
+    }
+
+    impl CacheData {
+        /// Updates ConfigA/B cache with new data.
+        ///
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.raw.update(api).await?;
+            Ok(())
+        }
+    }
+
+    impl super::CacheData {
+        /// Updates ConfigA/B data.
+        pub(in crate::segments) async fn update_config(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            self.config.update(api).await
+        }
+
+        /// Gets the current cached ConfigA/B data.
+        pub fn get_config(&self) -> &CacheData {
+            &self.config
         }
     }
 }
