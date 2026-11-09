@@ -1,234 +1,164 @@
-//! isoSPI break detection and recovery
-
 use adbms2950::api::LineId;
-use adbms2950::line::Error;
 use embassy_time::{Duration, Instant};
 
 use crate::hv_plate::core::alias;
 
-const PEC_ERROR_THRESHOLD: u32 = 16;
-/// Errors in a single cycle needed to open an accumulation window.
-const PEC_ACCUM_START_THRESH: u32 = 0;
-const ACCUM_PERIOD: Duration = Duration::from_millis(1500);
-const VALIDATION_THRESHOLD: u32 = 3;
-const VERIFICATION_READS: u32 = 5;
-/// Maks for  startup noise at the read layer
-const STARTUP_MASK_TIME: Duration = Duration::from_millis(1500);
+/// PEC failures in a closed window that declare the active line broken.
+const BREAK_THRESHOLD: u32 = 16;
+/// How long a window stays open once a failure opens it.
+const WINDOW: Duration = Duration::from_millis(1500);
+/// PEC failures tolerated in one verification tick on the spare.
+const VERIFY_THRESHOLD: u32 = 3;
+/// Verification ticks allowed before the spare is declared bad too.
+const VERIFY_TICKS: u32 = 5;
+/// Errors are ignored this long after boot, while the line settles.
+const SETTLE_TIME: Duration = Duration::from_millis(1500);
 
 #[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
-pub(super) enum State {
-    Normal,
-    BreakDetected,
+pub enum State {
+    /// Watching the active line for a break.
+    Healthy,
+    /// Checking the line just switched to.
     Verifying,
-    ServiceSuccess,
-    ServiceFailed,
+    /// Both lines are broken. Terminal.
+    Exhausted,
 }
 
-/// Work [`Service::evaluate`] could not do itself, because it needs the wire.
-pub(super) enum Action {
-    None,
-    Restart,
+impl State {
+    /// Whether the supervisor has given up. Nothing after this changes that.
+    pub const fn is_exhausted(self) -> bool {
+        matches!(self, Self::Exhausted)
+    }
 }
 
-pub(super) struct Service {
+/// Work the supervisor cannot do itself, because it needs the chip reconfigured.
+pub enum Action {
+    Nothing,
+    /// The active line changed, so the chip on it has to be brought up from scratch.
+    Reconfigure,
+}
+
+/// Watches the PEC tally for a broken line, and spends the one spare line when it finds one.
+pub struct Service {
     state: State,
-    /// Lifetime PEC-failure count at the last reset. The driver never clears its tally, so
-    /// "reset" means re-baselining against it.
+    /// Lifetime PEC-failure count at the last re-baseline. The driver never clears its tally, so
+    /// re-baselining moves this mark rather than zeroing anything.
     pec_baseline: u32,
-    accum_deadline: Option<Instant>,
-    startup_mask_until: Instant,
-    verification_attempts: u32,
-    /// Latches on the first successful recovery. There is only one spare line.
-    recovery_successful: bool,
-    fault_latched: bool,
-    started: bool,
+    /// Set when a failure opens a window. A break is declared only if the window closes over
+    /// [`BREAK_THRESHOLD`], so a single spike does not cost the spare line.
+    window_closes_at: Option<Instant>,
+    settle_until: Instant,
+    verify_ticks: u32,
 }
 
 impl Service {
-    pub(super) fn new(now: Instant) -> Self {
+    pub fn new(now: Instant) -> Self {
         Self {
-            state: State::Normal,
+            state: State::Healthy,
             pec_baseline: 0,
-            accum_deadline: None,
-            startup_mask_until: now + STARTUP_MASK_TIME,
-            verification_attempts: 0,
-            recovery_successful: false,
-            fault_latched: false,
-            started: false,
+            window_closes_at: None,
+            settle_until: now + SETTLE_TIME,
+            verify_ticks: 0,
         }
     }
 
-    /// Keeps the chip configured and the isoSPI link on a working port.
-    /// Returns true on restarted
-    pub(super) async fn run<F>(&mut self, api: &mut alias::Api, startup_fn: F) -> bool
-    where
-        F: AsyncFn(&mut alias::Api) -> Result<(), Error<alias::SpiError>>,
-    {
-        let mut restarted = false;
-
-        if self.needs_startup(api) {
-            restarted = true;
-
-            match startup_fn(api).await {
-                Ok(()) => self.mark_started(),
-                Err(err) => {
-                    defmt::error!("HvPlate: isoSPI: startup failed, will retry next cycle. Error: {}", err);
-                    return restarted;
-                },
-            }
-        }
-
-        if let Action::Restart = self.evaluate(api, Instant::now()) {
-            restarted = true;
-
-            if let Err(err) = startup_fn(api).await {
-                defmt::error!("HvPlate: isoSPI: restart after line switch failed. Error: {}", err);
-            }
-        }
-
-        restarted
-    }
-
-    /// Whether the chip needs configuring: either it never has been, or it reset and threw
-    /// the configuration away.
-    #[cfg_attr(feature = "hil", allow(unused_variables))]
-    fn needs_startup(&self, api: &alias::Api) -> bool {
-        if !self.started {
-            return true;
-        }
-
-        // HIL doesn't do command counter
-        #[cfg(not(feature = "hil"))]
-        if api.device().suspected_reset() {
-            defmt::warn!("HvPlate: isoSPI: chip reported command counter 0 while we expected {}; reconfiguring.", api.device().expected_command_counter());
-            return true;
-        }
-
-        false
-    }
-
-    const fn mark_started(&mut self) {
-        self.started = true;
-    }
-
-    /// Where the recovery machine currently is. For diagnostics.
-    pub(super) const fn state(&self) -> State {
+    /// Where the supervisor is. For diagnostics.
+    pub const fn state(&self) -> State {
         self.state
     }
 
-    /// PEC failures accumulated since the last re-baseline -- the quantity the break detector
-    /// thresholds on. For diagnostics.
-    pub(super) const fn errors_in_window(&self, api: &alias::Api) -> u32 {
-        self.errors_since_reset(api)
-    }
-
-    fn evaluate(&mut self, api: &mut alias::Api, now: Instant) -> Action {
-        let action = self.step(api, now);
-
-        let report = match self.state {
-            State::ServiceFailed => crate::faults::PassFailAction::NotifyBad,
-            _ => crate::faults::PassFailAction::NotifyOkay,
-        };
-        let _ = crate::faults::try_queue(crate::faults::FaultCommand::HvPlateCommsFault(report));
-
-        action
-    }
-
-    fn step(&mut self, api: &mut alias::Api, now: Instant) -> Action {
-        match self.state {
-            State::Normal => {
-                self.detect_break(api, now);
-                Action::None
-            },
-
-            State::BreakDetected => {
-                if self.recovery_successful {
-                    // The spare is spent, so there is nothing to switch to. Terminal, and the
-                    // comms fault stays latched for as long as we keep reporting it.
-                    defmt::error!("HvPlate: isoSPI: break on the spare line; no recovery left.");
-                    self.state = State::ServiceFailed;
-                    Action::None
-                } else {
-                    defmt::warn!("HvPlate: isoSPI: recovery started, switching comms to line B.");
-                    api.set_active_line(LineId::B);
-                    self.reset_accumulator(api);
-                    self.state = State::Verifying;
-                    Action::Restart
-                }
-            },
-
-            State::Verifying => {
-                if self.verification_attempts >= VERIFICATION_READS {
-                    defmt::error!("HvPlate: isoSPI: verification failed after {} attempts.", self.verification_attempts);
-                    self.state = State::ServiceFailed;
-                } else {
-                    let errors = self.errors_since_reset(api);
-                    if errors <= VALIDATION_THRESHOLD {
-                        defmt::info!("HvPlate: isoSPI: line B verification passed.");
-                        self.state = State::ServiceSuccess;
-                        self.recovery_successful = true;
-                    } else {
-                        defmt::warn!("HvPlate: isoSPI: line B verification failed ({} PEC errors).", errors);
-                    }
-                    self.reset_accumulator(api);
-                    self.verification_attempts = self.verification_attempts.saturating_add(1);
-                }
-                Action::None
-            },
-
-            State::ServiceSuccess => {
-                defmt::info!("HvPlate: isoSPI: recovery complete.");
-                self.state = State::Normal;
-                Action::None
-            },
-
-            State::ServiceFailed => {
-                if !self.fault_latched {
-                    defmt::error!("HvPlate: isoSPI: recovery failed. Comms fault latched.");
-                    self.recovery_successful = false;
-                    self.fault_latched = true;
-                }
-                self.reset_accumulator(api);
-                Action::None
-            },
-        }
-    }
-
-    /// Two-stage: a spike arms a window, and a break is declared only if that window closes
-    /// over threshold.
-    fn detect_break(&mut self, api: &alias::Api, now: Instant) {
-        if now < self.startup_mask_until {
-            self.reset_accumulator(api);
-            return;
-        }
-
-        let errors = self.errors_since_reset(api);
-
-        match self.accum_deadline {
-            None => {
-                if errors > PEC_ACCUM_START_THRESH {
-                    self.accum_deadline = Some(now + ACCUM_PERIOD);
-                } else {
-                    self.reset_accumulator(api);
-                }
-            },
-            Some(deadline) if now >= deadline => {
-                if errors > PEC_ERROR_THRESHOLD {
-                    defmt::error!("HvPlate: isoSPI: break detected on line {} ({} PEC errors in the window).", api.active_line(), errors);
-                    self.state = State::BreakDetected;
-                }
-                self.accum_deadline = None;
-                self.reset_accumulator(api);
-            },
-            Some(_) => {},
-        }
-    }
-
-    const fn errors_since_reset(&self, api: &alias::Api) -> u32 {
+    /// PEC failures since the last re-baseline.
+    pub const fn errors_in_window(&self, api: &alias::Api) -> u32 {
         api.device().pec_failed_count().saturating_sub(self.pec_baseline)
     }
 
-    const fn reset_accumulator(&mut self, api: &alias::Api) {
+    /// Advances the machine one tick.
+    pub fn tick(&mut self, api: &mut alias::Api, now: Instant) -> Action {
+        match self.state {
+            State::Healthy => self.watch(api, now),
+            State::Verifying => self.verify(api),
+            State::Exhausted => {
+                // Keep re-baselining so the diagnostic keeps reporting a per-tick figure rather than a total that only ever grows.
+                self.rebaseline(api);
+                Action::Nothing
+            },
+        }
+    }
+
+    /// A failure opens a window; a break is declared only if that window closes over threshold.
+    fn watch(&mut self, api: &mut alias::Api, now: Instant) -> Action {
+        if now < self.settle_until {
+            self.rebaseline(api);
+            return Action::Nothing;
+        }
+
+        let errors = self.errors_in_window(api);
+
+        match self.window_closes_at {
+            // Quiet, so hold the baseline against the current tally.
+            None if errors == 0 => {
+                self.rebaseline(api);
+                Action::Nothing
+            },
+            None => {
+                self.window_closes_at = Some(now + WINDOW);
+                Action::Nothing
+            },
+            Some(closes_at) if now < closes_at => Action::Nothing,
+            Some(_) => {
+                self.window_closes_at = None;
+
+                if errors <= BREAK_THRESHOLD {
+                    self.rebaseline(api);
+                    return Action::Nothing;
+                }
+
+                defmt::error!("HvPlate: link: break on line {} ({} PEC errors in the window).", api.active_line(), errors);
+                self.fail_over(api)
+            },
+        }
+    }
+
+    /// Moves to the spare line, or gives up if the spare is already the one that broke.
+    fn fail_over(&mut self, api: &mut alias::Api) -> Action {
+        if let LineId::B = api.active_line() {
+            defmt::error!("HvPlate: link: break on the spare line; no recovery left.");
+            self.state = State::Exhausted;
+            return Action::Nothing;
+        }
+
+        defmt::warn!("HvPlate: link: switching comms to line B.");
+        api.set_active_line(LineId::B);
+        self.rebaseline(api);
+        self.verify_ticks = 0;
+        self.state = State::Verifying;
+        Action::Reconfigure
+    }
+
+    /// Gives the spare a few quiet ticks before trusting it.
+    fn verify(&mut self, api: &mut alias::Api) -> Action {
+        let errors = self.errors_in_window(api);
+        self.rebaseline(api);
+
+        if errors <= VERIFY_THRESHOLD {
+            defmt::info!("HvPlate: link: line B verified; recovery complete.");
+            self.state = State::Healthy;
+            return Action::Nothing;
+        }
+
+        self.verify_ticks = self.verify_ticks.saturating_add(1);
+
+        if self.verify_ticks >= VERIFY_TICKS {
+            defmt::error!("HvPlate: link: line B still failing after {} ticks; no recovery left.", self.verify_ticks);
+            self.state = State::Exhausted;
+        } else {
+            defmt::warn!("HvPlate: link: line B verification tick failed ({} PEC errors).", errors);
+        }
+
+        Action::Nothing
+    }
+
+    const fn rebaseline(&mut self, api: &alias::Api) {
         self.pec_baseline = api.device().pec_failed_count();
     }
 }
