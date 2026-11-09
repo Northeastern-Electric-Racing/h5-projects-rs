@@ -5,6 +5,7 @@
 
 use core::cell::RefCell;
 
+use can_bootloader_core::{BootAction, BootloaderCanIds};
 use cortex_m::peripheral::SCB;
 use embassy_boot_stm32::{
     AlignedBuffer, BlockingFirmwareUpdater, BootLoader, BootLoaderConfig, FirmwareUpdaterConfig,
@@ -17,25 +18,24 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use {defmt_rtt as _, panic_probe as _};
 
-mod app;
-mod boot;
 mod can;
-mod commands;
-mod config;
-mod dispatch;
-mod flash;
-mod handlers;
-mod types;
 
 use can::CanHandler;
-use types::BootAction;
+
+/// CAN IDs and bitrate for the ECU selected by BOOTLOADER_ECU.
+mod ecu {
+    include!(concat!(env!("OUT_DIR"), "/ecu_can.rs"));
+}
+
+// External oscillator frequency used by the bootloader.
+const HSE_HZ: u32 = 25_000_000;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     let mut config = embassy_stm32::Config::default();
 
     config.rcc.hse = Some(Hse {
-        freq: Hertz(config::HSE_HZ),
+        freq: Hertz(HSE_HZ),
         mode: HseMode::Oscillator,
     });
 
@@ -61,20 +61,27 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut updater = BlockingFirmwareUpdater::new(config, aligned.as_mut());
 
+    let ids = BootloaderCanIds {
+        request: ecu::REQUEST_ID,
+        data: ecu::DATA_ID,
+        response: ecu::RESPONSE_ID,
+    };
+
     // Take the pins selected by BOOTLOADER_ECU.
     #[cfg(ecu = "bms")]
-    let mut can = CanHandler::new(p.FDCAN2, p.PD9, p.PB13);
+    let mut can = CanHandler::new(p.FDCAN2, p.PD9, p.PB13, ids);
     #[cfg(ecu = "lightning")]
-    let mut can = CanHandler::new(p.FDCAN2, p.PB12, p.PB13);
+    let mut can = CanHandler::new(p.FDCAN2, p.PB12, p.PB13, ids);
     #[cfg(any(ecu = "vcu", ecu = "msb_front", ecu = "msb_back"))]
-    let mut can = CanHandler::new(p.FDCAN2, p.PB5, p.PB6);
+    let mut can = CanHandler::new(p.FDCAN2, p.PB5, p.PB6, ids);
 
-    match boot::run(&mut can, &mut updater, &boot.state).await {
+    match can_bootloader_core::run(&mut can, ids, &mut updater, &boot.state).await {
         BootAction::Reset => SCB::sys_reset(),
         BootAction::StartApp => {}
     }
 
-    let start = config::app_start();
+    // Get the application's start address from the active partition in memory.x.
+    let active_address = can_bootloader_core::active_address();
 
     // Stop bootloader interrupts before the app replaces the vector table and RAM.
     cortex_m::interrupt::disable();
@@ -104,6 +111,6 @@ async fn main(_spawner: Spawner) -> ! {
         // cortex-m-rt expects PRIMASK clear; the app enables its own IRQs later.
         cortex_m::interrupt::enable();
         // StartApp is returned only after validating the active vectors.
-        boot.load(start)
+        boot.load(active_address)
     }
 }

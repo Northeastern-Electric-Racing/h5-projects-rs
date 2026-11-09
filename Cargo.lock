@@ -93,10 +93,10 @@ name = "atlas"
 version = "0.1.0"
 dependencies = [
  "can-bootloader-config",
+ "can-bootloader-core",
  "can-handler",
  "cortex-m",
  "cortex-m-rt",
- "crc",
  "defmt 1.2.0",
  "defmt-rtt",
  "embassy-boot-stm32",
@@ -105,7 +105,6 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embedded-can",
- "embedded-storage",
  "panic-probe",
 ]
 
@@ -222,6 +221,19 @@ version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "can-bootloader-core"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=945c3811196f448e402e1a58bc9ed93ef299a630#945c3811196f448e402e1a58bc9ed93ef299a630"
+dependencies = [
+ "crc",
+ "defmt 1.2.0",
+ "embassy-boot",
+ "embassy-time",
+ "embedded-can",
+ "embedded-storage",
 ]
 
 [[package]]
