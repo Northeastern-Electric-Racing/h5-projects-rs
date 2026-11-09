@@ -414,7 +414,6 @@ pub mod analyzer {
                     };
 
                     // I*R is the way
-                    self.corrected_cell_voltages[chip][cell] = cell_voltages[chip][cell];
                     self.corrected_cell_voltages[chip][cell] += curr_bal * res;
                 }
             }
