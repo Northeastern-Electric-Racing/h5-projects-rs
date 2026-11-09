@@ -260,8 +260,6 @@ mod system {
         PackTooHot                     => Critical, Automatic { timeout: Duration::from_secs(5) },
         HvPlateCommsFault              => Critical, PassFail { consecutive_bads: 0, consecutive_okays: 0 },
         SegmentCommsFault              => Critical, Automatic { timeout: Duration::from_secs(5) },
-        FakeFault1                     => NonCritical, Automatic { timeout: Duration::from_millis(1000) },
-        FakeFault2                     => NonCritical, Automatic { timeout: Duration::from_millis(2500) },
         CellOpenWireFault              => Critical, PassFail { consecutive_bads: const { duration_to_open_wire_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
         CellVoltageTooLow              => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
         CellVoltageTooHigh             => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
