@@ -41,7 +41,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     let p = embassy_stm32::init(config);
 
-    let regions = Flash::new_blocking(p.FLASH).into_blocking_regions();
+    let regions = Flash::new_blocking(p.FLASH, Default::default()).into_blocking_regions();
 
     // Flash access stays in this task; partitions share their bank through RefCell.
     let bank1 = Mutex::<NoopRawMutex, _>::new(RefCell::new(regions.bank1_region));
