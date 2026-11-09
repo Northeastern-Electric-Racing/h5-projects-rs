@@ -5,7 +5,7 @@ use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
 use embassy_stm32::can::frame::Frame;
 use embassy_stm32::can::{Can, CanConfigurator, IT0InterruptHandler, IT1InterruptHandler};
-use embassy_time::{Duration, Timer, with_timeout};
+use embassy_time::{Duration, with_timeout};
 use embedded_can::Id;
 
 use crate::commands::*;
@@ -123,9 +123,9 @@ impl<'d> CanHandler<'d> {
     pub async fn flush(&mut self) -> bool {
         // A queued ACK must leave the controller before reset or application handoff.
         with_timeout(Duration::from_millis(TX_TIMEOUT_MS), async {
-            while CAN_REGS.txbrp().read().0 != 0 {
-                // Yield so interrupts and other executor work can keep progressing.
-                Timer::after_millis(1).await;
+            // Wait on each of the three TX buffers using the TX-complete interrupt.
+            for idx in 0..3 {
+                self.can.flush(idx).await;
             }
         })
         .await
