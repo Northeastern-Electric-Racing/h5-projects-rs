@@ -400,11 +400,9 @@ mod drive_modes {
         ACCELERATION_THRESHOLD, DELTA_ACCELERATION_MAX, MAX_LIMITING_SPEED, MAX_TORQUE,
         MAX_TORQUE_RATIO, MIN_REGEN, PIT_MAX_SPEED, REGEN_THRESHOLD,
     };
-    use crate::pedals::{
-        dti_set_regen, dti_set_torque, get_launch_control, get_regen_limit,
-    };
+    use crate::pedals::{dti_set_regen, dti_set_torque, get_launch_control, get_regen_limit};
     use crate::statemachine::FuncState;
-use crate::traction;
+    use crate::traction;
     use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
     use embassy_time::Instant;

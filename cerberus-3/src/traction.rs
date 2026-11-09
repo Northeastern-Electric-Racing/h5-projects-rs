@@ -289,7 +289,7 @@ fn estimate_velocity(est: &mut VelEstimator, avg_front_rads: f32, ax: f32, dt: f
     let vx_wheel = wheel_rads_to_mph(avg_front_rads);
     let ax_corrected = Acceleration::new::<standard_gravity>((ax - est.ax_bias) / 1000.0);
     let dv = (ax_corrected * Time::new::<second>(dt)).get::<mile_per_hour>();
-    let vx_imu = est.v_x + dv; 
+    let vx_imu = est.v_x + dv;
     let v = est.alpha * vx_wheel + (1.0 - est.alpha) * vx_imu;
     est.v_x = if v > 0.0 { v } else { 0.0 };
     est.v_x
