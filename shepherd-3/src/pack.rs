@@ -390,33 +390,33 @@ pub mod analyzer {
                     *voltage = cell_voltages[chip][cell];
                 });
 
-                // The distance times the unit resistance, plus the resistance of the fuse
-                let (res, cell): (Resistance, CellId) = match chip.kind() {
-                    ChipKind::Beta => {
-                        let res = (UNIT_RES * TRACE_LEN_BETA) + FUSE_RES + TRACE_RES_ONBOARD_BETA;
-                        (res, CellId::Cell13)
-                    },
-                    ChipKind::Alpha => {
-                        let res = (UNIT_RES * TRACE_LEN_ALPHA) + FUSE_RES + TRACE_RES_ONBOARD_ALPHA;
-                        (res, CellId::Cell1)
-                    },
-                };
+                #[cfg(not(feature = "hil"))]
+                {
+                    // The distance times the unit resistance, plus the resistance of the fuse
+                    let (res, cell): (Resistance, CellId) = match chip.kind() {
+                        ChipKind::Beta => {
+                            let res = (UNIT_RES * TRACE_LEN_BETA) + FUSE_RES + TRACE_RES_ONBOARD_BETA;
+                            (res, CellId::Cell13)
+                        },
+                        ChipKind::Alpha => {
+                            let res = (UNIT_RES * TRACE_LEN_ALPHA) + FUSE_RES + TRACE_RES_ONBOARD_ALPHA;
+                            (res, CellId::Cell1)
+                        },
+                    };
 
-                let curr_bal = match state {
-                    // measured on 4/5/2026, the current through the cells when in charging mode single shot C ADCs
-                    // redone to be higher 4/8 sans measurement
-                    BmsState::Charging => Current::from_amps(0.029_f32),
+                    let curr_bal = match state {
+                        // measured on 4/5/2026, the current through the cells when in charging mode single shot C ADCs
+                        // redone to be higher 4/8 sans measurement
+                        BmsState::Charging => Current::from_amps(0.029_f32),
 
-                    // measured on 4/5/2026, the current through the cells when in active mode continous C/S read compare
-                    _ => Current::from_amps(0.031_f32),
-                };
+                        // measured on 4/5/2026, the current through the cells when in active mode continous C/S read compare
+                        _ => Current::from_amps(0.031_f32),
+                    };
 
-                // #[cfg(not(feature = "hil"))]
-                // {
-                //     // I*R is the way
-                //     self.corrected_cell_voltages[chip][cell] = cell_voltages[chip][cell];
-                //     self.corrected_cell_voltages[chip][cell] += curr_bal * res;
-                // }
+                    // I*R is the way
+                    self.corrected_cell_voltages[chip][cell] = cell_voltages[chip][cell];
+                    self.corrected_cell_voltages[chip][cell] += curr_bal * res;
+                }
             }
         }
 

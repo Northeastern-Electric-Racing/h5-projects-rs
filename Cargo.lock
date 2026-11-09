@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "adbms-register-macros"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b.pwm-helper#a913630ffb0298c66e58da673273e1bb5947fa46"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -37,9 +37,9 @@ dependencies = [
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b.pwm-helper#a913630ffb0298c66e58da673273e1bb5947fa46"
 dependencies = [
- "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "adbms-register-macros 0.1.0 (git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b.pwm-helper)",
  "bitfield-struct 0.13.0",
  "defmt 1.2.0",
  "embassy-time",
