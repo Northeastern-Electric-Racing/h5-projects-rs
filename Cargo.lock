@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "adbms-register-macros"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#e26a8a1dbc1a40fba5064b343c318fc64c7fd1ba"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b.pwm-helper#a913630ffb0298c66e58da673273e1bb5947fa46"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -37,9 +37,9 @@ dependencies = [
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#e26a8a1dbc1a40fba5064b343c318fc64c7fd1ba"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b.pwm-helper#a913630ffb0298c66e58da673273e1bb5947fa46"
 dependencies = [
- "adbms-register-macros 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "adbms-register-macros 0.1.0 (git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b.pwm-helper)",
  "bitfield-struct 0.13.0",
  "defmt 1.2.0",
  "embassy-time",
@@ -87,6 +87,17 @@ name = "assign-resources"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "840ad5d907de7448d88a3f22b4a7b5d326c6eb3deeb9f94cfaaec7354a80b305"
+
+[[package]]
+name = "atomic_enum"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99e1aca718ea7b89985790c94aad72d77533063fe00bc497bb79a7c2dae6a661"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "autocfg"
@@ -1371,6 +1382,7 @@ dependencies = [
  "adbms2950",
  "adbms6830b",
  "assign-resources",
+ "atomic_enum",
  "cangen",
  "cortex-m",
  "cortex-m-rt",
