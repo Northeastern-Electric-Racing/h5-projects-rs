@@ -11,8 +11,11 @@ static CIRCUIT_CLOSED: AtomicBool = AtomicBool::new(false);
 /// taps four points, so the loop could still be cut somewhere it can't see.
 /// One atomic read, safe to call from an interrupt.
 pub fn circuit_closed() -> bool {
-    //CIRCUIT_CLOSED.load(Ordering::Relaxed)
-    return true;
+    if cfg!(feature = "hil") {
+        true
+    } else {
+        CIRCUIT_CLOSED.load(Ordering::Relaxed)
+    }
 }
 
 const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
