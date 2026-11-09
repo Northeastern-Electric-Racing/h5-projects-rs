@@ -16,7 +16,7 @@ use uom::si::ratio::percent;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
-use crate::can;
+use crate::{can, pedals};
 
 const V_REF: f32 = 3.3;
 const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
@@ -243,18 +243,14 @@ impl Efuse {
                 200.0,
                 EfuseControlState::EfuseAuto,
                 Some(AutoPredicate {
-                    value1: || 0.0, /* pedals brake percentage */
-                    value2: || crate::pedals::constants::PEDAL_BRAKE_THRESH.get::<percent>(),
-                    operation: PredicateOperation::GREATER,
+                    value1: || (pedals::get_brake_pressed() as u8) as f32,
+                    value2: || 1.0,
+                    operation: PredicateOperation::EQ,
                 }),
                 Some(AutoPredicate {
-                    value1: || 0.0, /* pedals brake threshold */
-                    value2: || {
-                        (crate::pedals::constants::PEDAL_BRAKE_THRESH
-                            - crate::pedals::constants::PEDAL_BRAKE_TURNOFF_THRESH)
-                            .get::<percent>()
-                    },
-                    operation: PredicateOperation::LESS,
+                    value1: || (pedals::get_brake_pressed() as u8) as f32,
+                    value2: || 0.0,
+                    operation: PredicateOperation::EQ,
                 }),
                 frame_for::<cangen::BrakeEfuse>,
             ),
