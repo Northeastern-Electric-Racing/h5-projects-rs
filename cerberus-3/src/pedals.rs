@@ -3,9 +3,6 @@
 //! determines how to handle the torque and regen
 //! values based on the current drive mode.
 
-use crate::pedals::constants::{
-    MAX_REGEN, PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH, REGEN_STEP_SIZE,
-};
 use crate::statemachine;
 use crate::statemachine::FuncState;
 use cangen::ToCanFrame;
@@ -14,7 +11,7 @@ use defmt::debug;
 use embassy_stm32::adc::{Adc, AdcChannel, Clock, Config, Prescaler, Resolution};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Ticker};
 use uom::si::electric_current::ampere;
 use uom::si::f32::{ElectricCurrent, Ratio, Torque, Velocity};
 use uom::si::ratio::{percent, ratio};
@@ -662,8 +659,8 @@ pub fn get_regen_limit(func_state: FuncState) -> ElectricCurrent {
 
 pub fn set_regen_limit(func_state: FuncState, limit: ElectricCurrent) {
     let mut limit_clamped = limit;
-    if limit > MAX_REGEN {
-        limit_clamped = MAX_REGEN;
+    if limit > constants::MAX_REGEN {
+        limit_clamped = constants::MAX_REGEN;
     } else if limit.is_sign_negative() {
         limit_clamped = ElectricCurrent::new::<ampere>(0.0);
     }
@@ -678,11 +675,17 @@ pub fn set_regen_limit(func_state: FuncState, limit: ElectricCurrent) {
 }
 
 pub fn increase_regen_limit(func_state: FuncState) {
-    set_regen_limit(func_state, get_regen_limit(func_state) + REGEN_STEP_SIZE);
+    set_regen_limit(
+        func_state,
+        get_regen_limit(func_state) + constants::REGEN_STEP_SIZE,
+    );
 }
 
 pub fn decrease_regen_limit(func_state: FuncState) {
-    set_regen_limit(func_state, get_regen_limit(func_state) - REGEN_STEP_SIZE);
+    set_regen_limit(
+        func_state,
+        get_regen_limit(func_state) - constants::REGEN_STEP_SIZE,
+    );
 }
 
 #[embassy_executor::task]
@@ -714,11 +717,13 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
     let mut drive_lock: locks::State = locks::State::INIT;
     let mut torque_lock: drive_modes::State = drive_modes::State::INIT;
 
+    let mut ticker = Ticker::every(PEDALS_TASK_PERIOD);
+
     loop {
         if adc.read_latest(&mut pedal_buffer.data) != analog::Adc2Channels::VARIANT_COUNT {
             debug!("Failed to read all pedal channels, skipping this iteration");
             dti_set_torque(Torque::new::<newton_meter>(0.0)); // Set torque to 0 if we can't read the pedals for safety reasons
-            Timer::after(PEDALS_TASK_PERIOD).await;
+            ticker.next().await;
             continue;
         }
         let pedal_data: analog::PedalData = pedal_buffer.into();
@@ -730,9 +735,11 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
         );
         drive_lock.calculate_brake_fault(pedal_data.brake1_v, pedal_data.brake2_v);
 
-        if pedal_data.brake_r > PEDAL_BRAKE_THRESH {
+        if pedal_data.brake_r > constants::PEDAL_BRAKE_THRESH {
             BRAKE_PRESSED.store(true, Ordering::Relaxed);
-        } else if pedal_data.brake_r < PEDAL_BRAKE_THRESH - PEDAL_BRAKE_TURNOFF_THRESH {
+        } else if pedal_data.brake_r
+            < constants::PEDAL_BRAKE_THRESH - constants::PEDAL_BRAKE_TURNOFF_THRESH
+        {
             BRAKE_PRESSED.store(false, Ordering::Relaxed);
         }
 
@@ -773,6 +780,6 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
         crate::can::OUTGOING
             .send(pedal_data.to_per_frame().to_can_frame())
             .await;
-        Timer::after(PEDALS_TASK_PERIOD).await;
+        ticker.next().await;
     }
 }
