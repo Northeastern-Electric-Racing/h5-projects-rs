@@ -5,7 +5,7 @@ use cangen::ToCanFrame;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::{Peri, peripherals};
-use embassy_time::Ticker;
+use embassy_time::{Ticker, Duration};
 
 use crate::can;
 
@@ -65,7 +65,7 @@ pub async fn report_shutdown_task(pins: ShutdownInputs) {
     let inertia_sw = Input::new(pins.inertia_sw, Pull::None);
     let tsms = Input::new(pins.tsms, Pull::None);
 
-    let mut ticker = Ticker::every(100).await;
+    let mut ticker = Ticker::every(Duration::from_millis(100));
 
     loop {
         let shutdown_pins = cangen::ShutdownPins::new()

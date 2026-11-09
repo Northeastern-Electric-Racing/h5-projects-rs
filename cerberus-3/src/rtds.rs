@@ -10,7 +10,8 @@ use crate::shutdown::{self, BmsShutdownState};
 use cangen::ToCanFrame;
 use defmt::{debug, error};
 use embassy_futures::select::{Either3, select3};
-use embassy_stm32::gpio::Output;
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::{peripherals, Peri};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 
@@ -212,9 +213,11 @@ impl Rtds {
 ///
 /// `shutdown_closed` gets checked every time we'd turn the pin on, so rtds never plays with shutdown open
 #[embassy_executor::task]
-pub async fn rtds_task(pin: Output<'static>) {
+pub async fn rtds_task(pin: Peri<'static, peripherals::PD2>) {
+    let rtds_pin = Output::new(pin, Level::Low, Speed::Low);
+
     let mut rtds = Rtds {
-        pin,
+        pin: rtds_pin,
         state: RtdsState::Idle,
         deadline: Instant::MAX,
     };

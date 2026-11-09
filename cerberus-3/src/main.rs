@@ -226,8 +226,7 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     // RTDS
-    let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
-    spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
+    spawner.spawn(rtds::rtds_task(p.PD2).expect("Failed to spawn rtds::rtds_task()."));
 
     // Lightning CAN monitor
     spawner.spawn(
