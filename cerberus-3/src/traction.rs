@@ -1,9 +1,14 @@
 use core::cell::{Cell, RefCell};
-use core::f32::consts::PI;
 use core::fmt::Error;
 use core::mem::size_of;
 use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use uom::si::acceleration::standard_gravity;
+use uom::si::angular_velocity::{radian_per_second, revolution_per_minute};
+use uom::si::f32::{Acceleration, AngularVelocity, Length, Time, Velocity};
+use uom::si::length::{inch, meter};
+use uom::si::time::second;
+use uom::si::velocity::{meter_per_second, mile_per_hour};
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -16,13 +21,28 @@ const TC_CALIB_SAMPLES: u16 = 50;
 const TC_MIN_VX: f32 = 0.5;
 const VEL_ALPHA: f32 = 0.98;
 const TC_INTEGRAL_LIMIT: f32 = 1.0;
-const INCHES_TO_MILES: f32 = 63360.0;
-const SECONDS_TO_HOURS: f32 = 3600.0;
-const G_IN_PER_S2: f32 = 386.09;
 const TC_KP_DEFAULT: f32 = 1.5;
 const TC_KI_DEFAULT: f32 = 0.2;
-const TIRE_DIAMETER: f32 = 0.0; //TODO
-const GEAR_RATIO: f32 = 0.0; //TODO
+const TIRE_DIAMETER: f32 = 16.0;
+const GEAR_RATIO: f32 = 39.0 / 13.0;
+
+//TODO
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Vector3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+// TODO
+pub fn imu_get_acceleration() -> Result<Vector3, Error> {
+    Ok(Vector3::default())
+}
+
+//TODO
+pub fn dti_get_rpm() -> i32 {
+    0
+}
 
 #[derive(Clone, Copy)]
 struct TireCurvePoint {
@@ -115,7 +135,13 @@ pub fn tc_get_torque_scale() -> f32 {
 }
 
 pub fn set_torque_scale(scale: f32) {
-    TORQUE_SCALE.store(scale.to_bits(), Ordering::Relaxed);
+    let mut safe = 1.0;
+    if scale.is_finite() {
+        safe = scale.clamp(0.0, 1.0)
+    } else {
+        defmt::error!("TC: non-finite torque scale.")
+    };
+    TORQUE_SCALE.store(safe.to_bits(), Ordering::Relaxed);
 }
 
 static TC_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -187,9 +213,15 @@ fn load_tire_curve(data: &[u8]) -> Option<TireCurve> {
     Some(curve)
 }
 
+fn wheel_rads_to_mph(omega_rads: f32) -> f32 {
+    let radius_m = Length::new::<inch>(TIRE_DIAMETER / 2.0).get::<meter>();
+    Velocity::new::<meter_per_second>(omega_rads * radius_m).get::<mile_per_hour>()
+}
+
 fn calc_slip(motor_rpm: f32, vx_car: f32) -> f32 {
-    let wheel_rps = motor_rpm / GEAR_RATIO / 60.0;
-    let v_rear = wheel_rps * PI * TIRE_DIAMETER * SECONDS_TO_HOURS / INCHES_TO_MILES;
+    let wheel_rads = AngularVelocity::new::<revolution_per_minute>(motor_rpm / GEAR_RATIO)
+        .get::<radian_per_second>();
+    let v_rear = wheel_rads_to_mph(wheel_rads);
 
     let denom = vx_car.abs().max(v_rear.abs());
     if denom < TC_MIN_VX {
@@ -199,7 +231,7 @@ fn calc_slip(motor_rpm: f32, vx_car: f32) -> f32 {
 }
 
 fn rpm_to_rads(rpm: i16) -> f32 {
-    rpm as f32 * 2.0 * PI / 60.0
+    AngularVelocity::new::<revolution_per_minute>(rpm as f32).get::<radian_per_second>()
 }
 
 fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
@@ -254,10 +286,10 @@ fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: f32) {
 
 /// Velocity in mph
 fn estimate_velocity(est: &mut VelEstimator, avg_front_rads: f32, ax: f32, dt: f32) -> f32 {
-    let vx_wheel = avg_front_rads * (TIRE_DIAMETER / 2.0) * SECONDS_TO_HOURS / INCHES_TO_MILES;
-    let ax_corrected = ax - est.ax_bias;
-    let vx_imu =
-        est.v_x + ax_corrected * (G_IN_PER_S2 / 1000.0) * dt * SECONDS_TO_HOURS / INCHES_TO_MILES;
+    let vx_wheel = wheel_rads_to_mph(avg_front_rads);
+    let ax_corrected = Acceleration::new::<standard_gravity>((ax - est.ax_bias) / 1000.0);
+    let dv = (ax_corrected * Time::new::<second>(dt)).get::<mile_per_hour>();
+    let vx_imu = est.v_x + dv; 
     let v = est.alpha * vx_wheel + (1.0 - est.alpha) * vx_imu;
     est.v_x = if v > 0.0 { v } else { 0.0 };
     est.v_x
@@ -291,25 +323,9 @@ pub fn tc_record_front_rpm(data: &[u8]) {
     set_front_wheel_speeds(rpm_to_rads(fl_rpm), rpm_to_rads(fr_rpm));
 }
 
-//TODO
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Vector3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-// TODO
-pub fn imu_get_acceleration() -> Result<Vector3, Error> {
-    Ok(Vector3::default())
-}
-
-//TODO
-pub fn dti_get_rpm() -> i32 {
-    0
-}
-
 pub fn tc_process() {
+    let dt = set_tc_state(|s| s.update_dt());
+
     // 1. Disabled -> pass-through.
     if !tc_is_enabled() {
         set_torque_scale(1.0);
@@ -343,7 +359,6 @@ pub fn tc_process() {
     }
 
     // 4. Control step.
-    let dt = set_tc_state(|s| s.update_dt());
     let accel = imu_get_acceleration();
     let (omega_fl, omega_fr) = get_front_wheel_speeds();
     let motor_rpm = dti_get_rpm() as f32;

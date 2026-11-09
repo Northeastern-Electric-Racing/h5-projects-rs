@@ -1,4 +1,4 @@
-use crate::{pedals, statemachine};
+use crate::{pedals, statemachine, traction};
 use defmt::debug;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
@@ -63,7 +63,7 @@ pub async fn button_task() -> ! {
             Button::UpTorque => pedals::increase_torque_limit(),
             Button::DownTorque => pedals::decrease_torque_limit(),
             Button::ToggleLaunchControl => pedals::toggle_launch_control(),
-            Button::ToggleTractionControl => {}
+            Button::ToggleTractionControl => traction::toggle_tc(),
             Button::Unknown => {}
         }
     }

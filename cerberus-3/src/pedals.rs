@@ -31,16 +31,8 @@ fn dti_get_velocity() -> Velocity {
     Velocity::new::<meter_per_second>(0.0)
 }
 
-fn get_traction_control() -> f32 {
-    0.0
-}
-
 fn is_not_precharge() -> bool {
     false
-}
-
-fn tc_process() {
-    traction::tc_process();
 }
 
 // ---------------------------------------------------------------------------
@@ -409,9 +401,10 @@ mod drive_modes {
         MAX_TORQUE_RATIO, MIN_REGEN, PIT_MAX_SPEED, REGEN_THRESHOLD,
     };
     use crate::pedals::{
-        dti_set_regen, dti_set_torque, get_launch_control, get_regen_limit, get_traction_control,
+        dti_set_regen, dti_set_torque, get_launch_control, get_regen_limit,
     };
     use crate::statemachine::FuncState;
+use crate::traction;
     use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
     use embassy_time::Instant;
@@ -464,7 +457,7 @@ mod drive_modes {
         }
 
         fn linear_accel_to_torque(&self, accel: Ratio) {
-            dti_set_torque(MAX_TORQUE * self.clamp_accel(accel) * get_traction_control())
+            dti_set_torque(MAX_TORQUE * self.clamp_accel(accel) * traction::tc_get_torque_scale())
         }
 
         fn power_regression_accel_to_torque(&self, accel: Ratio) {
@@ -473,12 +466,12 @@ mod drive_modes {
                 MAX_TORQUE
                     * 0.137609f32
                     * self.clamp_accel(accel).powf(1.43068)
-                    * get_traction_control(),
+                    * traction::tc_get_torque_scale(),
             )
         }
 
         fn accel_pedal_regen_torque(&self, accel: Ratio) {
-            let coefficient = get_traction_control() * (accel - ACCELERATION_THRESHOLD)
+            let coefficient = traction::tc_get_torque_scale() * (accel - ACCELERATION_THRESHOLD)
                 / (Ratio::new::<ratio>(1.0) - ACCELERATION_THRESHOLD);
 
             dti_set_torque(
@@ -757,7 +750,7 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
             dti_set_torque(Torque::new::<newton_meter>(0.0));
             debug!("Drive locked due to faults: {:?}", drive_lock.drive_locks);
         } else {
-            tc_process();
+            traction::tc_process();
 
             torque_lock.handle_drive_mode(
                 dti_get_velocity(),
