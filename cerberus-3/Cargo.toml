@@ -26,7 +26,7 @@ embassy-net.workspace = true
 rust-mqtt.workspace = true
 lsm6dsv16x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop"}
 sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", version = "0.1.0" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "c9da4a69f733b9170c44834c44bd04e6f7eba66c"}
+cangen.workspace = true
 can-handler.workspace = true
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 variant_count = "1.2.1"
