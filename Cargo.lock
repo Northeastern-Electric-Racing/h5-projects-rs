@@ -1906,7 +1906,6 @@ dependencies = [
  "function_name",
  "heapless 0.9.3",
  "libm",
- "panic-probe",
  "static_cell",
  "strum",
  "uom",
