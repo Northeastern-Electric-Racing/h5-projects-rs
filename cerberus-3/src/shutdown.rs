@@ -5,7 +5,7 @@ use cangen::ToCanFrame;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::{Peri, peripherals};
-use embassy_time::{Ticker, Duration};
+use embassy_time::{Duration, Ticker};
 
 use crate::can;
 

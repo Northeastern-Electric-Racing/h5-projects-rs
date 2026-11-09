@@ -242,7 +242,7 @@ async fn main(spawner: Spawner) -> ! {
             button: p.PE2,
             button_exti: p.EXTI2,
         })
-            .expect("Failed to spawn debug::debug_task()."),
+        .expect("Failed to spawn debug::debug_task()."),
     );
 
     // Watchdog
