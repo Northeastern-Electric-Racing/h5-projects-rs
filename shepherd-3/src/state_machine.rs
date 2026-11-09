@@ -149,12 +149,12 @@ impl State {
     }
     fn tick(&self) {
         self.state.lock(|i| {
-            let old = i.get();
-            old.on_tick();
+            let curr = i.get();
+            curr.on_tick();
             i.update(|state| state.evaluate());
             let new = i.get();
-            if old != new {
-                old.on_exit();
+            if curr != new {
+                curr.on_exit();
                 new.on_enter();
                 new.on_tick();
             }
