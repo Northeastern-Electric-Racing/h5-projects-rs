@@ -135,9 +135,11 @@ async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -> ! 
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
-            Some(Msg::MsbFrontBootRequest(_)) => bootloader
-                .handle_request(frame.data())
-                .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
+            Some(Msg::MsbFrontBootRequest(_)) => {
+                if boot_control::is_valid_request(frame.data()) {
+                    bootloader.enter_bootloader();
+                }
+            }
             _ => {}
         }
     }

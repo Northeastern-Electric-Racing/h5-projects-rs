@@ -134,9 +134,11 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
-            Some(Msg::VcuBootRequest(_)) => bootloader
-                .handle_request(frame.data())
-                .unwrap_or_else(|_| defmt::error!("Failed to persist bootloader request")),
+            Some(Msg::VcuBootRequest(_)) => {
+                if boot_control::is_valid_request(frame.data()) {
+                    bootloader.enter_bootloader();
+                }
+            }
             Some(Msg::LightningPulseMessage(_)) => lightning::lightning_handle_pulse_message(),
             Some(Msg::CellTemperatures(m)) => {
                 bms::set_battery_box_temp(Temperature::new::<degree_celsius>(m.avg_val()))

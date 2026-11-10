@@ -486,8 +486,8 @@ mod handler {
 
             match frame.id() {
                 Id::Standard(id) if id.as_raw() == crate::BOOT_REQUEST_ID => {
-                    if !embedded_can::Frame::is_remote_frame(&frame) && bootloader.handle_request(frame.data()).is_err() {
-                        defmt::error!("Failed to persist bootloader request");
+                    if !embedded_can::Frame::is_remote_frame(&frame) && boot_control::is_valid_request(frame.data()) {
+                        bootloader.enter_bootloader();
                     }
                 },
                 Id::Extended(id) if id.as_raw() == CHARGER_BOX => {

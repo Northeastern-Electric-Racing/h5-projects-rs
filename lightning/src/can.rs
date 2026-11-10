@@ -93,8 +93,8 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
         let frame = INCOMING.receive().await;
         let latest: Option<FaultframeState> = match Msg::decode(&frame) {
             Some(Msg::LightningBootRequest(_)) => {
-                if bootloader.handle_request(frame.data()).is_err() {
-                    defmt::error!("Failed to persist bootloader request");
+                if boot_control::is_valid_request(frame.data()) {
+                    bootloader.enter_bootloader();
                 }
                 None
             }

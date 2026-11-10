@@ -201,7 +201,7 @@ dependencies = [
 [[package]]
 name = "boot-control"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=0ddfbfa4b738134bb2ca87dedfa3304f6bcbf383#0ddfbfa4b738134bb2ca87dedfa3304f6bcbf383"
 dependencies = [
  "cortex-m",
  "embassy-boot",
@@ -226,7 +226,7 @@ dependencies = [
 [[package]]
 name = "can-bootloader-core"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=945c3811196f448e402e1a58bc9ed93ef299a630#945c3811196f448e402e1a58bc9ed93ef299a630"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=0ddfbfa4b738134bb2ca87dedfa3304f6bcbf383#0ddfbfa4b738134bb2ca87dedfa3304f6bcbf383"
 dependencies = [
  "crc",
  "defmt 1.2.0",
