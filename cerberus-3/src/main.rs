@@ -227,18 +227,13 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     // RTDS
-    let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
-    spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
+    spawner.spawn(rtds::rtds_task(p.PD2).expect("Failed to spawn rtds::rtds_task()."));
 
-    // lightning board monitor
+    // Lightning CAN monitor
     spawner.spawn(
         lightning::lightning_can_monitor_task()
             .expect("Failed to spawn lightning::lightning_can_monitor_task()."),
     );
-
-    // Watchdog
-    let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
-    watchdog.unleash();
 
     // Debug
     spawner.spawn(
@@ -251,14 +246,20 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn debug::debug_task()."),
     );
 
+    // Watchdog
+    let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
+    watchdog.unleash();
+
     let _can_fault = Output::new(p.PG15, Level::High, Speed::Low);
 
     loop {
         debug!("Status: Alive");
+
         watchdog.pet();
         debug::enable_red_led();
         debug::disable_green_led();
         Timer::after_millis(500).await;
+
         watchdog.pet();
         debug::disable_red_led();
         debug::enable_green_led();

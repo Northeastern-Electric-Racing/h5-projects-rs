@@ -1,10 +1,13 @@
-//! pedals
-//! handles all pedals related functions <br>
-//! ie, drive locks, torque and regen calls
+//! Handles the pedal sensors and drive locks.
+//! Also contains the drive mode dispatcher that
+//! determines how to handle the torque and regen
+//! values based on the current drive mode.
 
 use crate::pedals::constants::{
     MAX_REGEN, PEDAL_BRAKE_THRESH, PEDAL_BRAKE_TURNOFF_THRESH, REGEN_STEP_SIZE,
 };
+use crate::can;
+use crate::statemachine;
 use crate::statemachine::FuncState;
 use crate::{statemachine, traction};
 use cangen::ToCanFrame;
@@ -13,12 +16,13 @@ use defmt::debug;
 use embassy_stm32::adc::{Adc, AdcChannel, Clock, Config, Prescaler, Resolution};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Ticker};
 use uom::si::electric_current::ampere;
 use uom::si::f32::{ElectricCurrent, Ratio, Torque, Velocity};
 use uom::si::ratio::{percent, ratio};
 use uom::si::torque::newton_meter;
 use uom::si::velocity::meter_per_second;
+
 // ---------------------------------------------------------------------------
 // TEMP functions, replace later
 // ---------------------------------------------------------------------------
@@ -62,14 +66,14 @@ pub(crate) mod constants {
             }
         };
     }
-    pub(super) const BRAKE_FAULT_DEBOUNCE: Duration = Duration::from_millis(300);
+    pub(super) const BRAKE_FAULT_DEBOUNCE: Duration = Duration::from_millis(95);
     pub(super) const PEDAL_FAULT_DEBOUNCE: Duration = Duration::from_millis(95);
 
     pub(super) const BRAKE_SENSOR_IRREGULAR_HIGH: ElectricPotential = q!(ElectricPotential, 4.5);
     pub(super) const BRAKE_SENSOR_IRREGULAR_LOW: ElectricPotential = q!(ElectricPotential, 0.5);
     pub(super) const BRAKE_THRESHOLD_TOLERANCE: ElectricPotential = q!(ElectricPotential, 0.25);
     pub(super) const APPS_THRESHOLD_TOLERANCE: ElectricPotential = q!(ElectricPotential, 0.2);
-    pub(super) const PEDAL_DIFF_THRESH: Ratio = q!(Ratio, 20.0, percent);
+    pub(super) const PEDAL_DIFF_THRESH: Ratio = q!(Ratio, 10.0, percent);
     pub(super) const PEDAL_HARD_BRAKE_THRESH: Ratio = q!(Ratio, 20.0, percent);
     pub const PEDAL_BRAKE_THRESH: Ratio = q!(Ratio, 15.0, percent);
     pub(super) const SAMPLE_TIME: SampleTime = SampleTime::Cycles475;
@@ -260,6 +264,18 @@ mod locks {
                 self.motor_disabled = false;
                 self.unset_lock(Locks::BspdPref);
             }
+        }
+
+        pub(crate) fn to_locks_frame(self) -> cangen::DriveLockStates {
+            use Locks::*;
+            cangen::DriveLockStates::new()
+                .with_ACCEL_DIFF(self.get_lock_state(AccelDiff))
+                .with_ACCEL_OC(self.get_lock_state(AccelOc))
+                .with_ACCEL_SC(self.get_lock_state(AccelSc))
+                .with_BMS_NOT_PRECHARGED_YET(self.get_lock_state(BmsNotPrechargedYet))
+                .with_BRAKE_OC(self.get_lock_state(BrakeOc))
+                .with_BRAKE_SC(self.get_lock_state(BrakeSc))
+                .with_BSPD_PREF(self.get_lock_state(BspdPref))
         }
     }
 }
@@ -582,7 +598,6 @@ mod drive_modes {
     }
 }
 
-const PEDALS_TASK_PERIOD: Duration = Duration::from_millis(100);
 static LOCK_MUTEX: Mutex<ThreadModeRawMutex, locks::State> = Mutex::new(locks::State::INIT);
 
 static BRAKE_PRESSED: AtomicBool = AtomicBool::new(false);
@@ -653,8 +668,8 @@ pub fn get_regen_limit(func_state: FuncState) -> ElectricCurrent {
 
 pub fn set_regen_limit(func_state: FuncState, limit: ElectricCurrent) {
     let mut limit_clamped = limit;
-    if limit > MAX_REGEN {
-        limit_clamped = MAX_REGEN;
+    if limit > constants::MAX_REGEN {
+        limit_clamped = constants::MAX_REGEN;
     } else if limit.is_sign_negative() {
         limit_clamped = ElectricCurrent::new::<ampere>(0.0);
     }
@@ -669,11 +684,17 @@ pub fn set_regen_limit(func_state: FuncState, limit: ElectricCurrent) {
 }
 
 pub fn increase_regen_limit(func_state: FuncState) {
-    set_regen_limit(func_state, get_regen_limit(func_state) + REGEN_STEP_SIZE);
+    set_regen_limit(
+        func_state,
+        get_regen_limit(func_state) + constants::REGEN_STEP_SIZE,
+    );
 }
 
 pub fn decrease_regen_limit(func_state: FuncState) {
-    set_regen_limit(func_state, get_regen_limit(func_state) - REGEN_STEP_SIZE);
+    set_regen_limit(
+        func_state,
+        get_regen_limit(func_state) - constants::REGEN_STEP_SIZE,
+    );
 }
 
 #[embassy_executor::task]
@@ -705,11 +726,14 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
     let mut drive_lock: locks::State = locks::State::INIT;
     let mut torque_lock: drive_modes::State = drive_modes::State::INIT;
 
+    let mut ticker = Ticker::every(Duration::from_millis(10));
+    let mut last_can_send_time = Instant::now();
+
     loop {
         if adc.read_latest(&mut pedal_buffer.data) != analog::Adc2Channels::VARIANT_COUNT {
             debug!("Failed to read all pedal channels, skipping this iteration");
             dti_set_torque(Torque::new::<newton_meter>(0.0)); // Set torque to 0 if we can't read the pedals for safety reasons
-            Timer::after(PEDALS_TASK_PERIOD).await;
+            ticker.next().await;
             continue;
         }
         let pedal_data: analog::PedalData = pedal_buffer.into();
@@ -721,9 +745,11 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
         );
         drive_lock.calculate_brake_fault(pedal_data.brake1_v, pedal_data.brake2_v);
 
-        if pedal_data.brake_r > PEDAL_BRAKE_THRESH {
+        if pedal_data.brake_r > constants::PEDAL_BRAKE_THRESH {
             BRAKE_PRESSED.store(true, Ordering::Relaxed);
-        } else if pedal_data.brake_r < PEDAL_BRAKE_THRESH - PEDAL_BRAKE_TURNOFF_THRESH {
+        } else if pedal_data.brake_r
+            < constants::PEDAL_BRAKE_THRESH - constants::PEDAL_BRAKE_TURNOFF_THRESH
+        {
             BRAKE_PRESSED.store(false, Ordering::Relaxed);
         }
 
@@ -758,12 +784,20 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
         }
         *LOCK_MUTEX.lock().await = drive_lock;
 
-        crate::can::OUTGOING
-            .send(pedal_data.to_volt_frame().to_can_frame())
-            .await;
-        crate::can::OUTGOING
-            .send(pedal_data.to_per_frame().to_can_frame())
-            .await;
-        Timer::after(PEDALS_TASK_PERIOD).await;
+        if last_can_send_time.elapsed() >= Duration::from_millis(100) {
+            can::OUTGOING
+                .send(pedal_data.to_volt_frame().to_can_frame())
+                .await;
+            can::OUTGOING
+                .send(pedal_data.to_per_frame().to_can_frame())
+                .await;
+            can::OUTGOING
+                .send(drive_lock.to_locks_frame().to_can_frame())
+                .await;
+
+            last_can_send_time = Instant::now();
+        }
+
+        ticker.next().await;
     }
 }

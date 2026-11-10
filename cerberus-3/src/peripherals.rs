@@ -1,4 +1,5 @@
 //! Contains temperature sensor and imu
+//! and sends their data to the CAN bus.
 
 use cangen::ToCanFrame;
 use defmt::{debug, warn};
@@ -116,11 +117,21 @@ pub async fn i2c_peripherals_task(r: I2C2Resources) {
             continue;
         }
 
-        crate::can::OUTGOING
+        can::OUTGOING
             .send(
                 cangen::TemperatureSensor::new()
                     .with_vcu_temperature(temperature)
                     .with_vcu_humidity(humidity)
+                    .to_can_frame(),
+            )
+            .await;
+
+        let pwm = (temperature - 20f32) / (40f32 - 20f32) * 100f32; // 20-40C maps to 0-100% PWM
+
+        can::OUTGOING
+            .send(
+                cangen::LvBoxFanPwm::new()
+                    .with_fan_pwm_percentage(pwm.clamp(0.0, 100.0) as u8)
                     .to_can_frame(),
             )
             .await;
@@ -154,6 +165,8 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
                 .with_imu_accelerometer_y(accel.y.get::<lsm6dsv16x_ner::milligravity>())
                 .with_imu_accelerometer_z(accel.z.get::<lsm6dsv16x_ner::milligravity>());
             can::OUTGOING.send(frame.to_can_frame()).await;
+
+            // TODO: send over ethernet as well
         }
 
         if let Some(ang_vel) = imu.get_angular_vel().await {
@@ -173,8 +186,9 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
                         .yaw_rate
                         .get::<lsm6dsv16x_ner::mdps::millidegree_per_second>(),
                 );
-
             can::OUTGOING.send(frame.to_can_frame()).await;
+
+            // TODO: send over ethernet as well
         }
 
         ticker.next().await;
