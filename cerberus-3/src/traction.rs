@@ -5,12 +5,12 @@ use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use uom::ConstZero;
 use uom::si::acceleration::standard_gravity;
-use uom::si::angular_velocity::{radian_per_second, revolution_per_minute};
+use uom::si::angular_velocity::revolution_per_minute;
 use uom::si::f32::{Acceleration, AngularVelocity, Length, Time, Velocity};
-use uom::si::length::{inch, meter};
+use uom::si::length::inch;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
-use uom::si::velocity::{meter_per_second, mile_per_hour};
+use uom::si::velocity::mile_per_hour;
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -132,7 +132,7 @@ impl TcState {
 
 static TORQUE_SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000);
 
-pub fn tc_get_torque_scale() -> f32 {
+pub fn get_torque_scale() -> f32 {
     f32::from_bits(TORQUE_SCALE.load(Ordering::Relaxed))
 }
 
@@ -146,35 +146,37 @@ pub fn set_torque_scale(scale: f32) {
     TORQUE_SCALE.store(safe.to_bits(), Ordering::Relaxed);
 }
 
-static TC_ENABLED: AtomicBool = AtomicBool::new(false);
+static ENABLED: AtomicBool = AtomicBool::new(false);
 
-pub fn tc_is_enabled() -> bool {
-    TC_ENABLED.load(Ordering::Relaxed)
+pub fn is_enabled() -> bool {
+    ENABLED.load(Ordering::Relaxed)
 }
 
 pub fn enable_tc() {
-    TC_ENABLED.store(true, Ordering::Relaxed);
+    ENABLED.store(true, Ordering::Relaxed);
 }
 
 pub fn disable_tc() {
-    TC_ENABLED.store(false, Ordering::Relaxed);
+    ENABLED.store(false, Ordering::Relaxed);
 }
 
 pub fn toggle_tc() {
-    let curr_tc_state = TC_ENABLED.load(Ordering::Relaxed);
-    TC_ENABLED.store(!curr_tc_state, Ordering::Relaxed);
+    let curr_state = ENABLED.load(Ordering::Relaxed);
+    ENABLED.store(!curr_state, Ordering::Relaxed);
 }
 
-static TC_STATE: Mutex<CriticalSectionRawMutex, RefCell<TcState>> =
+static STATE: Mutex<CriticalSectionRawMutex, RefCell<TcState>> =
     Mutex::new(RefCell::new(TcState::new()));
 
-pub fn set_tc_state<R>(f: impl FnOnce(&mut TcState) -> R) -> R {
-    TC_STATE.lock(|cell| f(&mut cell.borrow_mut()))
+pub fn set_state<R>(f: impl FnOnce(&mut TcState) -> R) -> R {
+    STATE.lock(|cell| f(&mut cell.borrow_mut()))
 }
 
 /// (omega_fl, omega_fr)
-static FRONT_WHEEL_SPEEDS: Mutex<CriticalSectionRawMutex, Cell<(AngularVelocity, AngularVelocity)>> =
-    Mutex::new(Cell::new((AngularVelocity::ZERO, AngularVelocity::ZERO)));
+static FRONT_WHEEL_SPEEDS: Mutex<
+    CriticalSectionRawMutex,
+    Cell<(AngularVelocity, AngularVelocity)>,
+> = Mutex::new(Cell::new((AngularVelocity::ZERO, AngularVelocity::ZERO)));
 
 pub fn set_front_wheel_speeds(omega_fl: AngularVelocity, omega_fr: AngularVelocity) {
     FRONT_WHEEL_SPEEDS.lock(|c| c.set((omega_fl, omega_fr)));
@@ -281,7 +283,12 @@ fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: f32) {
     defmt::info!("TC: ax bias = {} mg", est.ax_bias);
 }
 
-fn estimate_velocity(est: &mut VelEstimator, avg_front_rads: AngularVelocity, ax: f32, dt: f32) -> Velocity {
+fn estimate_velocity(
+    est: &mut VelEstimator,
+    avg_front_rads: AngularVelocity,
+    ax: f32,
+    dt: f32,
+) -> Velocity {
     let vx_wheel = wheel_speed(avg_front_rads).get::<mile_per_hour>();
     let ax_corrected = Acceleration::new::<standard_gravity>((ax - est.ax_bias) / 1000.0);
     let dv = (ax_corrected * Time::new::<second>(dt)).get::<mile_per_hour>();
@@ -301,38 +308,24 @@ fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
     (fx_ff + pi.kp * error + pi.ki * pi.integral).clamp(0.0, 1.0)
 }
 
-pub fn tc_init(tire_curve_data: &[u8]) -> Result<(), ()> {
+pub fn init(tire_curve_data: &[u8]) -> Result<(), ()> {
     let curve = load_tire_curve(tire_curve_data);
     let loaded = curve.is_some();
-    set_tc_state(|s| s.tire_curve = curve);
+    set_state(|s| s.tire_curve = curve);
     defmt::info!("TC: init done (curve loaded: {})", loaded);
     Ok(())
 }
 
-pub fn tc_record_front_rpm(data: &[u8]) {
-    if data.len() < 4 {
-        defmt::error!("TC: front RPM message too short ({} bytes)", data.len());
-        return;
-    }
-    let fl_rpm = i16::from_be_bytes([data[0], data[1]]);
-    let fr_rpm = i16::from_be_bytes([data[2], data[3]]);
-    set_front_wheel_speeds(
-        AngularVelocity::new::<revolution_per_minute>(fl_rpm as f32),
-        AngularVelocity::new::<revolution_per_minute>(fr_rpm as f32),
-    );
-}
-
-pub fn tc_process() {
-    let dt = set_tc_state(|s| s.update_dt());
+pub fn process() {
+    let dt = set_state(|s| s.update_dt());
 
     // 1. Disabled -> pass-through.
-    if !tc_is_enabled() {
+    if !is_enabled() {
         set_torque_scale(1.0);
         return;
     }
 
-    let (curve_loaded, calibrated) =
-        set_tc_state(|s| (s.tire_curve.is_some(), s.vel_estimator.init));
+    let (curve_loaded, calibrated) = set_state(|s| (s.tire_curve.is_some(), s.vel_estimator.init));
 
     // 2. No valid curve -> pass-through.
     if !curve_loaded {
@@ -343,7 +336,7 @@ pub fn tc_process() {
     // 3. Calibration
     if !calibrated {
         let accel = imu_get_acceleration();
-        set_tc_state(|s| {
+        set_state(|s| {
             if let Ok(a) = accel {
                 s.ax_sum += a.x;
                 s.sample_count += 1;
@@ -362,7 +355,7 @@ pub fn tc_process() {
     let (omega_fl, omega_fr) = get_front_wheel_speeds();
     let motor_rpm = dti_get_rpm();
 
-    let scale = set_tc_state(|s| {
+    let scale = set_state(|s| {
         let TcState {
             tire_curve,
             vel_estimator,

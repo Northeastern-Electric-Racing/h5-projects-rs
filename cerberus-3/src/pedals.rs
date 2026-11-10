@@ -467,7 +467,7 @@ mod drive_modes {
         }
 
         fn linear_accel_to_torque(&self, accel: Ratio) {
-            dti_set_torque(MAX_TORQUE * self.clamp_accel(accel) * traction::tc_get_torque_scale())
+            dti_set_torque(MAX_TORQUE * self.clamp_accel(accel) * traction::get_torque_scale())
         }
 
         fn power_regression_accel_to_torque(&self, accel: Ratio) {
@@ -476,12 +476,12 @@ mod drive_modes {
                 MAX_TORQUE
                     * 0.137609f32
                     * self.clamp_accel(accel).powf(1.43068)
-                    * traction::tc_get_torque_scale(),
+                    * traction::get_torque_scale(),
             )
         }
 
         fn accel_pedal_regen_torque(&self, accel: Ratio) {
-            let coefficient = traction::tc_get_torque_scale() * (accel - ACCELERATION_THRESHOLD)
+            let coefficient = traction::get_torque_scale() * (accel - ACCELERATION_THRESHOLD)
                 / (Ratio::new::<ratio>(1.0) - ACCELERATION_THRESHOLD);
 
             dti_set_torque(
@@ -770,7 +770,7 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
             dti_set_torque(Torque::new::<newton_meter>(0.0));
             debug!("Drive locked due to faults: {:?}", drive_lock.drive_locks);
         } else {
-            traction::tc_process();
+            traction::process();
 
             torque_lock.handle_drive_mode(
                 dti_get_velocity(),
