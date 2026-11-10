@@ -62,7 +62,6 @@ pub async fn button_task() -> ! {
 
             Button::ToggleLaunchControl => pedals::toggle_launch_control(),
             Button::ToggleTractionControl => traction::toggle_tc(),
-            Button::Unknown => {}
         }
     }
 }
