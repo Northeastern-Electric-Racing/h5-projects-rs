@@ -2,6 +2,7 @@
 pub mod analog_sensor;
 pub mod bind_interrupts;
 pub mod can;
+pub mod misc_adc;
 pub mod multiplexor_handler;
 pub mod shock_pot;
 pub mod steering_angle;
