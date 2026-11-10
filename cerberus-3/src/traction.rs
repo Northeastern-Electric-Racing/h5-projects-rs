@@ -3,10 +3,12 @@ use core::fmt::Error;
 use core::mem::size_of;
 use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use uom::ConstZero;
 use uom::si::acceleration::standard_gravity;
 use uom::si::angular_velocity::{radian_per_second, revolution_per_minute};
 use uom::si::f32::{Acceleration, AngularVelocity, Length, Time, Velocity};
 use uom::si::length::{inch, meter};
+use uom::si::ratio::ratio;
 use uom::si::time::second;
 use uom::si::velocity::{meter_per_second, mile_per_hour};
 
@@ -40,8 +42,8 @@ pub fn imu_get_acceleration() -> Result<Vector3, Error> {
 }
 
 //TODO
-pub fn dti_get_rpm() -> i32 {
-    0
+pub fn dti_get_rpm() -> AngularVelocity {
+    AngularVelocity::new::<revolution_per_minute>(0.0)
 }
 
 #[derive(Clone, Copy)]
@@ -170,15 +172,15 @@ pub fn set_tc_state<R>(f: impl FnOnce(&mut TcState) -> R) -> R {
     TC_STATE.lock(|cell| f(&mut cell.borrow_mut()))
 }
 
-/// (omega_fl, omega_fr) in rad/s
-static FRONT_WHEEL_SPEEDS: Mutex<CriticalSectionRawMutex, Cell<(f32, f32)>> =
-    Mutex::new(Cell::new((0.0, 0.0)));
+/// (omega_fl, omega_fr)
+static FRONT_WHEEL_SPEEDS: Mutex<CriticalSectionRawMutex, Cell<(AngularVelocity, AngularVelocity)>> =
+    Mutex::new(Cell::new((AngularVelocity::ZERO, AngularVelocity::ZERO)));
 
-pub fn set_front_wheel_speeds(omega_fl: f32, omega_fr: f32) {
+pub fn set_front_wheel_speeds(omega_fl: AngularVelocity, omega_fr: AngularVelocity) {
     FRONT_WHEEL_SPEEDS.lock(|c| c.set((omega_fl, omega_fr)));
 }
 
-pub fn get_front_wheel_speeds() -> (f32, f32) {
+pub fn get_front_wheel_speeds() -> (AngularVelocity, AngularVelocity) {
     FRONT_WHEEL_SPEEDS.lock(|c| c.get())
 }
 
@@ -213,25 +215,20 @@ fn load_tire_curve(data: &[u8]) -> Option<TireCurve> {
     Some(curve)
 }
 
-fn wheel_rads_to_mph(omega_rads: f32) -> f32 {
-    let radius_m = Length::new::<inch>(TIRE_DIAMETER / 2.0).get::<meter>();
-    Velocity::new::<meter_per_second>(omega_rads * radius_m).get::<mile_per_hour>()
+fn wheel_speed(omega: AngularVelocity) -> Velocity {
+    Length::new::<inch>(TIRE_DIAMETER / 2.0) * omega
 }
 
-fn calc_slip(motor_rpm: f32, vx_car: f32) -> f32 {
-    let wheel_rads = AngularVelocity::new::<revolution_per_minute>(motor_rpm / GEAR_RATIO)
-        .get::<radian_per_second>();
-    let v_rear = wheel_rads_to_mph(wheel_rads);
+fn calc_slip(motor_speed: AngularVelocity, vx_car: Velocity) -> f32 {
+    let v_rear = wheel_speed(motor_speed / GEAR_RATIO);
 
     let denom = vx_car.abs().max(v_rear.abs());
-    if denom < MIN_VX {
+
+    if denom < Velocity::new::<mile_per_hour>(MIN_VX) {
         return 0.0;
     }
-    (v_rear - vx_car) / denom
-}
 
-fn rpm_to_rads(rpm: i16) -> f32 {
-    AngularVelocity::new::<revolution_per_minute>(rpm as f32).get::<radian_per_second>()
+    ((v_rear - vx_car) / denom).get::<ratio>()
 }
 
 fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
@@ -284,15 +281,14 @@ fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: f32) {
     defmt::info!("TC: ax bias = {} mg", est.ax_bias);
 }
 
-/// Velocity in mph
-fn estimate_velocity(est: &mut VelEstimator, avg_front_rads: f32, ax: f32, dt: f32) -> f32 {
-    let vx_wheel = wheel_rads_to_mph(avg_front_rads);
+fn estimate_velocity(est: &mut VelEstimator, avg_front_rads: AngularVelocity, ax: f32, dt: f32) -> Velocity {
+    let vx_wheel = wheel_speed(avg_front_rads).get::<mile_per_hour>();
     let ax_corrected = Acceleration::new::<standard_gravity>((ax - est.ax_bias) / 1000.0);
     let dv = (ax_corrected * Time::new::<second>(dt)).get::<mile_per_hour>();
     let vx_imu = est.v_x + dv;
     let v = est.alpha * vx_wheel + (1.0 - est.alpha) * vx_imu;
     est.v_x = if v > 0.0 { v } else { 0.0 };
-    est.v_x
+    Velocity::new::<mile_per_hour>(est.v_x)
 }
 
 fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
@@ -320,7 +316,10 @@ pub fn tc_record_front_rpm(data: &[u8]) {
     }
     let fl_rpm = i16::from_be_bytes([data[0], data[1]]);
     let fr_rpm = i16::from_be_bytes([data[2], data[3]]);
-    set_front_wheel_speeds(rpm_to_rads(fl_rpm), rpm_to_rads(fr_rpm));
+    set_front_wheel_speeds(
+        AngularVelocity::new::<revolution_per_minute>(fl_rpm as f32),
+        AngularVelocity::new::<revolution_per_minute>(fr_rpm as f32),
+    );
 }
 
 pub fn tc_process() {
@@ -361,7 +360,7 @@ pub fn tc_process() {
     // 4. Control step.
     let accel = imu_get_acceleration();
     let (omega_fl, omega_fr) = get_front_wheel_speeds();
-    let motor_rpm = dti_get_rpm() as f32;
+    let motor_rpm = dti_get_rpm();
 
     let scale = set_tc_state(|s| {
         let TcState {
