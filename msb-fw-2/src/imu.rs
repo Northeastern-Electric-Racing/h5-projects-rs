@@ -16,7 +16,6 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Delay, Duration, Ticker, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
-// use lsm6dsv_ner::{AccelRange, Config, DataRate, GyroRange, ImuReading, NerLsm6dsv16x};
 use lsm6dsv16x_ner::mdps::millidegree_per_second;
 use lsm6dsv16x_ner::{NerLsm6dsv16x, milligravity};
 
@@ -68,11 +67,7 @@ pub async fn imu_task(spi: ImuSpi) {
     }
     info!("LSM6DSV initialised");
 
-    // if let Err(e) = imu.init(CONFIG).await {
-    //     defmt::error!("LSM6DSV init failed: {} (check SPI wiring/mode)", e);
-    //     return;
-    // }
-    // defmt::info!("LSM6DSV initialised: {}", CONFIG);
+    
 
     let sender = IMU_DATA.sender();
 
