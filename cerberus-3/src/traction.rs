@@ -14,15 +14,15 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
 
-const TC_CURVE_MAGIC: u32 = 0x004E_4552;
-const TC_CURVE_VERSION: u8 = 1;
-const TC_CURVE_POINTS_MAX: usize = 200;
-const TC_CALIB_SAMPLES: u16 = 50;
-const TC_MIN_VX: f32 = 0.5;
+const CURVE_MAGIC: u32 = 0x004E_4552;
+const CURVE_VERSION: u8 = 1;
+const CURVE_POINTS_MAX: usize = 200;
+const CALIB_SAMPLES: u16 = 50;
+const MIN_VX: f32 = 0.5;
 const VEL_ALPHA: f32 = 0.98;
-const TC_INTEGRAL_LIMIT: f32 = 1.0;
-const TC_KP_DEFAULT: f32 = 1.5;
-const TC_KI_DEFAULT: f32 = 0.2;
+const INTEGRAL_LIMIT: f32 = 1.0;
+const KP_DEFAULT: f32 = 1.5;
+const KI_DEFAULT: f32 = 0.2;
 const TIRE_DIAMETER: f32 = 16.0;
 const GEAR_RATIO: f32 = 39.0 / 13.0;
 
@@ -57,7 +57,7 @@ struct TireCurve {
     num_points: u16,
     surface_id: [u8; 16],
     peak_lambda: f32,
-    points: [TireCurvePoint; TC_CURVE_POINTS_MAX],
+    points: [TireCurvePoint; CURVE_POINTS_MAX],
 }
 
 #[derive(Clone, Copy)]
@@ -89,8 +89,8 @@ struct TcPi {
 impl TcPi {
     const fn new() -> Self {
         Self {
-            kp: TC_KP_DEFAULT,
-            ki: TC_KI_DEFAULT,
+            kp: KP_DEFAULT,
+            ki: KI_DEFAULT,
             integral: 0.0,
         }
     }
@@ -197,15 +197,15 @@ fn load_tire_curve(data: &[u8]) -> Option<TireCurve> {
     let version = curve.version;
     let num_points = curve.num_points;
 
-    if magic != TC_CURVE_MAGIC {
+    if magic != CURVE_MAGIC {
         defmt::error!("TC: bad curve magic 0x{:08x}", magic);
         return None;
     }
-    if version != TC_CURVE_VERSION {
+    if version != CURVE_VERSION {
         defmt::error!("TC: unsupported curve version {}", version);
         return None;
     }
-    if (num_points as usize) > TC_CURVE_POINTS_MAX || num_points < 2 {
+    if (num_points as usize) > CURVE_POINTS_MAX || num_points < 2 {
         defmt::error!("TC: invalid num_points {}", num_points);
         return None;
     }
@@ -224,7 +224,7 @@ fn calc_slip(motor_rpm: f32, vx_car: f32) -> f32 {
     let v_rear = wheel_rads_to_mph(wheel_rads);
 
     let denom = vx_car.abs().max(v_rear.abs());
-    if denom < TC_MIN_VX {
+    if denom < MIN_VX {
         return 0.0;
     }
     (v_rear - vx_car) / denom
@@ -235,7 +235,7 @@ fn rpm_to_rads(rpm: i16) -> f32 {
 }
 
 fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
-    let n = (curve.num_points as usize).min(TC_CURVE_POINTS_MAX);
+    let n = (curve.num_points as usize).min(CURVE_POINTS_MAX);
     if n == 0 {
         return 0.0;
     }
@@ -299,7 +299,7 @@ fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
     let slip_ref = curve.peak_lambda * 0.98;
     let error = slip_ref - slip;
 
-    pi.integral = (pi.integral + error * dt).clamp(-TC_INTEGRAL_LIMIT, TC_INTEGRAL_LIMIT);
+    pi.integral = (pi.integral + error * dt).clamp(-INTEGRAL_LIMIT, INTEGRAL_LIMIT);
 
     let fx_ff = lookup_fx(curve, slip_ref);
     (fx_ff + pi.kp * error + pi.ki * pi.integral).clamp(0.0, 1.0)
@@ -349,7 +349,7 @@ pub fn tc_process() {
                 s.ax_sum += a.x;
                 s.sample_count += 1;
             }
-            if s.sample_count >= TC_CALIB_SAMPLES {
+            if s.sample_count >= CALIB_SAMPLES {
                 let avg = s.ax_sum / s.sample_count as f32;
                 init_vel_estimator(&mut s.vel_estimator, avg);
             }
