@@ -9,6 +9,7 @@
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use cortex_m::peripheral::scb::Exception;
 use cortex_m::peripheral::{DCB, SCB};
 use defmt::{info, warn};
 use embassy_stm32::can::Frame;
@@ -18,13 +19,16 @@ use embassy_time::{Duration, Instant, Timer};
 /// this is set in CrashInfo by the crash handlers, and then when the next boot reads the memory, it uses this const to verify that there is real crash data there instead of random junk
 const CRASH_MAGIC: u32 = 0xBA115;
 
-/// `CrashInfo::kind` value for a real HardFault.
-pub const KIND_HARDFAULT: u32 = 1;
-/// `CrashInfo::kind` value for a Rust panic.
-pub const KIND_PANIC: u32 = 2;
-/// `CrashInfo::kind` value for a panic raised through defmt (`defmt::unwrap!` etc., which embassy uses internally).
-/// defmt doesn't give its panic handler the location, so `line` and `file_hash` are 0.
-pub const KIND_DEFMT_PANIC: u32 = 3;
+/// `CrashInfo::kind` values.
+pub mod kind {
+    /// A real HardFault.
+    pub const HARDFAULT: u32 = 1;
+    /// A Rust panic.
+    pub const PANIC: u32 = 2;
+    /// A panic raised through defmt (`defmt::unwrap!` etc., which embassy uses internally).
+    /// defmt doesn't give its panic handler the location, so `line` and `file_hash` are 0.
+    pub const DEFMT_PANIC: u32 = 3;
+}
 
 /// Standard CAN ID of the crash report frame, next to Shepherd's version messages (0x69A, 0x69B).
 /// TODO: add "Shepherd Crash Report" to Odyssey-Definitions bms.json so Calypso can decode it
@@ -41,7 +45,7 @@ const STABLE_RUNTIME: Duration = Duration::from_secs(10);
 #[derive(Clone, Copy, defmt::Format)]
 pub struct CrashInfo {
     magic: u32,
-    /// `KIND_HARDFAULT`, `KIND_PANIC` or `KIND_DEFMT_PANIC`.
+    /// One of the `kind` values.
     kind: u32,
     /// Program Counter.
     pc: u32,
@@ -91,7 +95,7 @@ impl CrashInfo {
         let kind = self.kind as u8;
         let count = self.count.min(u8::MAX as u32) as u8;
         let line = (self.line.min(u16::MAX as u32) as u16).to_be_bytes();
-        let detail = if self.kind == KIND_HARDFAULT { self.pc } else { self.file_hash };
+        let detail = if self.kind == kind::HARDFAULT { self.pc } else { self.file_hash };
         let detail = detail.to_be_bytes();
         let data = [kind, count, line[0], line[1], detail[0], detail[1], detail[2], detail[3]];
 
@@ -164,7 +168,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     if !IN_CRASH.swap(true, Ordering::Relaxed) {
         let (line, file_hash) = info.location().map_or((0, 0), |loc| (loc.line(), fnv1a(loc.file().as_bytes())));
         // saved before logging, since logging is the step most likely to go wrong
-        save_crash(CrashInfo { line, file_hash, ..CrashInfo::new(KIND_PANIC) });
+        save_crash(CrashInfo { line, file_hash, ..CrashInfo::new(kind::PANIC) });
 
         defmt::error!("panic: {}", defmt::Display2Format(info));
     }
@@ -178,7 +182,7 @@ fn defmt_panic() -> ! {
     cortex_m::interrupt::disable();
 
     if !IN_CRASH.swap(true, Ordering::Relaxed) {
-        save_crash(CrashInfo::new(KIND_DEFMT_PANIC));
+        save_crash(CrashInfo::new(kind::DEFMT_PANIC));
     }
 
     finish_panic()
@@ -201,7 +205,7 @@ unsafe fn HardFault(frame: &cortex_m_rt::ExceptionFrame) -> ! {
         hfsr: scb.hfsr.read(),
         mmfar: scb.mmfar.read(),
         bfar: scb.bfar.read(),
-        ..CrashInfo::new(KIND_HARDFAULT)
+        ..CrashInfo::new(kind::HARDFAULT)
     });
 
     defmt::error!("HardFault: {}", info);
@@ -225,8 +229,9 @@ fn finish_panic() -> ! {
 
 /// Disables UsageFault first, otherwise `udf` raises UsageFault instead of HardFault.
 fn trigger_hardfault() -> ! {
-    // SAFETY: the SCB block is at a fixed address and always mapped. we never return to normal code after this
-    unsafe { (*SCB::PTR).shcsr.modify(|v| v & !(1u32 << 18u32)) };
+    // SAFETY: we never return to normal code after this, so steal() is fine
+    let mut scb = unsafe { cortex_m::Peripherals::steal() }.SCB;
+    scb.disable(Exception::UsageFault);
     cortex_m::asm::udf()
 }
 

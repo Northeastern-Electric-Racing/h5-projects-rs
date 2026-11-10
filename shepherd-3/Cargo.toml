@@ -5,13 +5,10 @@ version = "0.1.0"
 
 [features]
 hil = []
-<<<<<<< HEAD
 four-segments = []
-=======
 # Crashes (panics and HardFaults) hang instead of resetting, so a debugger can be attached to the
 # crashed board with `probe-rs attach`. Bench debugging only, never on the car.
 halt-on-crash = []
->>>>>>> a3be65e (shepherd-3: custom panic handler with crash reports over CAN)
 
 [dependencies]
 cortex-m.workspace = true
