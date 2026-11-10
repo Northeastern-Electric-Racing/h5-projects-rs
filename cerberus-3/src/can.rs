@@ -136,6 +136,9 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
         match Msg::decode(&frame) {
             Some(Msg::VcuBootRequest(_)) => {
                 if boot_control::is_valid_request(frame.data()) {
+                    // Begin cleanup before reset: add application-specific shutdown here.
+
+                    // End cleanup before reset.
                     bootloader.enter_bootloader();
                 }
             }

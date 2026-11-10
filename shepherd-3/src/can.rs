@@ -487,6 +487,9 @@ mod handler {
             match frame.id() {
                 Id::Standard(id) if id.as_raw() == crate::BOOT_REQUEST_ID => {
                     if !embedded_can::Frame::is_remote_frame(&frame) && boot_control::is_valid_request(frame.data()) {
+                        // Begin cleanup before reset: add application-specific shutdown here.
+
+                        // End cleanup before reset.
                         bootloader.enter_bootloader();
                     }
                 },
