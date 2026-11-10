@@ -32,7 +32,7 @@ assign_resources! {
     default: DefaultResources {
         watchdog: IWDG,
     }
-    /// Timer backing the sub-microsecond delays the ADBMS parts need for CSB-high to SDO.
+    /// Timer backing the sub-microsecond SPI waits the ADBMS parts need around chip select.
     spi_delay: PrecisionDelayResources {
         tim: TIM2,
     }
@@ -95,7 +95,7 @@ assign_resources! {
     default: DefaultResources {
         watchdog: IWDG,
     }
-    /// Timer backing the sub-microsecond delays the ADBMS parts need for CSB-high to SDO.
+    /// Timer backing the sub-microsecond SPI waits the ADBMS parts need around chip select.
     spi_delay: PrecisionDelayResources {
         tim: TIM2,
     }

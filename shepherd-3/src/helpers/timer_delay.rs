@@ -1,8 +1,7 @@
-//! Free-running counter for the microsecond waits the ADBMS parts need between transactions.
+//! Free-running counter for the microsecond waits the ADBMS parts need around chip select.
 //!
-//! `embassy_time` runs at 32.768 kHz here, so its finest wait is 30.5 us. This is C's
-//! `delay_us_2950` -- spin on a free-running timer -- with one shared counter instead of C's four,
-//! and the rate read from the clock tree instead of a hardcoded prescaler.
+//! `embassy_time` runs at 32.768 kHz here, so its finest wait is 30.5 us -- far too coarse for the
+//! 0.5 us and 2 us bounds in the datasheets. Spinning on a timer is the way to get under that.
 
 use embassy_stm32::Peri;
 use embassy_stm32::peripherals::TIM2;
@@ -22,8 +21,8 @@ pub struct TimerDelay {
 
 /// Claims TIM2 and starts it free-running. Call once; panics if called twice.
 ///
-/// TIM2 rather than C's TIM5, which embassy's time driver already took. Unprescaled, so the
-/// unavoidable +/-1 tick sampling error is nanoseconds rather than a microsecond.
+/// TIM2 because embassy's time driver already took TIM5. Unprescaled, so the unavoidable +/-1
+/// tick sampling error is nanoseconds rather than a microsecond.
 pub fn init(tim: Peri<'static, TIM2>) -> TimerDelay {
     let timer = TIMER.init(Timer::new(tim));
 
@@ -69,7 +68,10 @@ impl embedded_hal_async::delay::DelayNs for TimerDelay {
         if ns < SPIN_LIMIT_NS {
             self.spin_ns(ns);
         } else {
-            embassy_time::Timer::after_nanos(u64::from(ns)).await;
+            // `Instant::now()` floors, so a bare `after` can return up to a tick early -- which
+            // would put the 500 us wake pulse at 488 us, under the 6830's 500 us t_WAKE max.
+            let wait = embassy_time::Duration::from_nanos(u64::from(ns)) + embassy_time::Duration::from_ticks(1);
+            embassy_time::Timer::after(wait).await;
         }
     }
 }

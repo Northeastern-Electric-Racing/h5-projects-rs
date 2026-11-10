@@ -16,7 +16,6 @@ pub mod alias {
     #[cfg(not(feature = "hil"))]
     use embedded_hal_bus::spi::ExclusiveDevice;
     #[cfg(not(feature = "hil"))]
-    #[cfg(not(feature = "hil"))]
     use embassy_stm32::{
         mode::Async,
         gpio::Output,
