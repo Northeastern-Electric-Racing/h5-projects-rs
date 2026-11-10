@@ -66,7 +66,7 @@ pub async fn imu_task(spi: ImuSpi) {
         }
     }
     info!("LSM6DSV initialised");
-    
+
     let sender = IMU_DATA.sender();
 
     // since accel and gyro can have new data at diff times, keep the latest of each
