@@ -1,8 +1,15 @@
 use crate::{
     helpers::deadline::Deadline,
-    state_machine::{BmsState},
-    segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, IndexByOnboardTherm, ThermistorTemperatures, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
-    units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm},
+    segments::{CellId, ChipId, IndexByChip, IndexByCell, IndexBySegment, IndexByOnboardTherm, ThermistorTemperatures, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
+    units::{Temperature, Voltage, Current, Ratio, Resistance, percent, ratio, degree_celsius, volt, ohm},
+};
+
+// Only the 25A balancing patch names these, and that is compiled out under `hil`.
+#[cfg(not(feature = "hil"))]
+use crate::{
+    segments::ChipKind,
+    state_machine::BmsState,
+    units::{Length, ResistancePerLength},
 };
 
 pub mod analyzer {
@@ -374,24 +381,25 @@ pub mod analyzer {
         /// register depending on if we are charging or not. Also has to do some post-processing corrections for 25A specifically (since this was in TSECU-Shepherd code).
         /// This doesn't modify anything in the cache itself (since that's raw reads), this just initializes (and post-processes) the Analyzer's cell voltage data.
         fn calc_cell_voltages(&mut self, cell_voltages: &IndexByChip<IndexByCell<Voltage>>) {
+            #[cfg(not(feature = "hil"))]
             let state = crate::state_machine::state();
 
             for chip in ChipId::iter() {
-                // Constants and comments from TSECU-Shepherd
-                // 25A patch only: alpha lowest and beta highest need to be offset correctly
-                const UNIT_RES: ResistancePerLength = ResistancePerLength::from_ohms_per_millimeter(0.00139_f32); // from 1/2 oz copper, 0.71mm trace width, 30C
-                const TRACE_LEN_ALPHA: Length = Length::from_millimeters(234.56_f32 + 27.23_f32);
-                const TRACE_LEN_BETA: Length = Length::from_millimeters(116.36_f32 + 27.431_f32);
-                const FUSE_RES: Resistance = Resistance::from_ohms(0.1637_f32);
-                const TRACE_RES_ONBOARD_ALPHA: Resistance = Resistance::from_ohms(0.015_f32); // ohms, correction offset
-                const TRACE_RES_ONBOARD_BETA: Resistance = Resistance::from_ohms(0.20_f32); // ohms, correction offset
-
                 self.corrected_cell_voltages[chip].iter_mut().for_each(|(cell, voltage)| {
                     *voltage = cell_voltages[chip][cell];
                 });
 
                 #[cfg(not(feature = "hil"))]
                 {
+                    // Constants and comments from TSECU-Shepherd
+                    // 25A patch only: alpha lowest and beta highest need to be offset correctly
+                    const UNIT_RES: ResistancePerLength = ResistancePerLength::from_ohms_per_millimeter(0.00139_f32); // from 1/2 oz copper, 0.71mm trace width, 30C
+                    const TRACE_LEN_ALPHA: Length = Length::from_millimeters(234.56_f32 + 27.23_f32);
+                    const TRACE_LEN_BETA: Length = Length::from_millimeters(116.36_f32 + 27.431_f32);
+                    const FUSE_RES: Resistance = Resistance::from_ohms(0.1637_f32);
+                    const TRACE_RES_ONBOARD_ALPHA: Resistance = Resistance::from_ohms(0.015_f32); // ohms, correction offset
+                    const TRACE_RES_ONBOARD_BETA: Resistance = Resistance::from_ohms(0.20_f32); // ohms, correction offset
+
                     // The distance times the unit resistance, plus the resistance of the fuse
                     let (res, cell): (Resistance, CellId) = match chip.kind() {
                         ChipKind::Beta => {
