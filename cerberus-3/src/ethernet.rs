@@ -35,7 +35,13 @@ macro_rules! topics {
         }
 
         impl Topic {
-            const TABLE: &'static [(&'static str, &'static str)] = &[$(($key, $unit),)*];
+            async fn publishers(eth: &NerEth<ID>) -> [NerPublisher<'static>; Self::VARIANT_COUNT] {
+                [$(
+                    eth.get_publisher($key, Some($unit))
+                        .await
+                        .unwrap_or_else(|| defmt::panic!("Failed to create publisher for {}", $key)),
+                )*]
+            }
         }
     };
 }
@@ -63,22 +69,17 @@ pub async fn ethernet_task(spawner: Spawner, r: EthernetResources) {
     Timer::after_millis(500).await;
     phy_reset.set_high();
 
-    let eth = NerEth::<ID>::new(
+    let Some(eth) = NerEth::<ID>::new(
         spawner, r.rng, r.eth, r.ref_clk, r.crs, r.rx_d0, r.rx_d1, r.tx_d0, r.tx_d1, r.tx_en,
         r.sma, r.mdio, r.mdc,
     )
     .await
-    .expect("Failed to initialize NerEth.");
+    else {
+        defmt::error!("Ethernet init failed; running without Ethernet");
+        return;
+    };
 
-    let mut publishers: heapless::Vec<NerPublisher<'static>, { Topic::VARIANT_COUNT }> =
-        heapless::Vec::new();
-
-    for &(key, unit) in Topic::TABLE {
-        let Some(p) = eth.get_publisher(key, Some(unit)).await else {
-            defmt::panic!("Failed to create publisher for {}", key);
-        };
-        let _ = publishers.push(p);
-    }
+    let mut publishers = Topic::publishers(&eth).await;
 
     loop {
         let packet = OUTGOING.receive().await;
