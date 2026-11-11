@@ -1,4 +1,4 @@
-use defmt::{debug, info, warn};
+use defmt::warn;
 use embassy_futures::select::{Either3, select3};
 use embassy_stm32::{can::Frame, gpio::Output};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
@@ -37,7 +37,7 @@ const _: () = assert!(Fault::COUNT <= 32);
 
 const FAULT_CHANNEL_SIZE: usize = 32;
 
-pub static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, FAULT_CHANNEL_SIZE> = Channel::new();
+static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, FAULT_CHANNEL_SIZE> = Channel::new();
 
 impl Fault {
     pub fn is_critical(&self) -> bool {
@@ -61,7 +61,7 @@ impl Fault {
         | (1 << Fault::MOTOR_TEMP_SENSOR_FAULT as u32);
 }
 
-pub struct AllFaults {
+struct AllFaults {
     // A bitmap of faults s.t `1<<(fault as usize)` is the bit in question
     faults: u32,
     // expirations[fault] gives the deadline for the pertinent fault
@@ -76,7 +76,7 @@ impl AllFaults {
         }
     }
 
-    pub fn bitmap(&self) -> u32 {
+    fn bitmap(&self) -> u32 {
         self.faults
     }
 
@@ -84,7 +84,7 @@ impl AllFaults {
         self.faults & fault.as_bitmap_component() != 0
     }
 
-    pub fn fault_present(&self) -> bool {
+    fn fault_present(&self) -> bool {
         self.faults != 0
     }
 
@@ -92,8 +92,7 @@ impl AllFaults {
         self.faults & Fault::CRITICAL_MASK != 0
     }
 
-    pub fn set_fault(&mut self, fault: Fault) {
-        debug!("Fault triggered: {:?}", fault);
+    fn set_fault(&mut self, fault: Fault) {
         if fault.is_critical() {
             warn!("Critical fault triggered! {:?}", &fault);
         }
@@ -104,10 +103,9 @@ impl AllFaults {
     pub fn reset_fault(&mut self, fault: Fault) {
         self.faults &= !fault.as_bitmap_component();
         self.expirations[fault as usize] = Instant::MAX;
-        info!("Reset fault: {:?}", fault);
     }
 
-    pub fn as_can_frame(&self) -> Frame {
+    fn as_can_frame(&self) -> Frame {
         cangen::Faults::new()
             .with_CAN_OUTGOING_FAULT(self.get_fault(Fault::CAN_OUTGOING_FAULT))
             .with_CAN_INCOMING_FAULT(self.get_fault(Fault::CAN_INCOMING_FAULT))
@@ -153,7 +151,7 @@ impl AllFaults {
     }
 }
 
-pub async fn raise_fault(fault: Fault) {
+pub async fn trigger_fault(fault: Fault) {
     INBOUND_FAULTS.send(fault).await;
 }
 
@@ -165,16 +163,10 @@ pub async fn fault_task() {
     const TIMEOUT_DURATION: Duration = Duration::from_millis(500);
 
     loop {
-        let (_, deadline) = faults
-            .expirations
-            .iter()
-            .copied()
-            .enumerate()
-            .min_by_key(|&(_, deadline)| deadline)
-            .unwrap_or((0, Instant::MAX));
+        let deadline = faults.expirations.iter().min().unwrap_or(&Instant::MAX);
 
         match select3(
-            Timer::at(deadline),
+            Timer::at(*deadline),
             INBOUND_FAULTS.receive(),
             Timer::after(TIMEOUT_DURATION),
         )
@@ -205,12 +197,8 @@ pub async fn fault_task() {
 /// The pin has a default state of HIGH (i.e. no fault).
 pub fn set_mcu_fault(pin: &mut Output<'static>, faulted: bool) {
     if faulted {
-        // If there is a fault, set the fault pin to LOW.
-        info!("Turned on MCU fault.");
         pin.set_low();
     } else {
-        // If there is not a fault, set the pin to HIGH.
-        info!("Turned off MCU fault.");
         pin.set_high();
     }
 }
