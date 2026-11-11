@@ -1,4 +1,4 @@
-use defmt::warn;
+use defmt::{debug, info, warn};
 use embassy_futures::select::{Either3, select3};
 use embassy_stm32::{can::Frame, gpio::Output};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
@@ -93,6 +93,7 @@ impl AllFaults {
     }
 
     fn set_fault(&mut self, fault: Fault) {
+        info!("fault triggered! {:?}", &fault);
         if fault.is_critical() {
             warn!("Critical fault triggered! {:?}", &fault);
         }
@@ -101,6 +102,7 @@ impl AllFaults {
     }
 
     pub fn reset_fault(&mut self, fault: Fault) {
+        debug!("Reset fault: {:?}", &fault);
         self.faults &= !fault.as_bitmap_component();
         self.expirations[fault as usize] = Instant::MAX;
     }
@@ -142,17 +144,23 @@ impl AllFaults {
             .iter_mut()
             .enumerate()
             .for_each(|(id, deadline)| {
-                if deadline.elapsed() >= Duration::from_ticks(0)
+                if deadline <= &mut Instant::now()
                     && let Some(some_fault) = Fault::from_repr(id)
                 {
+                    debug!("reset exipired faults: {:?}", &some_fault);
                     self.reset_fault(some_fault);
                 }
             })
     }
 }
 
-pub async fn trigger_fault(fault: Fault) {
-    INBOUND_FAULTS.send(fault).await;
+pub fn trigger_fault(fault: Fault) {
+    match INBOUND_FAULTS.try_send(fault) {
+        Ok(_) => {}
+        Err(_) => {
+            warn!("Couldn't send fault: {:?}", fault);
+        }
+    }
 }
 
 /// To trigger a fault, simply append it to the channel and the task takes care of the rest
@@ -173,6 +181,7 @@ pub async fn fault_task() {
         .await
         {
             Either3::First(_) => {
+                debug!("here");
                 faults.reset_expired_faults();
                 if !faults.critical_fault_present() {
                     set_ready_state().await;
