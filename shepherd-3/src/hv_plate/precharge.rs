@@ -15,20 +15,24 @@ fn pack_present(batt: Voltage) -> bool {
     batt >= MINIMUM_PACK_VOLTAGE - BATT_VOLT_BUFFER
 }
 
-// u_TODO - use 2950 here probably
 /// The bus as the analyzer last saw it.
 #[derive(Copy, Clone)]
 struct BusReading {
-    ts: Voltage,
+    /// `None` when nothing is currently reporting TS voltage.
+    ///
+    /// Separate from the reading as a whole on purpose: `batt` is available as soon as the
+    /// analyzer has published, so an unknown TS must not take it down too. It used to, and the
+    /// averages below were never fed, which read out as a pack sitting at 0 V forever.
+    ts: Option<Voltage>,
     batt: Voltage,
 }
 
 impl BusReading {
-    /// `None` means there is no TS reading; `batt` is always available once the analyzer is.
+    /// `None` only before the analyzer's first publish.
     fn read() -> Option<Self> {
         let (ts, batt) = crate::pack::analyzer::analyzer().try_partial_get(|inner| (inner.data.ts_voltage, inner.data.pack_voltage))?;
 
-        Some(Self { ts: ts?, batt })
+        Some(Self { ts, batt })
     }
 }
 
@@ -89,11 +93,20 @@ mod close {
         fn decide(&mut self, now: Instant, bus_reading: Option<BusReading>, hv_permitted: bool) -> RelayRequest {
             // Unpack and evaluate ts and batt voltage readings
             let state_from_ts_batt_volts = match bus_reading {
-                Some(BusReading { ts, batt }) => {
+                Some(BusReading { ts: Some(ts), batt }) => {
                     self.ts.push(ts.get::<volt>());
                     self.batt.push(batt.get::<volt>());
                     Self::evaluate(Voltage::from_volts(self.ts.get()), Voltage::from_volts(self.batt.get()))
                 },
+
+                // The pack is measurable but the bus is not, so it cannot be shown to be charged.
+                // Still average the pack voltage: it is the reference the ratio is taken against,
+                // and the diagnostics below are the only way to see which input is missing.
+                Some(BusReading { ts: None, batt }) => {
+                    self.batt.push(batt.get::<volt>());
+                    RelayRequest::Open
+                },
+
                 // Default to open if we can't read inputs (gets debounced anyway)
                 None => RelayRequest::Open,
             };
@@ -141,14 +154,14 @@ mod close {
             self.to_open = Debouncer::new();
         }
 
-        /// Averaged TS voltage, in volts.
-        pub const fn ts_average(&self) -> f32 {
-            self.ts.get()
+        /// Averaged TS voltage, in volts, or `None` if no TS reading has ever arrived.
+        pub const fn ts_average(&self) -> Option<f32> {
+            if self.ts.seeded() { Some(self.ts.get()) } else { None }
         }
 
-        /// Averaged pack voltage, in volts.
-        pub const fn batt_average(&self) -> f32 {
-            self.batt.get()
+        /// Averaged pack voltage, in volts, or `None` if the analyzer has never published.
+        pub const fn batt_average(&self) -> Option<f32> {
+            if self.batt.seeded() { Some(self.batt.get()) } else { None }
         }
     }
 }
@@ -186,7 +199,13 @@ mod weld {
                 return WeldState::Unknown;
             };
 
-            let ts_still_up = inputs.ts >= inputs.batt * RATIO;
+            // No TS reading means no verdict: a quiet bus and a disconnected sensor look the same.
+            let Some(ts) = inputs.ts else {
+                self.still_contacting.calculate(false, SETTLE, now);
+                return WeldState::Unknown;
+            };
+
+            let ts_still_up = ts >= inputs.batt * RATIO;
 
             if self.still_contacting.calculate(ts_still_up, SETTLE, now) {
                 WeldState::Welded
@@ -257,10 +276,14 @@ mod task {
                 defmt::trace!("HvPlate: precharge: {}", requested_state);
 
                 let (ts, batt) = (precharge.ts_average(), precharge.batt_average());
+                let ratio = match (ts, batt) {
+                    (Some(ts), Some(batt)) if batt > 0.0 => ts / batt,
+                    _ => f32::NAN,
+                };
                 defmt_monitor::monitor!("HvPlate/Precharge/State", desc = "Precharge supervisor state", "{}", requested_state);
-                defmt_monitor::monitor!("HvPlate/Precharge/TsVolts", desc = "Averaged TS Voltage.", "{=f32}", ts);
-                defmt_monitor::monitor!("HvPlate/Precharge/BattVolts", desc = "Averaged pack Voltage.", "{=f32}", batt);
-                defmt_monitor::monitor!("HvPlate/Precharge/Ratio", desc = "Averaged TS voltage as a fraction of averaged pack voltage.", "{=f32}", if batt > 0.0 { ts / batt } else { f32::NAN });
+                defmt_monitor::monitor!("HvPlate/Precharge/TsVolts", desc = "Averaged TS voltage, in volts. NaN means no source has ever reported one, which is not the same as a bus at 0 V.", "{=f32}", ts.unwrap_or(f32::NAN));
+                defmt_monitor::monitor!("HvPlate/Precharge/BattVolts", desc = "Averaged pack voltage, in volts, summed from the segment cell readings. NaN until the analyzer has published.", "{=f32}", batt.unwrap_or(f32::NAN));
+                defmt_monitor::monitor!("HvPlate/Precharge/Ratio", desc = "Averaged TS voltage as a fraction of averaged pack voltage. NaN when either is unknown.", "{=f32}", ratio);
                 defmt_monitor::monitor!("HvPlate/Precharge/Weld", desc = "Welded-contact verdict. Unknown means the test could not run, not that the contacts are fine.", "{}", detected_weld_state);
                 defmt_monitor::monitor!("HvPlate/Precharge/RelayState", desc = "What the 2950 last acknowledged about GPO4, which is not necessarily what the contacts are doing.", "{}", acknowledged_state);
             }

@@ -34,6 +34,14 @@ impl<const N: usize> MovingAverage<N> {
     pub const fn get(&self) -> f32 {
         self.average
     }
+
+    /// Whether any sample has been pushed yet.
+    ///
+    /// Until it has, [`Self::get`] returns 0.0, which is indistinguishable from a real zero --
+    /// so a reader that reports the average should say which of the two it is showing.
+    pub const fn seeded(&self) -> bool {
+        self.seeded
+    }
 }
 
 impl<const N: usize> Default for MovingAverage<N> {
