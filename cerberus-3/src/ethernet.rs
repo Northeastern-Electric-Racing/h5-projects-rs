@@ -1,11 +1,10 @@
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::{Peri, peripherals};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::Timer;
-use nereth::{NerEth, NerPublisher};
-use variant_count::VariantCount;
+use nereth::{NerEth, topics};
 
 const ID: u8 = 4;
 
@@ -25,38 +24,12 @@ pub struct EthernetResources {
     pub mdc: Peri<'static, peripherals::PC1>,
 }
 
-/// Defines every Ethernet topic in one place.
-/// Generates the `Topic` enum and a matching (key, unit) table, in the same order.
-macro_rules! topics {
-    ($($name:ident => $key:literal, $unit:literal;)*) => {
-        #[derive(Clone, Copy, VariantCount)]
-        pub enum Topic {
-            $($name,)*
-        }
-
-        impl Topic {
-            async fn publishers(eth: &NerEth<ID>) -> [NerPublisher<'static>; Self::VARIANT_COUNT] {
-                [$(
-                    eth.get_publisher($key, Some($unit))
-                        .await
-                        .unwrap_or_else(|| defmt::panic!("Failed to create publisher for {}", $key)),
-                )*]
-            }
-        }
-    };
-}
-
 topics! {
     Acceleration => "VCU_Ethernet/A/Acceleration", "mg";
     Gyro         => "VCU_Ethernet/A/Gyro",         "mdps";
 }
 
-pub struct Packet {
-    pub topic: Topic,
-    pub values: [f32; 3],
-}
-
-pub static OUTGOING: Channel<ThreadModeRawMutex, Packet, 8> = Channel::new();
+pub static OUTGOING: Channel<CriticalSectionRawMutex, Packet<3>, 8> = Channel::new();
 
 pub fn try_publish(topic: Topic, values: [f32; 3]) -> bool {
     OUTGOING.try_send(Packet { topic, values }).is_ok()

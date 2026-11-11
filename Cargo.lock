@@ -1404,7 +1404,7 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 [[package]]
 name = "nereth"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=add-protoc-as-dependency#c542af483e50638c2780dbab16f25d78d44fe7f0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=add-protoc-as-dependency#6ce625ad771c3c646a812684f8db0de8616db8bc"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
