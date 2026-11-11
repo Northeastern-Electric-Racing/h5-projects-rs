@@ -697,10 +697,8 @@ pub mod analyzer {
             let soc_data = crate::hv_plate::soc_data();
             // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly
             analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.shunt_current);
-            // Falls back to the 2950's own TS divider, behind GPO2. Without this, TS is unknown
-            // whenever no DTI or charger frame has arrived -- which on a bench is always -- and
-            // precharge cannot show the bus is charged, so the AIRs stay pinned open.
-            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get());
+            // u_TODO - switch to use 2950 sense for 27A.
+            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).or(crate::hv_plate::cache().get_voltages().nice().try_partial_get(|n| n.data().ts_voltage));
             analyzer.soc = soc_data.state_of_charge;
 
             // this whole section is supposed to look pretty similar to the C code just so
