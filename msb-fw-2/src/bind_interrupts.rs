@@ -1,7 +1,7 @@
 use embassy_stm32::{bind_interrupts, can, dma, i2c, peripherals};
 
 bind_interrupts!(pub struct Irqs {
-    // Mux scan (multiplexor_handler)
+    // Mux scan (multiplexer_handler)
     GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
     // Magnetometer (SPI2)
