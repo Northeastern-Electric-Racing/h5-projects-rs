@@ -700,7 +700,7 @@ pub mod analyzer {
             // Falls back to the 2950's own TS divider, behind GPO2. Without this, TS is unknown
             // whenever no DTI or charger frame has arrived -- which on a bench is always -- and
             // precharge cannot show the bus is charged, so the AIRs stay pinned open.
-            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).or_else(|| crate::hv_plate::cache().get_voltages().nice().try_partial_get(|nice| nice.data().ts_voltage));
+            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get());
             analyzer.soc = soc_data.state_of_charge;
 
             // this whole section is supposed to look pretty similar to the C code just so
@@ -928,9 +928,21 @@ pub mod analyzer {
                     defmt_monitor::monitor!(["AnalyzerDebug/SegmentDeltaVoltages/seg_{=u8}/", segment.as_u8()], desc = "Delta voltage stored for this segment, in volts.", "{=f32}", analyzer.segment_delta_volts[segment].get::<volt>());
                 }
 
-                // Pack current and TS voltage.
-                defmt_monitor::monitor!("AnalyzerDebug/Misc/pack_current", desc = "Pack current in amps, positive is discharge. From CAN if a node has reported it, otherwise the shunt. NaN if neither has a reading.", "{=f32}", analyzer.pack_current.map_or(f32::NAN, |current| current.as_amps()));
-                defmt_monitor::monitor!("AnalyzerDebug/Misc/ts_voltage", desc = "TS voltage reported over CAN, in volts. NaN until the first frame arrives.", "{=f32}", analyzer.ts_voltage.map_or(f32::NAN, |voltage| voltage.get::<volt>()));
+                // Pack current and TS voltage, then each source that fed them. Published next to
+                // their inputs so a wrong number can be traced to the source that produced it
+                // rather than guessing which one won.
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/pack_current", desc = "Pack current in amps, positive is discharge. The CAN-reported value if a node has sent one, otherwise the shunt. NaN if neither has a reading.", "{=f32}", analyzer.pack_current.map_or(f32::NAN, |current| current.as_amps()));
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/ts_voltage", desc = "TS voltage in volts, as selected: the CAN-reported value if a node has sent one, otherwise the 2950's own divider. NaN if neither has a reading.", "{=f32}", analyzer.ts_voltage.map_or(f32::NAN, |voltage| voltage.get::<volt>()));
+
+                // What the DTI or charger reported, before selection. Nothing clears these, so a
+                // node that has gone quiet leaves its last value here -- a steady number is not
+                // proof that anything is still sending.
+                defmt_monitor::monitor!("AnalyzerDebug/Reported/pack_current", desc = "Pack current as last reported over CAN by the DTI or the charger, in amps. NaN until a frame has arrived.", "{=f32}", REPORTED_DATA.lock(|reported| reported.pack_current.get()).map_or(f32::NAN, |current| current.as_amps()));
+                defmt_monitor::monitor!("AnalyzerDebug/Reported/ts_voltage", desc = "TS voltage as last reported over CAN by the DTI or the charger, in volts. NaN until a frame has arrived.", "{=f32}", REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).map_or(f32::NAN, |voltage| voltage.get::<volt>()));
+
+                // The 2950's own readings, for cross-checking the reported ones against the plate.
+                defmt_monitor::monitor!("AnalyzerDebug/Plate/ts_voltage", desc = "TS voltage off the 2950's own divider behind GPO2, in volts. NaN until the voltages group has been read.", "{=f32}", crate::hv_plate::cache().get_voltages().nice().try_partial_get(|nice| nice.data().ts_voltage.get::<volt>()).unwrap_or(f32::NAN));
+                defmt_monitor::monitor!("AnalyzerDebug/Plate/shunt_current", desc = "Pack current off the 2950's shunt, in amps, discharge-positive. NaN until the estimator has published.", "{=f32}", crate::hv_plate::soc_data().shunt_current.map_or(f32::NAN, |current| current.as_amps()));
 
                 // OCV snapshot bookkeeping.
                 defmt_monitor::monitor!("AnalyzerDebug/Ocv/is_first_reading", desc = "Whether we are still waiting for the first plausible cell voltage to seed the OCV snapshot.", "{=bool}", analyzer.ocv_is_first_reading);

@@ -9,6 +9,7 @@ use super::isospi_recovery;
 use super::precharge;
 use super::soc;
 use crate::broadcast::Broadcast;
+use crate::helpers::deadline::Deadline;
 use crate::job_diagnostics::JobDiagnosticsContainer;
 use adbms2950::line::Error;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -158,17 +159,35 @@ impl HvPlate {
         self.recovery_service.run(self.api, startup).await
     }
 
-    /// Drives the HV control relay on GPO4. Active low, open drain.
+    /// Drives the HV control relay on GPO4. Active low, open drain: pulled low energizes the coil.
+    ///
+    /// `Ok(())` only means the transaction went out; a write the chip drops on PEC also returns
+    /// `Ok`. [`Self::read_relay_state`] is what confirms it took.
     async fn set_hv_relay(&mut self, energized: bool) -> Result<(), Error<alias::SpiError>> {
         use adbms2950::chip::registers::config_a::types::GpoOutputState;
 
         // u_TODO - make sure relay control is wired to gpo4 on 27A HV Plate
-        let state = if energized { GpoOutputState::PulledLow } else { GpoOutputState::Driven };
-        self.api.modify_configa(|cfg| cfg.with_gpo4c(state)).await
+        let wanted = if energized { GpoOutputState::PulledLow } else { GpoOutputState::Driven };
+        self.api.modify_configa(|cfg| cfg.with_gpo4c(wanted)).await
+    }
+
+    /// What GPO4 is actually set to, read back from CFGA.
+    ///
+    /// The only check on the driver's cached configuration: `suspected_reset` fires on a counter
+    /// of 0, and a write dropped on PEC leaves it one behind, which nothing acts on.
+    async fn read_relay_state(&mut self) -> Result<relay::RelayState, Error<alias::SpiError>> {
+        use adbms2950::chip::registers::config_a::{ConfigA, types::GpoOutputState};
+
+        // GPO4 only: `REFUP` and `SNAPST` are read-only bits in this writable group, so a
+        // whole-register read-back never matches what was written.
+        Ok(match self.api.read::<ConfigA>().await?.gpo4c() {
+            GpoOutputState::PulledLow => relay::RelayState::Closed,
+            GpoOutputState::Driven => relay::RelayState::Open,
+        })
     }
 }
 
-/// What GPO4 is driving the AIR coil to do, as far as the chip has acknowledged.
+/// What GPO4 is driving the AIR coil to do, as last read back from CFGA.
 pub mod relay {
     use atomic_enum::atomic_enum;
     use core::sync::atomic::Ordering;
@@ -188,7 +207,8 @@ pub mod relay {
         STATE.store(state, Ordering::Relaxed);
     }
 
-    /// What the chip last acknowledged about GPO4.
+    /// What CFGA last reported about GPO4. [`RelayState::Unknown`] means it is genuinely
+    /// unknown: nothing written yet, or the last write or read-back failed.
     pub fn state() -> RelayState {
         STATE.load(Ordering::Relaxed)
     }
@@ -340,8 +360,13 @@ pub mod task {
 
         let mut hv_plate = HvPlate::new(r);
 
+        /// How long the cached GPO4 state is allowed to stand without being checked against CFGA.
+        const RELAY_CONFIRM_PERIOD: Duration = Duration::from_secs(1);
+
         let mut ticker = Ticker::every(PERIOD);
         let mut tick_count: u32 = 0;
+        // Expired, so the first pass confirms rather than trusting a cache nothing has written yet.
+        let mut relay_confirm_deadline = Deadline::expire_at_beginning_of_time();
 
         loop {
             let tick_start = Instant::now();
@@ -372,12 +397,29 @@ pub mod task {
             }
 
             let want_closed = precharge::relay_should_be_closed();
-            match hv_plate.set_hv_relay(want_closed).await {
-                Ok(()) => relay::store(if want_closed { relay::RelayState::Closed } else { relay::RelayState::Open }),
-                Err(err) => {
-                    relay::store(relay::RelayState::Unknown);
-                    defmt::error!("HvPlate: precharge: relay write failed, will retry next tick. Error: {}", err);
-                },
+            let wanted = if want_closed { relay::RelayState::Closed } else { relay::RelayState::Open };
+            let confirm = wanted != relay::state() || relay_confirm_deadline.past();
+            if let Err(err) = hv_plate.set_hv_relay(want_closed).await {
+                relay::store(relay::RelayState::Unknown);
+                defmt::error!("HvPlate: relay: write failed, will retry next tick. Error: {}", err);
+            } else if !confirm {
+                relay::store(wanted);
+            } else {
+                relay_confirm_deadline = Deadline::expire_in(RELAY_CONFIRM_PERIOD);
+
+                match hv_plate.read_relay_state().await {
+                    Ok(observed) => {
+                        if observed != wanted {
+                            defmt::error!("HvPlate: relay: asked GPO4 for {} but CFGA reads back {}.", wanted, observed);
+                        }
+
+                        relay::store(observed);
+                    },
+                    Err(err) => {
+                        relay::store(relay::RelayState::Unknown);
+                        defmt::error!("HvPlate: relay: CFGA read-back failed, will retry next tick. Error: {}", err);
+                    },
+                }
             }
 
             '_diagnostic: {
