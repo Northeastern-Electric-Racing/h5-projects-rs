@@ -23,6 +23,8 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
       - name: Build
         run: cargo build --verbose --workspace
       #  - name: Test
