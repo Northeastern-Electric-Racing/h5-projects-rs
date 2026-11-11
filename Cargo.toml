@@ -32,7 +32,7 @@ variant_count = "1.2.1"
 
 can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
-nereth = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
+nereth = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "add-protoc-as-dependency" }
 
 embassy-net = { version = "0.9.1", features = ["udp", "tcp", "medium-ethernet", "ipv4", "icmp-ping-reply", "defmt"] }
 rust-mqtt = { version = "0.5",default-features = false, features = ["defmt", "bump", "v5"]}
