@@ -1,5 +1,4 @@
 use core::cell::Cell;
-use core::fmt::Error;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_sync::blocking_mutex::Mutex;
@@ -13,6 +12,8 @@ use uom::si::f32::{Acceleration, AngularVelocity, Length, Velocity};
 use uom::si::length::inch;
 use uom::si::ratio::ratio;
 use uom::si::velocity::mile_per_hour;
+
+use crate::peripherals::{self, AccelSample};
 
 const CURVE_MAGIC: u32 = 0x004E_4552;
 const CURVE_VERSION: u8 = 1;
@@ -30,17 +31,9 @@ const TIRE_CURVE_POINT_SIZE: usize = 8;
 const TIRE_CURVE_DATA_SIZE: usize =
     TIRE_CURVE_HEADER_SIZE + CURVE_POINTS_MAX * TIRE_CURVE_POINT_SIZE;
 
-//TODO
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Vector3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
 // TODO
-pub fn imu_get_acceleration() -> Result<Vector3, Error> {
-    Ok(Vector3::default())
+pub fn imu_get_acceleration() -> Option<AccelSample> {
+    peripherals::LATEST_ACCEL.lock(|c| c.get())
 }
 
 //TODO
@@ -354,8 +347,8 @@ pub fn process(state: &mut TcState) -> f32 {
 
     // 3. Calibration.
     if !state.vel_estimator.init {
-        if let Ok(accel) = imu_get_acceleration() {
-            state.ax_sum += accel.x;
+        if let Some(accel) = imu_get_acceleration() {
+            state.ax_sum += accel.x_mg;
             state.sample_count += 1;
         }
 
@@ -385,11 +378,11 @@ pub fn process(state: &mut TcState) -> f32 {
         };
 
         let ax = match accel {
-            Ok(a) => {
+            Some(a) => {
                 vel_estimator.alpha = VEL_ALPHA;
-                a.x
+                a.x_mg
             }
-            Err(_) => {
+            None => {
                 defmt::error!("TC: IMU read failed, using wheel speed only");
                 // alpha = 1.0 -> velocity entirely from wheel speeds this cycle.
                 vel_estimator.alpha = 1.0;

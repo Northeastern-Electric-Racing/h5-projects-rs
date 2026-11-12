@@ -1,6 +1,8 @@
 //! Contains temperature sensor and imu
 //! and sends their data to the CAN bus.
 
+use core::cell::Cell;
+
 use cangen::ToCanFrame;
 use defmt::{debug, warn};
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
@@ -10,8 +12,9 @@ use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Peri, bind_interrupts, dma, peripherals};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
 use embassy_sync::mutex::Mutex;
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_time::{Delay, Duration, Ticker};
 use embedded_sht3x::{Repeatability::Medium, Sht3x, Status, Temperature};
 use lsm6dsv16x_ner::NerLsm6dsv16x;
@@ -25,6 +28,17 @@ const SHT30_ADDRESS: u8 = 0x44;
 const TEMP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const IMU_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const IMU_SPI_FREQUENCY: Hertz = Hertz::mhz(2);
+
+/// Latest IMU accelerometer reading, in milligravity
+#[derive(Clone, Copy, Debug, defmt::Format)]
+pub struct AccelSample {
+    pub x_mg: f32,
+    pub y_mg: f32,
+    pub z_mg: f32,
+}
+
+pub static LATEST_ACCEL: BlockingMutex<CriticalSectionRawMutex, Cell<Option<AccelSample>>> = BlockingMutex::new(Cell::new(None));
+
 
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL2 => dma::InterruptHandler<peripherals::GPDMA1_CH2>;
@@ -160,6 +174,13 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
     let mut ticker = Ticker::every(IMU_POLL_INTERVAL);
     loop {
         if let Some(accel) = imu.get_accel().await {
+            let sample = AccelSample {
+                x_mg: accel.x.get::<lsm6dsv16x_ner::milligravity>(),
+                y_mg: accel.y.get::<lsm6dsv16x_ner::milligravity>(),
+                z_mg: accel.z.get::<lsm6dsv16x_ner::milligravity>(),
+            };
+            LATEST_ACCEL.lock(|c| c.set(Some(sample)));
+
             let frame = cangen::ImuAccelerometer::new()
                 .with_imu_accelerometer_x(accel.x.get::<lsm6dsv16x_ner::milligravity>())
                 .with_imu_accelerometer_y(accel.y.get::<lsm6dsv16x_ner::milligravity>())
