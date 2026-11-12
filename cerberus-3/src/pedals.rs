@@ -767,7 +767,7 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
             dti_set_torque(Torque::new::<newton_meter>(0.0));
             debug!("Drive locked due to faults: {:?}", drive_lock.drive_locks);
         } else {
-            let tc = traction::process(&mut tc_state);
+            let tc = tc_state.process();
 
             torque_lock.handle_drive_mode(
                 dti_get_velocity(),

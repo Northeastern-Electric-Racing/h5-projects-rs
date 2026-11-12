@@ -17,6 +17,7 @@ use uom::si::velocity::mile_per_hour;
 
 use crate::peripherals;
 
+const MAX_DT: f32 = 0.030; // 30 ms
 const CURVE_MAGIC: u32 = 0x004E_4552;
 const CURVE_VERSION: u8 = 1;
 const CURVE_POINTS_MAX: usize = 200;
@@ -114,11 +115,81 @@ impl TcState {
     fn update_dt(&mut self) -> f32 {
         let now = Instant::now();
         let dt = match self.prev_time {
-            Some(prev) => (now - prev).as_micros() as f32 / 1_000_000.0,
+            Some(prev) => ((now - prev).as_micros() as f32 / 1_000_000.0).min(MAX_DT),
             None => 0.0,
         };
         self.prev_time = Some(now);
         dt
+    }
+
+    /// Loads the tire curve into the state owned by the pedals task.
+    pub fn init(&mut self, tire_curve_data: &[u8]) -> Result<(), ()> {
+        self.tire_curve = load_tire_curve(tire_curve_data);
+        if self.tire_curve.is_none() {
+            defmt::error!("TC: init failed (tire curve did not load)");
+            return Err(());
+        }
+        defmt::info!("TC: init done (curve loaded)");
+        Ok(())
+    }
+
+    pub fn process(&mut self) -> f32 {
+        let dt = self.update_dt();
+
+        // 1. Disabled -> pass-through.
+        if !is_enabled() {
+            return 1.0;
+        }
+
+        // 2. No valid curve -> pass-through.
+        let Some(curve) = self.tire_curve.as_ref() else {
+            return 1.0;
+        };
+
+        // 3. Calibration.
+        if !self.vel_estimator.init {
+            if let Some(accel) = peripherals::imu_get_acceleration() {
+                self.ax_sum += accel.x.get::<milligravity>();
+                self.sample_count += 1;
+            }
+
+            if self.sample_count >= CALIB_SAMPLES {
+                let avg = self.ax_sum / self.sample_count as f32;
+                init_vel_estimator(&mut self.vel_estimator, avg);
+            }
+
+            return 1.0;
+        }
+
+        // 4. Control step.
+        let accel = peripherals::imu_get_acceleration();
+        let (omega_fl, omega_fr) = get_front_wheel_speeds();
+        let motor_speed = dti_get_rpm();
+
+        let ax = match accel {
+            Some(a) => {
+                self.vel_estimator.alpha = VEL_ALPHA;
+                a.x.get::<milligravity>()
+            }
+            None => {
+                defmt::error!("TC: IMU read failed, using wheel speed only");
+                // alpha = 1.0 -> velocity entirely from wheel speeds this cycle.
+                self.vel_estimator.alpha = 1.0;
+                0.0
+            }
+        };
+
+        let avg_front_rads = (omega_fl + omega_fr) / 2.0;
+        let vx_car = estimate_velocity(&mut self.vel_estimator, avg_front_rads, ax, dt);
+        let slip = calc_slip(motor_speed, vx_car);
+        let scale = update_pi(&mut self.pi, curve, slip, dt);
+
+        if scale.is_finite() {
+            scale.clamp(0.0, 1.0)
+        } else {
+            defmt::error!("TC: non-finite torque scale.");
+            1.0
+        }
     }
 }
 
@@ -319,84 +390,4 @@ fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
 
     let fx_ff = lookup_fx(curve, slip_ref);
     (fx_ff + pi.kp * error + pi.ki * pi.integral).clamp(0.0, 1.0)
-}
-
-/// Loads the tire curve into the state owned by the pedals task.
-pub fn init(state: &mut TcState, tire_curve_data: &[u8]) -> Result<(), ()> {
-    state.tire_curve = load_tire_curve(tire_curve_data);
-    let loaded = state.tire_curve.is_some();
-    defmt::info!("TC: init done (curve loaded: {})", loaded);
-    Ok(())
-}
-
-pub fn process(state: &mut TcState) -> f32 {
-    let dt = state.update_dt();
-
-    // 1. Disabled -> pass-through.
-    if !is_enabled() {
-        return 1.0;
-    }
-
-    // 2. No valid curve -> pass-through.
-    let Some(_) = state.tire_curve else {
-        return 1.0;
-    };
-
-    // 3. Calibration.
-    if !state.vel_estimator.init {
-        if let Some(accel) = peripherals::imu_get_acceleration() {
-            state.ax_sum += accel.x.get::<milligravity>();
-            state.sample_count += 1;
-        }
-
-        if state.sample_count >= CALIB_SAMPLES {
-            let avg = state.ax_sum / state.sample_count as f32;
-            init_vel_estimator(&mut state.vel_estimator, avg);
-        }
-
-        return 1.0;
-    }
-
-    // 4. Control step.
-    let accel = peripherals::imu_get_acceleration();
-    let (omega_fl, omega_fr) = get_front_wheel_speeds();
-    let motor_speed = dti_get_rpm();
-
-    let scale = {
-        let TcState {
-            tire_curve,
-            vel_estimator,
-            pi,
-            ..
-        } = state;
-
-        let Some(curve) = tire_curve.as_ref() else {
-            return 1.0;
-        };
-
-        let ax = match accel {
-            Some(a) => {
-                vel_estimator.alpha = VEL_ALPHA;
-                a.x.get::<milligravity>()
-            }
-            None => {
-                defmt::error!("TC: IMU read failed, using wheel speed only");
-                // alpha = 1.0 -> velocity entirely from wheel speeds this cycle.
-                vel_estimator.alpha = 1.0;
-                0.0
-            }
-        };
-
-        let avg_front_rads = (omega_fl + omega_fr) / 2.0;
-        let vx_car = estimate_velocity(vel_estimator, avg_front_rads, ax, dt);
-        let slip = calc_slip(motor_speed, vx_car);
-        update_pi(pi, curve, slip, dt)
-    };
-
-    if scale.is_finite() {
-        scale.clamp(0.0, 1.0)
-    } else {
-        defmt::error!("TC: non-finite torque scale.");
-        1.0
-    }
 }
