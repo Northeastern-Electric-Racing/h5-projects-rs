@@ -12,9 +12,9 @@ use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Peri, bind_interrupts, dma, peripherals};
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
 use embassy_sync::mutex::Mutex;
-use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_time::{Delay, Duration, Ticker};
 use embedded_sht3x::{Repeatability::Medium, Sht3x, Status, Temperature};
 use lsm6dsv16x_ner::NerLsm6dsv16x;
@@ -37,8 +37,8 @@ pub struct AccelSample {
     pub z_mg: f32,
 }
 
-pub static LATEST_ACCEL: BlockingMutex<CriticalSectionRawMutex, Cell<Option<AccelSample>>> = BlockingMutex::new(Cell::new(None));
-
+pub static LATEST_ACCEL: BlockingMutex<CriticalSectionRawMutex, Cell<Option<AccelSample>>> =
+    BlockingMutex::new(Cell::new(None));
 
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL2 => dma::InterruptHandler<peripherals::GPDMA1_CH2>;
