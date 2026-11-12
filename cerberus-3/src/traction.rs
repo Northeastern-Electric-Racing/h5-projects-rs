@@ -1,32 +1,34 @@
-use core::cell::{Cell, RefCell};
+use core::cell::Cell;
 use core::fmt::Error;
-use core::mem::size_of;
-use core::ptr;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use uom::ConstZero;
-use uom::si::acceleration::standard_gravity;
-use uom::si::angular_velocity::revolution_per_minute;
-use uom::si::f32::{Acceleration, AngularVelocity, Length, Time, Velocity};
-use uom::si::length::inch;
-use uom::si::ratio::ratio;
-use uom::si::time::second;
-use uom::si::velocity::mile_per_hour;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
 
+use uom::ConstZero;
+use uom::si::acceleration::standard_gravity;
+use uom::si::angular_velocity::revolution_per_minute;
+use uom::si::f32::{Acceleration, AngularVelocity, Length, Velocity};
+use uom::si::length::inch;
+use uom::si::ratio::ratio;
+use uom::si::velocity::mile_per_hour;
+
 const CURVE_MAGIC: u32 = 0x004E_4552;
 const CURVE_VERSION: u8 = 1;
 const CURVE_POINTS_MAX: usize = 200;
 const CALIB_SAMPLES: u16 = 50;
-const MIN_VX: f32 = 0.5;
+const MIN_VX: f32 = 0.5; // mph
 const VEL_ALPHA: f32 = 0.98;
 const INTEGRAL_LIMIT: f32 = 1.0;
 const KP_DEFAULT: f32 = 1.5;
 const KI_DEFAULT: f32 = 0.2;
 const TIRE_DIAMETER: f32 = 16.0;
 const GEAR_RATIO: f32 = 39.0 / 13.0;
+const TIRE_CURVE_HEADER_SIZE: usize = 27;
+const TIRE_CURVE_POINT_SIZE: usize = 8;
+const TIRE_CURVE_DATA_SIZE: usize =
+    TIRE_CURVE_HEADER_SIZE + CURVE_POINTS_MAX * TIRE_CURVE_POINT_SIZE;
 
 //TODO
 #[derive(Clone, Copy, Debug, Default)]
@@ -64,7 +66,7 @@ struct TireCurve {
 
 #[derive(Clone, Copy)]
 struct VelEstimator {
-    v_x: f32,
+    v_x: Velocity,
     ax_bias: f32,
     alpha: f32,
     init: bool,
@@ -73,7 +75,7 @@ struct VelEstimator {
 impl VelEstimator {
     const fn new() -> Self {
         Self {
-            v_x: 0.0,
+            v_x: Velocity::ZERO,
             ax_bias: 0.0,
             alpha: VEL_ALPHA,
             init: false,
@@ -108,7 +110,7 @@ pub struct TcState {
 }
 
 impl TcState {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             tire_curve: None,
             vel_estimator: VelEstimator::new(),
@@ -130,22 +132,6 @@ impl TcState {
     }
 }
 
-static TORQUE_SCALE: AtomicU32 = AtomicU32::new(0x3F80_0000);
-
-pub fn get_torque_scale() -> f32 {
-    f32::from_bits(TORQUE_SCALE.load(Ordering::Relaxed))
-}
-
-pub fn set_torque_scale(scale: f32) {
-    let mut safe = 1.0;
-    if scale.is_finite() {
-        safe = scale.clamp(0.0, 1.0)
-    } else {
-        defmt::error!("TC: non-finite torque scale.")
-    };
-    TORQUE_SCALE.store(safe.to_bits(), Ordering::Relaxed);
-}
-
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub fn is_enabled() -> bool {
@@ -165,14 +151,6 @@ pub fn toggle_tc() {
     ENABLED.store(!curr_state, Ordering::Relaxed);
 }
 
-static STATE: Mutex<CriticalSectionRawMutex, RefCell<TcState>> =
-    Mutex::new(RefCell::new(TcState::new()));
-
-pub fn set_state<R>(f: impl FnOnce(&mut TcState) -> R) -> R {
-    STATE.lock(|cell| f(&mut cell.borrow_mut()))
-}
-
-/// (omega_fl, omega_fr)
 static FRONT_WHEEL_SPEEDS: Mutex<
     CriticalSectionRawMutex,
     Cell<(AngularVelocity, AngularVelocity)>,
@@ -182,39 +160,84 @@ pub fn set_front_wheel_speeds(omega_fl: AngularVelocity, omega_fr: AngularVeloci
     FRONT_WHEEL_SPEEDS.lock(|c| c.set((omega_fl, omega_fr)));
 }
 
-pub fn get_front_wheel_speeds() -> (AngularVelocity, AngularVelocity) {
+fn get_front_wheel_speeds() -> (AngularVelocity, AngularVelocity) {
     FRONT_WHEEL_SPEEDS.lock(|c| c.get())
 }
 
+fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(
+        data.get(offset..offset + 2)?.try_into().ok()?,
+    ))
+}
+
+fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(
+        data.get(offset..offset + 4)?.try_into().ok()?,
+    ))
+}
+
+fn read_f32(data: &[u8], offset: usize) -> Option<f32> {
+    Some(f32::from_le_bytes(
+        data.get(offset..offset + 4)?.try_into().ok()?,
+    ))
+}
+
 fn load_tire_curve(data: &[u8]) -> Option<TireCurve> {
-    if data.len() < size_of::<TireCurve>() {
+    if data.len() < TIRE_CURVE_DATA_SIZE {
         defmt::error!(
             "TC: curve data too small ({} < {} bytes)",
             data.len(),
-            size_of::<TireCurve>()
+            TIRE_CURVE_DATA_SIZE
         );
         return None;
     }
 
-    let curve: TireCurve = unsafe { ptr::read_unaligned(data.as_ptr() as *const TireCurve) };
-    let magic = curve.magic;
-    let version = curve.version;
-    let num_points = curve.num_points;
+    let magic = read_u32(data, 0)?;
+    let version = data[4];
+    let num_points = read_u16(data, 5)?;
 
     if magic != CURVE_MAGIC {
         defmt::error!("TC: bad curve magic 0x{:08x}", magic);
         return None;
     }
+
     if version != CURVE_VERSION {
         defmt::error!("TC: unsupported curve version {}", version);
         return None;
     }
-    if (num_points as usize) > CURVE_POINTS_MAX || num_points < 2 {
+
+    if num_points < 2 || num_points as usize > CURVE_POINTS_MAX {
         defmt::error!("TC: invalid num_points {}", num_points);
         return None;
     }
 
-    Some(curve)
+    let mut surface_id = [0u8; 16];
+    surface_id.copy_from_slice(&data[7..23]);
+
+    let peak_lambda = read_f32(data, 23)?;
+
+    let mut points = [TireCurvePoint {
+        slip_ratio: 0.0,
+        fx_norm: 0.0,
+    }; CURVE_POINTS_MAX];
+
+    for (i, point) in points.iter_mut().enumerate() {
+        let offset = TIRE_CURVE_HEADER_SIZE + i * TIRE_CURVE_POINT_SIZE;
+
+        *point = TireCurvePoint {
+            slip_ratio: read_f32(data, offset)?,
+            fx_norm: read_f32(data, offset + 4)?,
+        };
+    }
+
+    Some(TireCurve {
+        magic,
+        version,
+        num_points,
+        surface_id,
+        peak_lambda,
+        points,
+    })
 }
 
 fn wheel_speed(omega: AngularVelocity) -> Velocity {
@@ -223,7 +246,6 @@ fn wheel_speed(omega: AngularVelocity) -> Velocity {
 
 fn calc_slip(motor_speed: AngularVelocity, vx_car: Velocity) -> f32 {
     let v_rear = wheel_speed(motor_speed / GEAR_RATIO);
-
     let denom = vx_car.abs().max(v_rear.abs());
 
     if denom < Velocity::new::<mile_per_hour>(MIN_VX) {
@@ -277,7 +299,7 @@ fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
 
 fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: f32) {
     est.ax_bias = avg_ax_stationary;
-    est.v_x = 0.0;
+    est.v_x = Velocity::ZERO;
     est.alpha = VEL_ALPHA;
     est.init = true;
     defmt::info!("TC: ax bias = {} mg", est.ax_bias);
@@ -289,13 +311,14 @@ fn estimate_velocity(
     ax: f32,
     dt: f32,
 ) -> Velocity {
-    let vx_wheel = wheel_speed(avg_front_rads).get::<mile_per_hour>();
+    let vx_wheel = wheel_speed(avg_front_rads);
     let ax_corrected = Acceleration::new::<standard_gravity>((ax - est.ax_bias) / 1000.0);
-    let dv = (ax_corrected * Time::new::<second>(dt)).get::<mile_per_hour>();
+    let dv = ax_corrected * uom::si::f32::Time::new::<uom::si::time::second>(dt);
     let vx_imu = est.v_x + dv;
     let v = est.alpha * vx_wheel + (1.0 - est.alpha) * vx_imu;
-    est.v_x = if v > 0.0 { v } else { 0.0 };
-    Velocity::new::<mile_per_hour>(est.v_x)
+
+    est.v_x = v.max(Velocity::ZERO);
+    est.v_x
 }
 
 fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
@@ -308,60 +331,55 @@ fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
     (fx_ff + pi.kp * error + pi.ki * pi.integral).clamp(0.0, 1.0)
 }
 
-pub fn init(tire_curve_data: &[u8]) -> Result<(), ()> {
-    let curve = load_tire_curve(tire_curve_data);
-    let loaded = curve.is_some();
-    set_state(|s| s.tire_curve = curve);
+/// Loads the tire curve into the state owned by the pedals task.
+pub fn init(state: &mut TcState, tire_curve_data: &[u8]) -> Result<(), ()> {
+    state.tire_curve = load_tire_curve(tire_curve_data);
+    let loaded = state.tire_curve.is_some();
     defmt::info!("TC: init done (curve loaded: {})", loaded);
     Ok(())
 }
 
-pub fn process() {
-    let dt = set_state(|s| s.update_dt());
+pub fn process(state: &mut TcState) -> f32 {
+    let dt = state.update_dt();
 
     // 1. Disabled -> pass-through.
     if !is_enabled() {
-        set_torque_scale(1.0);
-        return;
+        return 1.0;
     }
-
-    let (curve_loaded, calibrated) = set_state(|s| (s.tire_curve.is_some(), s.vel_estimator.init));
 
     // 2. No valid curve -> pass-through.
-    if !curve_loaded {
-        set_torque_scale(1.0);
-        return;
-    }
+    let Some(_) = state.tire_curve else {
+        return 1.0;
+    };
 
-    // 3. Calibration
-    if !calibrated {
-        let accel = imu_get_acceleration();
-        set_state(|s| {
-            if let Ok(a) = accel {
-                s.ax_sum += a.x;
-                s.sample_count += 1;
-            }
-            if s.sample_count >= CALIB_SAMPLES {
-                let avg = s.ax_sum / s.sample_count as f32;
-                init_vel_estimator(&mut s.vel_estimator, avg);
-            }
-        });
-        set_torque_scale(1.0);
-        return;
+    // 3. Calibration.
+    if !state.vel_estimator.init {
+        if let Ok(accel) = imu_get_acceleration() {
+            state.ax_sum += accel.x;
+            state.sample_count += 1;
+        }
+
+        if state.sample_count >= CALIB_SAMPLES {
+            let avg = state.ax_sum / state.sample_count as f32;
+            init_vel_estimator(&mut state.vel_estimator, avg);
+        }
+
+        return 1.0;
     }
 
     // 4. Control step.
     let accel = imu_get_acceleration();
     let (omega_fl, omega_fr) = get_front_wheel_speeds();
-    let motor_rpm = dti_get_rpm();
+    let motor_speed = dti_get_rpm();
 
-    let scale = set_state(|s| {
+    let scale = {
         let TcState {
             tire_curve,
             vel_estimator,
             pi,
             ..
-        } = s;
+        } = state;
+
         let Some(curve) = tire_curve.as_ref() else {
             return 1.0;
         };
@@ -381,9 +399,14 @@ pub fn process() {
 
         let avg_front_rads = (omega_fl + omega_fr) / 2.0;
         let vx_car = estimate_velocity(vel_estimator, avg_front_rads, ax, dt);
-        let slip = calc_slip(motor_rpm, vx_car);
+        let slip = calc_slip(motor_speed, vx_car);
         update_pi(pi, curve, slip, dt)
-    });
+    };
 
-    set_torque_scale(scale);
+    if scale.is_finite() {
+        scale.clamp(0.0, 1.0)
+    } else {
+        defmt::error!("TC: non-finite torque scale.");
+        1.0
+    }
 }
