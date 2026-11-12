@@ -1,7 +1,7 @@
 use crate::statemachine;
+use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg, ToCanFrame};
 use core::fmt::Debug;
-use can_handler::{ExtFilter, NerCan, StdFilter};
 use defmt::{debug, warn};
 use embassy_stm32::can::{CanRx, CanTx, Frame};
 use embassy_stm32::{Peri, bind_interrupts, can, peripherals};
