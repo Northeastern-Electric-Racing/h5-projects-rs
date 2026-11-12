@@ -20,22 +20,17 @@ embassy-time.workspace = true
 embassy-futures.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
-static_cell.workspace = true
 
-embassy-net.workspace = true
-rust-mqtt.workspace = true
-lsm6dsv16x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop"}
-sht3x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", version = "0.1.0" }
 cangen.workspace = true
 can-handler.workspace = true
+nereth.workspace = true
+
+lsm6dsv16x-ner.workspace = true
+
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
-variant_count = "1.2.1"
+variant_count.workspace = true
 embedded-sht3x = "0.2.0"
-uom = {
-    version = "0.38",
-    default-features = false,
-    features = ["si", "f32", "autoconvert"]
-}
+uom.workspace = true
 
 [lints.rust]
 dead_code = "allow"
