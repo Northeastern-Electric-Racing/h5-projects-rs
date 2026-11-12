@@ -16,7 +16,7 @@ bind_interrupts!(struct IrqsCan {
     FDCAN2_IT1 => can::IT1InterruptHandler<peripherals::FDCAN2>;
 });
 
-#[derive(Debug, PartialEq, defmt::Format)]
+#[derive(Debug, PartialEq, defmt::Format, Clone, Copy)]
 pub enum FaultframeState {
     BMSFault,
     BMSOk,
