@@ -275,7 +275,7 @@ dependencies = [
  "embassy-time",
  "embedded-sht3x",
  "heapless",
- "lsm6dsv16x-ner",
+ "lsm6dsv16x-ner 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "num-traits",
  "panic-probe",
  "rust-mqtt",
@@ -967,6 +967,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "lis2mdl-ner"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lis2mdl-ner#38dd0db159cfcf0ae010413d8cf14e7f74b6f8b0"
+dependencies = [
+ "defmt 1.2.0",
+ "embedded-hal-async",
+ "lis2mdl-rs",
+ "st-mems-bus",
+]
+
+[[package]]
+name = "lis2mdl-rs"
+version = "2.1.0"
+source = "git+https://github.com/STMicroelectronics/lis2mdl-rs.git?branch=main#b02659727d1993068da9ea5d89997d1fbb37bbf3"
+dependencies = [
+ "bisync2",
+ "bitfield-struct 0.10.1",
+ "derive_more",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "st-mem-bank-macro",
+ "st-mems-bus",
+]
+
+[[package]]
 name = "litrs"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -995,6 +1020,19 @@ dependencies = [
 name = "lsm6dsv16x-ner"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#e26a8a1dbc1a40fba5064b343c318fc64c7fd1ba"
+dependencies = [
+ "defmt 1.2.0",
+ "embassy-time",
+ "embedded-hal-async",
+ "lsm6dsv16x-rs",
+ "st-mems-bus",
+ "uom",
+]
+
+[[package]]
+name = "lsm6dsv16x-ner"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lsm6dsv16x-ner#0b46dc46938696c49c3db879c1cc5fc66041181c"
 dependencies = [
  "defmt 1.2.0",
  "embassy-time",
@@ -1094,8 +1132,11 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
+ "embedded-hal-bus",
  "hdc2021-ner",
  "heapless",
+ "lis2mdl-ner",
+ "lsm6dsv16x-ner 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=lsm6dsv16x-ner)",
  "panic-probe",
  "static_cell",
 ]
@@ -1877,3 +1918,8 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "bisync"
+version = "0.3.1"
+source = "git+https://github.com/JM4ier/bisync?rev=be3a0a6#be3a0a6255a0af592e66be8614a149151f67fdf5"
