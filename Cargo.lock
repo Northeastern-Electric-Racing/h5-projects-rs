@@ -208,7 +208,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#e26a8a1dbc1a40fba5064b343c318fc64c7fd1ba"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
@@ -223,7 +223,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#e26a8a1dbc1a40fba5064b343c318fc64c7fd1ba"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
 dependencies = [
  "bitfield-struct 0.13.0",
  "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
@@ -244,7 +244,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#e26a8a1dbc1a40fba5064b343c318fc64c7fd1ba"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
 dependencies = [
  "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "heck",
@@ -426,7 +426,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#e26a8a1dbc1a40fba5064b343c318fc64c7fd1ba"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -935,9 +935,9 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "errno"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
  "windows-sys",
@@ -1230,7 +1230,7 @@ dependencies = [
 [[package]]
 name = "lsm6dsv16x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#e26a8a1dbc1a40fba5064b343c318fc64c7fd1ba"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
 dependencies = [
  "defmt 1.2.0",
  "embassy-time",
@@ -1404,7 +1404,7 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 [[package]]
 name = "nereth"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=add-protoc-as-dependency#6ce625ad771c3c646a812684f8db0de8616db8bc"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
