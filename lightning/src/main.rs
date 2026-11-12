@@ -95,7 +95,7 @@ async fn main(spawner: Spawner) -> ! {
         tx: p.PB13,
     });
     spawner.spawn(
-        cangen::can_tx(
+        can_handler::can_tx(
             can_tx_half,
             can::OUTGOING.dyn_receiver(),
             can::OUTGOING.dyn_sender(),
@@ -103,7 +103,7 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn ner_can::can_tx()."),
     );
     spawner.spawn(
-        cangen::can_rx(can_rx_half, can::INCOMING.dyn_sender())
+        can_handler::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
     spawner.spawn(can::can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));

@@ -19,6 +19,7 @@ panic-probe.workspace = true
 embedded-can.workspace = true
 #static_cell.workspace = true
 cangen.workspace = true
+can-handler.workspace = true
 
 [lints]
 workspace = true
