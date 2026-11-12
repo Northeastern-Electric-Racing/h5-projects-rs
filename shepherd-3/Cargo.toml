@@ -28,7 +28,7 @@ embedded-can.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
 assign-resources.workspace = true
-cangen.workspace = true
+cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"}
 static_cell.workspace = true
 
 function_name = { version = "0.3.0" }

@@ -1,8 +1,8 @@
-//! efuses
-//! Handles all functions related to efuses
-//! Auto efuses use function pointers and evaluates conditions every loop <br>
-//! The status of an efuse can be polled by calling is_enabled, or is_faulted <br>
-//! The efuse condition can also be updated using update_control_state <br>
+//! Handles all functions related to efuses. <br>
+//! Auto efuses use function pointers and evaluates conditions every loop.
+//! The status of an efuse can be polled by calling is_enabled, or is_faulted.
+//! The efuse condition can also be updated using update_control_state
+//! via Efuses::send_command (by CAN through cansend or Argos).
 
 use cangen::ToCanFrame;
 use defmt::debug;
@@ -12,11 +12,10 @@ use embassy_stm32::{Peri, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
-use uom::si::ratio::percent;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
-use crate::can;
+use crate::{can, pedals};
 
 const V_REF: f32 = 3.3;
 const MAX_TWELVE_BIT_RESOLUTION: u16 = 4095;
@@ -106,22 +105,22 @@ pub struct EfuseCommand {
 }
 
 impl EfuseCommand {
-    pub fn add_command(efuse_id: EfuseId, efuse_control_state: u8) {
-        if let Ok(efuse_control_state) = EfuseControlState::try_from(efuse_control_state) {
-            let efuse_command = EfuseCommand {
-                efuse_id,
-                efuse_control_state,
-            };
-            if COMMAND.try_send(efuse_command).is_err() {
-                debug!("EfuseCommand queue full, dropped.");
-            }
-        } else {
-            debug!("Unexpected efuse control state: {}", efuse_control_state);
-        }
-    }
-
     pub fn get_id(&self) -> EfuseId {
         self.efuse_id
+    }
+}
+
+pub fn send_command(efuse_id: EfuseId, efuse_control_state: u8) {
+    if let Ok(efuse_control_state) = EfuseControlState::try_from(efuse_control_state) {
+        let efuse_command = EfuseCommand {
+            efuse_id,
+            efuse_control_state,
+        };
+        if COMMAND.try_send(efuse_command).is_err() {
+            debug!("EfuseCommand queue full, dropped.");
+        }
+    } else {
+        debug!("Unexpected efuse control state: {}", efuse_control_state);
     }
 }
 
@@ -243,18 +242,14 @@ impl Efuse {
                 200.0,
                 EfuseControlState::EfuseAuto,
                 Some(AutoPredicate {
-                    value1: || 0.0, /* pedals brake percentage */
-                    value2: || crate::pedals::constants::PEDAL_BRAKE_THRESH.get::<percent>(),
-                    operation: PredicateOperation::GREATER,
+                    value1: || (pedals::get_brake_pressed() as u8) as f32,
+                    value2: || 1.0,
+                    operation: PredicateOperation::EQ,
                 }),
                 Some(AutoPredicate {
-                    value1: || 0.0, /* pedals brake threshold */
-                    value2: || {
-                        (crate::pedals::constants::PEDAL_BRAKE_THRESH
-                            - crate::pedals::constants::PEDAL_BRAKE_TURNOFF_THRESH)
-                            .get::<percent>()
-                    },
-                    operation: PredicateOperation::LESS,
+                    value1: || (pedals::get_brake_pressed() as u8) as f32,
+                    value2: || 0.0,
+                    operation: PredicateOperation::EQ,
                 }),
                 frame_for::<cangen::BrakeEfuse>,
             ),

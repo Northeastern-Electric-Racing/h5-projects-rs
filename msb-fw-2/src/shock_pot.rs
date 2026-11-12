@@ -1,7 +1,7 @@
 //! Shock potentiometer polling. Ported from `u_shock_pot.c` in the C firmware.
 
 use crate::analog_sensor::{self, AnalogSensor, MAX_VOLTS, SensorData};
-use crate::multiplexor_handler::{MuxChannel, MuxId, MuxInput, MuxSource};
+use crate::multiplexer_handler::{MuxChannel, MuxId, MuxInput, MuxSource};
 use embassy_sync::watch::Watch;
 use embassy_time::Duration;
 
