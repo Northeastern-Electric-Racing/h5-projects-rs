@@ -36,6 +36,7 @@ uom = {
     default-features = false,
     features = ["si", "f32", "autoconvert"]
 }
+strum.workspace = true
 
 [lints.rust]
 dead_code = "allow"
