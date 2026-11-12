@@ -40,6 +40,11 @@ pub struct AccelSample {
 pub static LATEST_ACCEL: BlockingMutex<CriticalSectionRawMutex, Cell<Option<AccelSample>>> =
     BlockingMutex::new(Cell::new(None));
 
+/// Most recent IMU acceleration, or `None` if no reading has arrived yet.
+pub fn imu_get_acceleration() -> Option<AccelSample> {
+    LATEST_ACCEL.lock(|c| c.get())
+}
+
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL2 => dma::InterruptHandler<peripherals::GPDMA1_CH2>;
     GPDMA1_CHANNEL3 => dma::InterruptHandler<peripherals::GPDMA1_CH3>;

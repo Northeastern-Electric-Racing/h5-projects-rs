@@ -13,7 +13,7 @@ use uom::si::length::inch;
 use uom::si::ratio::ratio;
 use uom::si::velocity::mile_per_hour;
 
-use crate::peripherals::{self, AccelSample};
+use crate::peripherals;
 
 const CURVE_MAGIC: u32 = 0x004E_4552;
 const CURVE_VERSION: u8 = 1;
@@ -30,11 +30,6 @@ const TIRE_CURVE_HEADER_SIZE: usize = 27;
 const TIRE_CURVE_POINT_SIZE: usize = 8;
 const TIRE_CURVE_DATA_SIZE: usize =
     TIRE_CURVE_HEADER_SIZE + CURVE_POINTS_MAX * TIRE_CURVE_POINT_SIZE;
-
-// TODO
-pub fn imu_get_acceleration() -> Option<AccelSample> {
-    peripherals::LATEST_ACCEL.lock(|c| c.get())
-}
 
 //TODO
 pub fn dti_get_rpm() -> AngularVelocity {
@@ -347,7 +342,7 @@ pub fn process(state: &mut TcState) -> f32 {
 
     // 3. Calibration.
     if !state.vel_estimator.init {
-        if let Some(accel) = imu_get_acceleration() {
+        if let Some(accel) = peripherals::imu_get_acceleration() {
             state.ax_sum += accel.x_mg;
             state.sample_count += 1;
         }
@@ -361,7 +356,7 @@ pub fn process(state: &mut TcState) -> f32 {
     }
 
     // 4. Control step.
-    let accel = imu_get_acceleration();
+    let accel = peripherals::imu_get_acceleration();
     let (omega_fl, omega_fr) = get_front_wheel_speeds();
     let motor_speed = dti_get_rpm();
 
