@@ -5,6 +5,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
 
+use lsm6dsv16x_ner::milligravity;
 use uom::ConstZero;
 use uom::si::acceleration::standard_gravity;
 use uom::si::angular_velocity::revolution_per_minute;
@@ -344,7 +345,7 @@ pub fn process(state: &mut TcState) -> f32 {
     // 3. Calibration.
     if !state.vel_estimator.init {
         if let Some(accel) = peripherals::imu_get_acceleration() {
-            state.ax_sum += accel.x_mg;
+            state.ax_sum += accel.x.get::<milligravity>();
             state.sample_count += 1;
         }
 
@@ -376,7 +377,7 @@ pub fn process(state: &mut TcState) -> f32 {
         let ax = match accel {
             Some(a) => {
                 vel_estimator.alpha = VEL_ALPHA;
-                a.x_mg
+                a.x.get::<milligravity>()
             }
             None => {
                 defmt::error!("TC: IMU read failed, using wheel speed only");
