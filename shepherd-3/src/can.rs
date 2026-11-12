@@ -81,9 +81,6 @@ pub async fn can_inbox_task() -> ! {
     }
 }
 
-// u_TODO: the DTI points in Odyssey-Definitions `dti.json` have no names, so cangen generates no getters for them.
-// Name them upstream, then replace these with `m.dc_current()` / `m.input_voltage()`-style getters.
-
 /// DC current from a DTI `Currents_Status` frame: big-endian `i16` at bytes 2..4, 0.1 A per LSB.
 fn decode_dti_current(data: &[u8]) -> Option<crate::units::Current> {
     use uom::si::electric_current::ampere;
@@ -286,7 +283,6 @@ pub mod types {
 }
 
 /// Interrupt config and diagnostics.
-/// u_TODO: can-handler's `start()` doesn't enable these interrupts, so shepherd keeps them locally. Decide with the team whether to upstream or drop them.
 mod interrupts {
     use core::sync::atomic::{AtomicU32, Ordering};
 
