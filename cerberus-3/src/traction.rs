@@ -24,10 +24,10 @@ const CURVE_POINTS_MAX: usize = 200;
 const CALIB_SAMPLES: u16 = 50;
 const MIN_VX: f32 = 0.5; // mph
 const VEL_ALPHA: f32 = 0.98;
-const INTEGRAL_LIMIT: f32 = 1.0;
-const KP_DEFAULT: f32 = 1.5;
-const KI_DEFAULT: f32 = 0.2;
-const TIRE_DIAMETER: f32 = 16.0;
+const INTEGRAL_LIMIT: f32 = 1.0; // in inches
+const KP_DEFAULT: f32 = 1.5; // in inches
+const KI_DEFAULT: f32 = 0.2; // in inches
+const TIRE_DIAMETER: f32 = 16.0; // in inches
 const GEAR_RATIO: f32 = 39.0 / 13.0;
 const TIRE_CURVE_HEADER_SIZE: usize = 27;
 const TIRE_CURVE_POINT_SIZE: usize = 8;
@@ -389,5 +389,5 @@ fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
     pi.integral = (pi.integral + error * dt).clamp(-INTEGRAL_LIMIT, INTEGRAL_LIMIT);
 
     let fx_ff = lookup_fx(curve, slip_ref);
-    (fx_ff + pi.kp * error + pi.ki * pi.integral).clamp(0.0, 1.0)
+    fx_ff + pi.kp * error + pi.ki * pi.integral
 }
