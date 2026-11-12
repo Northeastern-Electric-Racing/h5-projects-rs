@@ -7,7 +7,6 @@ use embassy_time::Instant;
 
 use lsm6dsv16x_ner::milligravity;
 use uom::ConstZero;
-use uom::si::acceleration::standard_gravity;
 use uom::si::angular_velocity::revolution_per_minute;
 use uom::si::f32::{Acceleration, AngularVelocity, Length, Time, Velocity};
 use uom::si::length::inch;
@@ -24,9 +23,9 @@ const CURVE_POINTS_MAX: usize = 200;
 const CALIB_SAMPLES: u16 = 50;
 const MIN_VX: f32 = 0.5; // mph
 const VEL_ALPHA: f32 = 0.98;
-const INTEGRAL_LIMIT: f32 = 1.0; // in inches
-const KP_DEFAULT: f32 = 1.5; // in inches
-const KI_DEFAULT: f32 = 0.2; // in inches
+const INTEGRAL_LIMIT: f32 = 1.0;
+const KP_DEFAULT: f32 = 1.5;
+const KI_DEFAULT: f32 = 0.2;
 const TIRE_DIAMETER: f32 = 16.0; // in inches
 const GEAR_RATIO: f32 = 39.0 / 13.0;
 const TIRE_CURVE_HEADER_SIZE: usize = 27;
@@ -58,7 +57,7 @@ struct TireCurve {
 #[derive(Clone, Copy)]
 struct VelEstimator {
     v_x: Velocity,
-    ax_bias: f32,
+    ax_bias: Acceleration,
     alpha: f32,
     init: bool,
 }
@@ -67,7 +66,7 @@ impl VelEstimator {
     const fn new() -> Self {
         Self {
             v_x: Velocity::ZERO,
-            ax_bias: 0.0,
+            ax_bias: Acceleration::ZERO,
             alpha: VEL_ALPHA,
             init: false,
         }
@@ -96,7 +95,7 @@ pub struct TcState {
     vel_estimator: VelEstimator,
     pi: TcPi,
     prev_time: Option<Instant>,
-    ax_sum: f32,
+    ax_sum: Acceleration,
     sample_count: u16,
 }
 
@@ -107,16 +106,16 @@ impl TcState {
             vel_estimator: VelEstimator::new(),
             pi: TcPi::new(),
             prev_time: None,
-            ax_sum: 0.0,
+            ax_sum: Acceleration::ZERO,
             sample_count: 0,
         }
     }
 
-    fn update_dt(&mut self) -> f32 {
+    fn update_dt(&mut self) -> Time {
         let now = Instant::now();
         let dt = match self.prev_time {
-            Some(prev) => ((now - prev).as_micros() as f32 / 1_000_000.0).min(MAX_DT),
-            None => 0.0,
+            Some(prev) => Time::new::<second>(((now - prev).as_micros() as f32 / 1_000_000.0).min(MAX_DT)),
+            None => Time::ZERO,
         };
         self.prev_time = Some(now);
         dt
@@ -149,7 +148,7 @@ impl TcState {
         // 3. Calibration.
         if !self.vel_estimator.init {
             if let Some(accel) = peripherals::imu_get_acceleration() {
-                self.ax_sum += accel.x.get::<milligravity>();
+                self.ax_sum += accel.x;
                 self.sample_count += 1;
             }
 
@@ -169,13 +168,13 @@ impl TcState {
         let ax = match accel {
             Some(a) => {
                 self.vel_estimator.alpha = VEL_ALPHA;
-                a.x.get::<milligravity>()
+                a.x
             }
             None => {
                 defmt::error!("TC: IMU read failed, using wheel speed only");
                 // alpha = 1.0 -> velocity entirely from wheel speeds this cycle.
                 self.vel_estimator.alpha = 1.0;
-                0.0
+                Acceleration::ZERO
             }
         };
 
@@ -358,23 +357,23 @@ fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
     lo_fx + t * (hi_fx - lo_fx)
 }
 
-fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: f32) {
+fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: Acceleration) {
     est.ax_bias = avg_ax_stationary;
     est.v_x = Velocity::ZERO;
     est.alpha = VEL_ALPHA;
     est.init = true;
-    defmt::info!("TC: ax bias = {} mg", est.ax_bias);
+    defmt::info!("TC: ax bias = {} mg", est.ax_bias.get::<milligravity>());
 }
 
 fn estimate_velocity(
     est: &mut VelEstimator,
     avg_front_rads: AngularVelocity,
-    ax: f32,
-    dt: f32,
+    ax: Acceleration,
+    dt: Time,
 ) -> Velocity {
     let vx_wheel = wheel_speed(avg_front_rads);
-    let ax_corrected = Acceleration::new::<standard_gravity>((ax - est.ax_bias) / 1000.0);
-    let dv = ax_corrected * Time::new::<second>(dt);
+    let ax_corrected = ax - est.ax_bias;
+    let dv = ax_corrected * dt;
     let vx_imu = est.v_x + dv;
     let v = est.alpha * vx_wheel + (1.0 - est.alpha) * vx_imu;
 
@@ -382,11 +381,11 @@ fn estimate_velocity(
     est.v_x
 }
 
-fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: f32) -> f32 {
+fn update_pi(pi: &mut TcPi, curve: &TireCurve, slip: f32, dt: Time) -> f32 {
     let slip_ref = curve.peak_lambda * 0.98;
     let error = slip_ref - slip;
 
-    pi.integral = (pi.integral + error * dt).clamp(-INTEGRAL_LIMIT, INTEGRAL_LIMIT);
+    pi.integral = (pi.integral + error * dt.get::<second>()).clamp(-INTEGRAL_LIMIT, INTEGRAL_LIMIT);
 
     let fx_ff = lookup_fx(curve, slip_ref);
     fx_ff + pi.kp * error + pi.ki * pi.integral
