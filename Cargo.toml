@@ -55,6 +55,14 @@ embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "8
 embassy-ptp-driver = { git = "https://github.com/embassy-rs/embassy", rev = "8935e71155895245a52f888a3d43b83d8ccdd973" }
 embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "8935e71155895245a52f888a3d43b83d8ccdd973" }
 
+
+
+
+
+bisync = { git = "https://github.com/JM4ier/bisync", rev = "be3a0a6" }
+lis2mdl-rs = { git = "https://github.com/STMicroelectronics/lis2mdl-rs.git", branch = "main" }
+
+
 [profile.release]
 opt-level = 3
 lto = "fat"
