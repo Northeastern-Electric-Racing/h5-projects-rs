@@ -8,9 +8,10 @@ use embassy_time::Instant;
 use uom::ConstZero;
 use uom::si::acceleration::standard_gravity;
 use uom::si::angular_velocity::revolution_per_minute;
-use uom::si::f32::{Acceleration, AngularVelocity, Length, Velocity};
+use uom::si::f32::{Acceleration, AngularVelocity, Length, Time, Velocity};
 use uom::si::length::inch;
 use uom::si::ratio::ratio;
+use uom::si::time::second;
 use uom::si::velocity::mile_per_hour;
 
 use crate::peripherals;
@@ -301,7 +302,7 @@ fn estimate_velocity(
 ) -> Velocity {
     let vx_wheel = wheel_speed(avg_front_rads);
     let ax_corrected = Acceleration::new::<standard_gravity>((ax - est.ax_bias) / 1000.0);
-    let dv = ax_corrected * uom::si::f32::Time::new::<uom::si::time::second>(dt);
+    let dv = ax_corrected * Time::new::<second>(dt);
     let vx_imu = est.v_x + dv;
     let v = est.alpha * vx_wheel + (1.0 - est.alpha) * vx_imu;
 
