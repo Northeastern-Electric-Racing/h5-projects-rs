@@ -18,8 +18,8 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Duration, Ticker};
 use embedded_sht3x::{Repeatability::Medium, Sht3x, Status, Temperature};
 use lsm6dsv16x_ner::mdps::millidegree_per_second;
-use lsm6dsv16x_ner::{AccelVec, NerLsm6dsv16x, milligravity};
-use uom::si::f32::{Ratio, ThermodynamicTemperature};
+use lsm6dsv16x_ner::{NerLsm6dsv16x, milligravity};
+use uom::si::f32::{Acceleration, Ratio, ThermodynamicTemperature};
 use uom::si::ratio::percent;
 use uom::si::thermodynamic_temperature::degree_celsius;
 
@@ -31,17 +31,16 @@ const TEMP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const IMU_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const IMU_SPI_FREQUENCY: Hertz = Hertz::mhz(2);
 
-static LATEST_ACCEL: BlockingMutex<CriticalSectionRawMutex, Cell<Option<AccelVec>>> =
+static LATEST_ACCEL_X: BlockingMutex<CriticalSectionRawMutex, Cell<Option<Acceleration>>> =
     BlockingMutex::new(Cell::new(None));
 
 /// Most recent IMU acceleration, or `None` if no reading has arrived yet.
-pub fn imu_get_acceleration() -> Option<AccelVec> {
-    LATEST_ACCEL.lock(|c| c.take())
+pub fn imu_get_acceleration_x() -> Option<Acceleration> {
+    LATEST_ACCEL_X.lock(|c| c.get())
 }
 
-/// Most recent IMU acceleration, or `None` if no reading has arrived yet.
-pub fn imu_set_acceleration(accel: Option<AccelVec>) {
-    LATEST_ACCEL.lock(|c| c.set(accel))
+pub fn imu_set_acceleration_x(accel: Option<Acceleration>) {
+    LATEST_ACCEL_X.lock(|c| c.set(accel))
 }
 
 bind_interrupts!(struct Irqs {
@@ -184,7 +183,7 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
                 accel.z.get::<milligravity>(),
             );
 
-            imu_set_acceleration(Some(accel));
+            imu_set_acceleration_x(Some(accel.x));
 
             let frame = cangen::ImuAccelerometer::new()
                 .with_imu_accelerometer_x(x)

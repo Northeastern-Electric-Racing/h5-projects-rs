@@ -5,8 +5,8 @@
 use crate::pedals::{
     get_accel_pressed, get_brake_pressed, get_launch_control_enabled, get_torque_limit,
 };
-use crate::{rtds, traction};
 use crate::shutdown::{self, BmsShutdownState};
+use crate::{rtds, traction};
 use cangen::ToCanFrame;
 use defmt::{bitflags, debug, info, warn};
 use embassy_futures::select::{Either3, select3};

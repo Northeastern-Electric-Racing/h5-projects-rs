@@ -114,7 +114,9 @@ impl TcState {
     fn update_dt(&mut self) -> Time {
         let now = Instant::now();
         let dt = match self.prev_time {
-            Some(prev) => Time::new::<second>(((now - prev).as_micros() as f32 / 1_000_000.0).min(MAX_DT)),
+            Some(prev) => {
+                Time::new::<second>(((now - prev).as_micros() as f32 / 1_000_000.0).min(MAX_DT))
+            }
             None => Time::ZERO,
         };
         self.prev_time = Some(now);
@@ -147,8 +149,8 @@ impl TcState {
 
         // 3. Calibration.
         if !self.vel_estimator.init {
-            if let Some(accel) = peripherals::imu_get_acceleration() {
-                self.ax_sum += accel.x;
+            if let Some(accel) = peripherals::imu_get_acceleration_x() {
+                self.ax_sum += accel;
                 self.sample_count += 1;
             }
 
@@ -161,14 +163,14 @@ impl TcState {
         }
 
         // 4. Control step.
-        let accel = peripherals::imu_get_acceleration();
+        let accel = peripherals::imu_get_acceleration_x();
         let (omega_fl, omega_fr) = get_front_wheel_speeds();
         let motor_speed = dti_get_rpm();
 
         let ax = match accel {
             Some(a) => {
                 self.vel_estimator.alpha = VEL_ALPHA;
-                a.x
+                a
             }
             None => {
                 defmt::error!("TC: IMU read failed, using wheel speed only");
