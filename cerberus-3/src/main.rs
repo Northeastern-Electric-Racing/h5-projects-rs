@@ -21,6 +21,7 @@ mod buttons;
 mod can;
 mod debug;
 mod efuses;
+mod ethernet;
 mod lightning;
 mod pedals;
 mod peripherals;
@@ -114,6 +115,29 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to confirm application startup");
     spawner.spawn(can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
 
+    // Ethernet
+    spawner.spawn(
+        ethernet::ethernet_task(
+            spawner,
+            ethernet::EthernetResources {
+                phy_reset: p.PE10,
+                rng: p.RNG,
+                eth: p.ETH,
+                ref_clk: p.PA1,
+                crs: p.PA7,
+                rx_d0: p.PC4,
+                rx_d1: p.PC5,
+                tx_d0: p.PB12,
+                tx_d1: p.PB15,
+                tx_en: p.PA5,
+                sma: p.ETH_SMA,
+                mdio: p.PA2,
+                mdc: p.PC1,
+            },
+        )
+        .expect("Failed to spawn ethernet::ethernet_task()."),
+    );
+
     // ADC1 + analog mux
     spawner.spawn(
         adc1_task(Adc1Resources {
@@ -136,7 +160,7 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn adc::adc1_task()."),
     );
 
-    // pedals
+    // Pedals
     spawner.spawn(
         pedals_task(AdcPedalsResources {
             adc: p.ADC2,
