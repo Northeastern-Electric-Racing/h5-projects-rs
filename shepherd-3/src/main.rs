@@ -19,10 +19,11 @@ pub mod units;
 pub mod broadcast;
 pub mod job_diagnostics;
 pub mod debug;
-pub mod state_machine;
 pub mod faults;
 pub mod pack;
 pub mod helpers;
+pub mod state_machine;
+pub mod charging;
 pub mod gpios;
 pub mod shutdown;
 
@@ -162,7 +163,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(debug::faults_debug(spawner).expect("Failed to spawn faults debug task."));
     spawner.spawn(pack::analyzer::analyzer_task().expect("Failed to spawn pack::analyzer_task()."));
     spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
-    spawner.spawn(debug::state_machine_debug().expect("Failed to spawn debug::state_machine_debug()."));
+    spawner.spawn(charging::charger_task().expect("Failed to spawn charging::charger_task()."));
 }
 
 /// pet the dog beat the heart

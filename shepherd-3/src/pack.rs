@@ -1,9 +1,15 @@
 use crate::{
     helpers::deadline::Deadline,
-    state_machine::{BmsState},
-    state_machine,
-    segments::{CellId, ChipId, ChipKind, IndexByChip, IndexByCell, IndexBySegment, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
-    units::{Temperature, Voltage, Current, Length, Ratio, Resistance, ResistancePerLength, percent, ratio, degree_celsius, volt, ohm},
+    segments::{CellId, ChipId, IndexByChip, IndexByCell, IndexBySegment, IndexByOnboardTherm, ThermistorTemperatures, NUM_CELLS_PER_SEGMENT, NUM_CELLS_TOTAL},
+    units::{Temperature, Voltage, Current, Ratio, Resistance, percent, ratio, degree_celsius, volt, ohm},
+};
+
+// Only the 25A balancing patch names these, and that is compiled out under `hil`.
+#[cfg(not(feature = "hil"))]
+use crate::{
+    segments::ChipKind,
+    state_machine::BmsState,
+    units::{Length, ResistancePerLength},
 };
 
 pub mod analyzer {
@@ -188,6 +194,9 @@ pub mod analyzer {
         pub min_temp: CriticalCellValue<Temperature>,
         pub avg_temp: Temperature,
 
+        // On board temps
+        pub on_board_temps: IndexByChip<IndexByOnboardTherm<Temperature>>,
+
         // Max, min, and avg voltage of the cells
         pub max_voltage: CriticalCellValue<Voltage>,
         pub min_voltage: CriticalCellValue<Voltage>,
@@ -250,6 +259,8 @@ pub mod analyzer {
                     cell: CellId::Cell1,
                 },
                 avg_temp: Temperature::new::<degree_celsius>(f32::MIN),
+
+                on_board_temps: IndexByChip::from_fn(|_| IndexByOnboardTherm::from_fn(|_| Temperature::new::<degree_celsius>(f32::MIN))),
 
                 max_voltage: CriticalCellValue {
                     value: Voltage::new::<volt>(f32::MIN),
@@ -370,42 +381,49 @@ pub mod analyzer {
         /// register depending on if we are charging or not. Also has to do some post-processing corrections for 25A specifically (since this was in TSECU-Shepherd code).
         /// This doesn't modify anything in the cache itself (since that's raw reads), this just initializes (and post-processes) the Analyzer's cell voltage data.
         fn calc_cell_voltages(&mut self, cell_voltages: &IndexByChip<IndexByCell<Voltage>>) {
-            let state = state_machine::bms_state();
+            #[cfg(not(feature = "hil"))]
+            let state = crate::state_machine::state();
 
             for chip in ChipId::iter() {
-                // Constants and comments from TSECU-Shepherd
-                // 25A patch only: alpha lowest and beta highest need to be offset correctly
-                const UNIT_RES: ResistancePerLength = ResistancePerLength::from_ohms_per_millimeter(0.00139_f32); // from 1/2 oz copper, 0.71mm trace width, 30C
-                const TRACE_LEN_ALPHA: Length = Length::from_millimeters(234.56_f32 + 27.23_f32);
-                const TRACE_LEN_BETA: Length = Length::from_millimeters(116.36_f32 + 27.431_f32);
-                const FUSE_RES: Resistance = Resistance::from_ohms(0.1637_f32);
-                const TRACE_RES_ONBOARD_ALPHA: Resistance = Resistance::from_ohms(0.015_f32); // ohms, correction offset
-                const TRACE_RES_ONBOARD_BETA: Resistance = Resistance::from_ohms(0.20_f32); // ohms, correction offset
+                self.corrected_cell_voltages[chip].iter_mut().for_each(|(cell, voltage)| {
+                    *voltage = cell_voltages[chip][cell];
+                });
 
-                // The distance times the unit resistance, plus the resistance of the fuse
-                let (res, cell): (Resistance, CellId) = match chip.kind() {
-                    ChipKind::Beta => {
-                        let res = (UNIT_RES * TRACE_LEN_BETA) + FUSE_RES + TRACE_RES_ONBOARD_BETA;
-                        (res, CellId::Cell13)
-                    },
-                    ChipKind::Alpha => {
-                        let res = (UNIT_RES * TRACE_LEN_ALPHA) + FUSE_RES + TRACE_RES_ONBOARD_ALPHA;
-                        (res, CellId::Cell1)
-                    },
-                };
+                #[cfg(not(feature = "hil"))]
+                {
+                    // Constants and comments from TSECU-Shepherd
+                    // 25A patch only: alpha lowest and beta highest need to be offset correctly
+                    const UNIT_RES: ResistancePerLength = ResistancePerLength::from_ohms_per_millimeter(0.00139_f32); // from 1/2 oz copper, 0.71mm trace width, 30C
+                    const TRACE_LEN_ALPHA: Length = Length::from_millimeters(234.56_f32 + 27.23_f32);
+                    const TRACE_LEN_BETA: Length = Length::from_millimeters(116.36_f32 + 27.431_f32);
+                    const FUSE_RES: Resistance = Resistance::from_ohms(0.1637_f32);
+                    const TRACE_RES_ONBOARD_ALPHA: Resistance = Resistance::from_ohms(0.015_f32); // ohms, correction offset
+                    const TRACE_RES_ONBOARD_BETA: Resistance = Resistance::from_ohms(0.20_f32); // ohms, correction offset
 
-                let curr_bal = match state {
-                    // measured on 4/5/2026, the current through the cells when in charging mode single shot C ADCs
-                    // redone to be higher 4/8 sans measurement
-                    BmsState::Charging => Current::from_amps(0.029_f32),
+                    // The distance times the unit resistance, plus the resistance of the fuse
+                    let (res, cell): (Resistance, CellId) = match chip.kind() {
+                        ChipKind::Beta => {
+                            let res = (UNIT_RES * TRACE_LEN_BETA) + FUSE_RES + TRACE_RES_ONBOARD_BETA;
+                            (res, CellId::Cell13)
+                        },
+                        ChipKind::Alpha => {
+                            let res = (UNIT_RES * TRACE_LEN_ALPHA) + FUSE_RES + TRACE_RES_ONBOARD_ALPHA;
+                            (res, CellId::Cell1)
+                        },
+                    };
 
-                    // measured on 4/5/2026, the current through the cells when in active mode continous C/S read compare
-                    _ => Current::from_amps(0.031_f32),
-                };
+                    let curr_bal = match state {
+                        // measured on 4/5/2026, the current through the cells when in charging mode single shot C ADCs
+                        // redone to be higher 4/8 sans measurement
+                        BmsState::Charging => Current::from_amps(0.029_f32),
 
-                // I*R is the way
-                self.corrected_cell_voltages[chip][cell] = cell_voltages[chip][cell];
-                self.corrected_cell_voltages[chip][cell] += curr_bal * res;
+                        // measured on 4/5/2026, the current through the cells when in active mode continous C/S read compare
+                        _ => Current::from_amps(0.031_f32),
+                    };
+
+                    // I*R is the way
+                    self.corrected_cell_voltages[chip][cell] += curr_bal * res;
+                }
             }
         }
 
@@ -493,7 +511,7 @@ pub mod analyzer {
 
                 // Update cell voltage too high fault
                 // (note: the separate CellChargeVoltageTooHigh fault from TSECU-Shepherd is combined with CellVoltageTooHigh now, they just check different values depending on state)
-                let max = if crate::state_machine::bms_state().is_charging() { Voltage::from_volts(4.193) } else { Voltage::from_volts(4.2) };
+                let max = if crate::state_machine::state().is_charging() { Voltage::from_volts(4.2) } else { Voltage::from_volts(4.2) };
                 if self.max_ocv.value() > max {
                     faults::queue(FaultCommand::CellVoltageTooHigh(PassFailAction::NotifyBad)).await;
                 } else {
@@ -564,16 +582,16 @@ pub mod analyzer {
             const OCV_TIMER_DURATION: Duration = Duration::from_millis(1500);
 
             let Some(data) = crate::hv_plate::cache().get_current_voltage().nice().try_get() else {
-                return;
+                return; // u_TODO probably should be redundancy here so should get from charger or DTI also so this isnt a failure case
             };
             let mut pack_current = data.data().pack_current;
             let mut update_ocv = false;
 
-            let ocv_update_allowed: bool = {
-                pack_current.abs() < OCV_CURR_THRESH
-                // u_TODO: && crate::state_machine::charger_output_disabled()
-                // u_TODO: && crate::state_machine::balancing_active()
-            };
+            let ocv_update_allowed: bool = { pack_current.abs() < OCV_CURR_THRESH && crate::charging::charger_output_disabled() && !crate::charging::are_we_actively_balancing().as_bool() };
+
+            defmt_monitor::monitor!("AnalyzerDebug/calc_open_cell_voltage()/ocv_update_allowed", desc = "", "{}", &ocv_update_allowed);
+            defmt_monitor::monitor!("AnalyzerDebug/calc_open_cell_voltage()/ocv_is_first_reading", desc = "", "{}", self.ocv_is_first_reading);
+            defmt_monitor::monitor!("AnalyzerDebug/calc_open_cell_voltage()/ocv_timer", desc = "", "{}", self.ocv_timer);
 
             if self.ocv_is_first_reading {
                 let last_cell: Voltage = self.corrected_cell_voltages[ChipId::last()][CellId::last()];
@@ -656,7 +674,7 @@ pub mod analyzer {
             segments_freshdata_subscription.wait().await;
 
             // Get cell voltages depending on if we are charging or not.
-            let cell_voltages = match state_machine::bms_state() {
+            let cell_voltages = match crate::state_machine::state() {
                 // If we are charging, get normal cell voltages.
                 BmsState::Charging => *normal_cell_voltages.get().data(),
                 // If we are not charging, get filtered cell voltages.
@@ -665,21 +683,22 @@ pub mod analyzer {
 
             let analyzer = working_analyzer.get_or_insert_with(|| Analyzer::new());
 
-            let cell_temps: IndexByChip<IndexByCell<Temperature>> = {
+            let temps: IndexByChip<ThermistorTemperatures> = {
                 let rdax = *redundant_aux.get().data();
 
-                IndexByChip::from_fn(|chip| {
-                    let temps = rdax[chip].to_temps().cell_temperatures;
-                    IndexByCell::from_fn(|cell| temps[cell])
-                })
+                IndexByChip::from_fn(|chip| rdax[chip].to_temps())
             };
+            let cell_temps = IndexByChip::from_fn(|chip| temps[chip].cell_temperatures);
+            let onboard_temps = IndexByChip::from_fn(|chip| temps[chip].on_board_temps);
+            analyzer.on_board_temps = onboard_temps;
 
             let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| status_a.get().data()[chip].itmp);
 
             let soc_data = crate::hv_plate::soc_data();
             // u_TODO - decide which current to prefer: the current reading as read by the 2950 could be better if we calibrate the shunt properly
             analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.shunt_current);
-            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get());
+            // u_TODO - switch to use 2950 sense for 27A.
+            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).or(crate::hv_plate::cache().get_voltages().nice().try_partial_get(|n| n.data().ts_voltage));
             analyzer.soc = soc_data.state_of_charge;
 
             // this whole section is supposed to look pretty similar to the C code just so
@@ -715,13 +734,13 @@ pub mod analyzer {
 
             #[cfg(defmt_monitor)]
             '_defmt_monitor: {
-                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/high_val", desc = "Value of highest cell voltage, in volts.", "{=f32}", analyzer.max_ocv.value().get::<volt>());
-                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/high_cell", desc = "The cell `high_val` was measured from.", "{}", analyzer.max_ocv.cell());
-                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/high_chip", desc = "The chip `high_val` was measured from.", "{}", analyzer.max_ocv.chip());
-                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_val", desc = "Value of lowest cell voltage, in volts.", "{=f32}", analyzer.min_ocv.value().get::<volt>());
-                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_cell", desc = "The cell `low_val` was measured from.", "{}", analyzer.min_ocv.cell());
-                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/low_chip", desc = "The chip `low_val` was measured from.", "{}", analyzer.min_ocv.chip());
-                defmt_monitor::monitor!("AnalyzerDebug/CellVoltage/avg_val", desc = "The average cell voltage, in volts.", "{=f32}", analyzer.avg_ocv.get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/OpenCellVoltage/high_val", desc = "Value of highest open cell voltage, in volts.", "{=f32}", analyzer.max_ocv.value().get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/OpenCellVoltage/high_cell", desc = "The cell `high_val` was measured from.", "{}", analyzer.max_ocv.cell());
+                defmt_monitor::monitor!("AnalyzerDebug/OpenCellVoltage/high_chip", desc = "The chip `high_val` was measured from.", "{}", analyzer.max_ocv.chip());
+                defmt_monitor::monitor!("AnalyzerDebug/OpenCellVoltage/low_val", desc = "Value of lowest cell voltage, in volts.", "{=f32}", analyzer.min_ocv.value().get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/OpenCellVoltage/low_cell", desc = "The cell `low_val` was measured from.", "{}", analyzer.min_ocv.cell());
+                defmt_monitor::monitor!("AnalyzerDebug/OpenCellVoltage/low_chip", desc = "The chip `low_val` was measured from.", "{}", analyzer.min_ocv.chip());
+                defmt_monitor::monitor!("AnalyzerDebug/OpenCellVoltage/avg_val", desc = "The average cell voltage, in volts.", "{=f32}", analyzer.avg_ocv.get::<volt>());
                 let mut count = 0;
                 for chip in ChipId::iter() {
                     for cell in CellId::iter() {
@@ -742,7 +761,18 @@ pub mod analyzer {
                     seg2: analyzer.segment_average_volts[SegmentId::Segment1].get::<volt>(),
                     seg3: analyzer.segment_average_volts[SegmentId::Segment2].get::<volt>(),
                     seg4: analyzer.segment_average_volts[SegmentId::Segment3].get::<volt>(),
-                    seg5: analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>(),
+
+                    seg5: {
+                        #[cfg(feature = "four-segments")]
+                        {
+                            0_f32
+                        }
+
+                        #[cfg(not(feature = "four-segments"))]
+                        {
+                            analyzer.segment_average_volts[SegmentId::Segment4].get::<volt>()
+                        }
+                    },
                 }
                 .as_frame(),
             )
@@ -761,7 +791,18 @@ pub mod analyzer {
                     seg2: analyzer.segment_total_volts[SegmentId::Segment1].get::<volt>(),
                     seg3: analyzer.segment_total_volts[SegmentId::Segment2].get::<volt>(),
                     seg4: analyzer.segment_total_volts[SegmentId::Segment3].get::<volt>(),
-                    seg5: analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>(),
+
+                    seg5: {
+                        #[cfg(feature = "four-segments")]
+                        {
+                            0_f32
+                        }
+
+                        #[cfg(not(feature = "four-segments"))]
+                        {
+                            analyzer.segment_total_volts[SegmentId::Segment4].get::<volt>()
+                        }
+                    },
                 }
                 .as_frame(),
             )
@@ -805,7 +846,18 @@ pub mod analyzer {
                     seg2: analyzer.segment_average_temps[SegmentId::Segment1].get::<degree_celsius>(),
                     seg3: analyzer.segment_average_temps[SegmentId::Segment2].get::<degree_celsius>(),
                     seg4: analyzer.segment_average_temps[SegmentId::Segment3].get::<degree_celsius>(),
-                    seg5: analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>(),
+
+                    seg5: {
+                        #[cfg(feature = "four-segments")]
+                        {
+                            0_f32
+                        }
+
+                        #[cfg(not(feature = "four-segments"))]
+                        {
+                            analyzer.segment_average_temps[SegmentId::Segment4].get::<degree_celsius>()
+                        }
+                    },
                 }
                 .as_frame(),
             )
@@ -835,6 +887,66 @@ pub mod analyzer {
                 defmt_monitor::monitor!("AnalyzerDebug/Misc/avg_ocv", desc = "Average Open Cell Voltage, in volts.", "{=f32}", analyzer.avg_ocv.get::<volt>());
                 defmt_monitor::monitor!("AnalyzerDebug/Misc/pack_ocv", desc = "Pack Open Cell Voltage, in volts.", "{=f32}", analyzer.pack_ocv.get::<volt>());
                 defmt_monitor::monitor!("AnalyzerDebug/Misc/delta_ocv", desc = "Delta Open Cell Voltage, in volts.", "{=f32}", analyzer.delta_ocv.get::<volt>());
+            }
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                use crate::segments::OnboardThermIndex;
+
+                // Per-cell data.
+                for chip in ChipId::iter() {
+                    for cell in CellId::iter() {
+                        defmt_monitor::monitor!(["AnalyzerDebug/Cells/chip_{=u8}/cell_{=u8}/corrected_voltage", chip.as_u8(), cell.as_u8()], desc = "Cell voltage after the 25A trace/fuse correction, in volts.", "{=f32}", analyzer.corrected_cell_voltages[chip][cell].get::<volt>());
+                        defmt_monitor::monitor!(["AnalyzerDebug/Cells/chip_{=u8}/cell_{=u8}/open_cell_voltage", chip.as_u8(), cell.as_u8()], desc = "Open cell voltage from the last settled snapshot, in volts.", "{=f32}", analyzer.open_cell_voltage[chip][cell].get::<volt>());
+                        defmt_monitor::monitor!(["AnalyzerDebug/Cells/chip_{=u8}/cell_{=u8}/ow_fault", chip.as_u8(), cell.as_u8()], desc = "Whether the last open-wire check flagged this cell.", "{=bool}", analyzer.ow_fault[chip][cell]);
+                    }
+                }
+
+                // On-board thermistors.
+                for chip in ChipId::iter() {
+                    let temps = &analyzer.on_board_temps[chip];
+                    defmt_monitor::monitor!(["AnalyzerDebug/OnboardTemps/chip_{=u8}/alpha_balancing_bank", chip.as_u8()], desc = "Alpha balancing bank thermistor, in degrees celsius.", "{=f32}", temps[OnboardThermIndex::ThermAlphaBalancingBank].get::<degree_celsius>());
+                    defmt_monitor::monitor!(["AnalyzerDebug/OnboardTemps/chip_{=u8}/chips", chip.as_u8()], desc = "Thermistor near the chips, in degrees celsius.", "{=f32}", temps[OnboardThermIndex::ThermChips].get::<degree_celsius>());
+                    defmt_monitor::monitor!(["AnalyzerDebug/OnboardTemps/chip_{=u8}/beta_balancing_bank", chip.as_u8()], desc = "Beta balancing bank thermistor, in degrees celsius.", "{=f32}", temps[OnboardThermIndex::ThermBetaBalancingBank].get::<degree_celsius>());
+                }
+
+                // Corrected cell voltage max/mins.
+                defmt_monitor::monitor!("AnalyzerDebug/CorrectedCellVoltage/high_val", desc = "Value of highest corrected cell voltage, in volts.", "{=f32}", analyzer.max_voltage.value().get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/CorrectedCellVoltage/high_cell", desc = "The cell `high_val` was measured from.", "{}", analyzer.max_voltage.cell());
+                defmt_monitor::monitor!("AnalyzerDebug/CorrectedCellVoltage/high_chip", desc = "The chip `high_val` was measured from.", "{}", analyzer.max_voltage.chip());
+                defmt_monitor::monitor!("AnalyzerDebug/CorrectedCellVoltage/low_val", desc = "Value of lowest corrected cell voltage, in volts.", "{=f32}", analyzer.min_voltage.value().get::<volt>());
+                defmt_monitor::monitor!("AnalyzerDebug/CorrectedCellVoltage/low_cell", desc = "The cell `low_val` was measured from.", "{}", analyzer.min_voltage.cell());
+                defmt_monitor::monitor!("AnalyzerDebug/CorrectedCellVoltage/low_chip", desc = "The chip `low_val` was measured from.", "{}", analyzer.min_voltage.chip());
+
+                // Die temps.
+                defmt_monitor::monitor!("AnalyzerDebug/ChipTemperature/high_val", desc = "Highest ADBMS6830 die temperature, in degrees celsius.", "{=f32}", analyzer.max_chiptemp.value().get::<degree_celsius>());
+                defmt_monitor::monitor!("AnalyzerDebug/ChipTemperature/high_chip", desc = "The chip `high_val` was measured from.", "{}", analyzer.max_chiptemp.chip());
+
+                for segment in SegmentId::iter() {
+                    defmt_monitor::monitor!(["AnalyzerDebug/SegmentDeltaVoltages/seg_{=u8}/", segment.as_u8()], desc = "Delta voltage stored for this segment, in volts.", "{=f32}", analyzer.segment_delta_volts[segment].get::<volt>());
+                }
+
+                // Pack current and TS voltage, then each source that fed them. Published next to
+                // their inputs so a wrong number can be traced to the source that produced it
+                // rather than guessing which one won.
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/pack_current", desc = "Pack current in amps, positive is discharge. The CAN-reported value if a node has sent one, otherwise the shunt. NaN if neither has a reading.", "{=f32}", analyzer.pack_current.map_or(f32::NAN, |current| current.as_amps()));
+                defmt_monitor::monitor!("AnalyzerDebug/Misc/ts_voltage", desc = "TS voltage in volts, as selected: the CAN-reported value if a node has sent one, otherwise the 2950's own divider. NaN if neither has a reading.", "{=f32}", analyzer.ts_voltage.map_or(f32::NAN, |voltage| voltage.get::<volt>()));
+
+                // What the DTI or charger reported, before selection. Nothing clears these, so a
+                // node that has gone quiet leaves its last value here -- a steady number is not
+                // proof that anything is still sending.
+                defmt_monitor::monitor!("AnalyzerDebug/Reported/pack_current", desc = "Pack current as last reported over CAN by the DTI or the charger, in amps. NaN until a frame has arrived.", "{=f32}", REPORTED_DATA.lock(|reported| reported.pack_current.get()).map_or(f32::NAN, |current| current.as_amps()));
+                defmt_monitor::monitor!("AnalyzerDebug/Reported/ts_voltage", desc = "TS voltage as last reported over CAN by the DTI or the charger, in volts. NaN until a frame has arrived.", "{=f32}", REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).map_or(f32::NAN, |voltage| voltage.get::<volt>()));
+
+                // The 2950's own readings, for cross-checking the reported ones against the plate.
+                defmt_monitor::monitor!("AnalyzerDebug/Plate/ts_voltage", desc = "TS voltage off the 2950's own divider behind GPO2, in volts. NaN until the voltages group has been read.", "{=f32}", crate::hv_plate::cache().get_voltages().nice().try_partial_get(|nice| nice.data().ts_voltage.get::<volt>()).unwrap_or(f32::NAN));
+                defmt_monitor::monitor!("AnalyzerDebug/Plate/shunt_current", desc = "Pack current off the 2950's shunt, in amps, discharge-positive. NaN until the estimator has published.", "{=f32}", crate::hv_plate::soc_data().shunt_current.map_or(f32::NAN, |current| current.as_amps()));
+
+                // OCV snapshot bookkeeping.
+                defmt_monitor::monitor!("AnalyzerDebug/Ocv/is_first_reading", desc = "Whether we are still waiting for the first plausible cell voltage to seed the OCV snapshot.", "{=bool}", analyzer.ocv_is_first_reading);
+                defmt_monitor::monitor!("AnalyzerDebug/Ocv/rest_timer_running", desc = "Whether the pack is quiet enough (low current, charger off, not balancing) for the OCV rest timer to be counting.", "{=bool}", analyzer.ocv_timer.is_some());
+                defmt_monitor::monitor!("AnalyzerDebug/Ocv/rest_timer_expired", desc = "Whether the rest timer has run out, so the OCV snapshot is being refreshed every cycle.", "{=bool}", analyzer.ocv_timer.is_some_and(|deadline| deadline.past()));
+                defmt_monitor::monitor!("AnalyzerDebug/Ocv/secs_since_settled", desc = "Seconds since the last OCV snapshot was taken. NaN if none has been taken yet.", "{=f32}", analyzer.last_settled_at.map_or(f32::NAN, |instant| instant.elapsed().as_millis() as f32 / 1000.0));
             }
 
             #[cfg(defmt_monitor)]

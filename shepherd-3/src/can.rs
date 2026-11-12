@@ -34,13 +34,18 @@ pub fn init(r: crate::CanResources) -> (CanTx<'static>, CanRx<'static>) {
         id1: cangen::ErpmDutyInputVoltageStatus::ID,
         id2: Some(cangen::CurrentsStatus::ID),
     };
+    const SLOT_1: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_1,
+        id1: cangen::ShepherdBmsPwmPercent::ID,
+        id2: None,
+    };
     const SLOT_0E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_0,
         id1: cangen::ChargerBoxStatus::ID,
         id2: None,
     };
 
-    let (tx, rx, _props) = NerCan::init(configurator).with_standard_filters(&[SLOT_0]).with_extended_filters(&[SLOT_0E]).start();
+    let (tx, rx, _props) = NerCan::init(configurator).with_standard_filters(&[SLOT_0, SLOT_1]).with_extended_filters(&[SLOT_0E]).start();
     interrupts::enable_extra();
 
     (tx, rx)
@@ -50,7 +55,7 @@ pub fn init(r: crate::CanResources) -> (CanTx<'static>, CanRx<'static>) {
 #[embassy_executor::task]
 pub async fn can_inbox_task() -> ! {
     use crate::units::{Current, Voltage};
-    use crate::{pack, state_machine};
+    use crate::{charging, pack};
     use cangen::Msg;
     use uom::si::electric_current::ampere;
     use uom::si::electric_potential::volt;
@@ -60,20 +65,21 @@ pub async fn can_inbox_task() -> ! {
 
         match Msg::decode(&frame) {
             Some(Msg::ChargerBoxStatus(m)) => {
-                state_machine::charger_frame_received();
+                charging::alert_charger_received();
                 pack::analyzer::store_can_pack_current(Current::new::<ampere>(m.current()));
                 pack::analyzer::store_can_ts_voltage(Voltage::new::<volt>(m.voltage()));
             },
-            Some(Msg::CurrentsStatus(_)) if !state_machine::charger_connected() => {
+            Some(Msg::CurrentsStatus(_)) if !charging::is_charger_connected() => {
                 if let Some(current) = decode_dti_current(frame.data()) {
                     pack::analyzer::store_can_pack_current(current);
                 }
             },
-            Some(Msg::ErpmDutyInputVoltageStatus(_)) if !state_machine::charger_connected() => {
+            Some(Msg::ErpmDutyInputVoltageStatus(_)) if !charging::is_charger_connected() => {
                 if let Some(voltage) = decode_dti_voltage(frame.data()) {
                     pack::analyzer::store_can_ts_voltage(voltage);
                 }
             },
+            Some(Msg::ShepherdBmsPwmPercent(pwm)) => charging::update_pwm_duty_cycle(&pwm),
             // DTI frames while the charger is connected.
             Some(_) => {},
             None => defmt::debug!("Failed to decode CAN frame"),
@@ -243,6 +249,20 @@ pub mod types {
         }
     }
 
+    pub struct BmsChargeMessageSend {
+        pub charge_volts: f32,
+        pub charge_current: f32,
+
+        /// 0xFF = stop charging, 0 = yes charge
+        pub charging_state: u8,
+    }
+    impl BmsChargeMessageSend {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BmsChargeMessageSend::new().with_charge_volts(self.charge_volts).with_charge_current(self.charge_current).with_enable_charging(self.charging_state);
+            frame.to_can_frame()
+        }
+    }
+
     pub struct ShutdownAsReadByBms {
         pub shutdown_state: bool,
         pub shutdown_ts_minus_sense: bool,
@@ -253,7 +273,6 @@ pub mod types {
     impl ShutdownAsReadByBms {
         pub fn as_frame(&self) -> Frame {
             let frame = cangen::ShutdownAsReadByBms::new().with_shutdown_state(self.shutdown_state).with_shutdown_ts_minus_sense(self.shutdown_ts_minus_sense).with_shutdown_ts_plus_sense(self.shutdown_ts_plus_sense).with_shutdown_acc_sense(self.shutdown_acc_sense).with_shutdown_tsip_sense(self.shutdown_tsip_sense);
-
             frame.to_can_frame()
         }
     }
