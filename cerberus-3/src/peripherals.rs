@@ -37,7 +37,7 @@ pub struct AccelSample {
     pub z_mg: f32,
 }
 
-pub static LATEST_ACCEL: BlockingMutex<CriticalSectionRawMutex, Cell<Option<AccelSample>>> =
+static LATEST_ACCEL: BlockingMutex<CriticalSectionRawMutex, Cell<Option<AccelSample>>> =
     BlockingMutex::new(Cell::new(None));
 
 /// Most recent IMU acceleration, or `None` if no reading has arrived yet.
