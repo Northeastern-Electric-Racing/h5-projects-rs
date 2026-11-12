@@ -84,7 +84,7 @@ pub async fn imu_task(spi: ImuSpi) {
             updated = true;
         }
 
-        if let Some(g) = imu.get_anguar_vel().await {
+        if let Some(g) = imu.get_angular_vel().await {
             reading.gyro_mdps = Axes {
                 x: g.roll_rate.get::<millidegree_per_second>(),
                 y: g.pitch_rate.get::<millidegree_per_second>(),
