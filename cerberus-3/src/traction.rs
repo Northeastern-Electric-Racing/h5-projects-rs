@@ -58,7 +58,6 @@ struct TireCurve {
 struct VelEstimator {
     v_x: Velocity,
     ax_bias: Acceleration,
-    alpha: f32,
     init: bool,
 }
 
@@ -67,7 +66,6 @@ impl VelEstimator {
         Self {
             v_x: Velocity::ZERO,
             ax_bias: Acceleration::ZERO,
-            alpha: VEL_ALPHA,
             init: false,
         }
     }
@@ -163,22 +161,9 @@ impl TcState {
         }
 
         // 4. Control step.
-        let accel = peripherals::imu_get_acceleration_x();
+        let ax = peripherals::imu_get_acceleration_x();
         let (omega_fl, omega_fr) = get_front_wheel_speeds();
         let motor_speed = dti_get_rpm();
-
-        let ax = match accel {
-            Some(a) => {
-                self.vel_estimator.alpha = VEL_ALPHA;
-                a
-            }
-            None => {
-                defmt::error!("TC: IMU read failed, using wheel speed only");
-                // alpha = 1.0 -> velocity entirely from wheel speeds this cycle.
-                self.vel_estimator.alpha = 1.0;
-                Acceleration::ZERO
-            }
-        };
 
         let avg_front_rads = (omega_fl + omega_fr) / 2.0;
         let vx_car = estimate_velocity(&mut self.vel_estimator, avg_front_rads, ax, dt);
@@ -362,7 +347,6 @@ fn lookup_fx(curve: &TireCurve, slip: f32) -> f32 {
 fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: Acceleration) {
     est.ax_bias = avg_ax_stationary;
     est.v_x = Velocity::ZERO;
-    est.alpha = VEL_ALPHA;
     est.init = true;
     defmt::info!("TC: ax bias = {} mg", est.ax_bias.get::<milligravity>());
 }
@@ -370,14 +354,18 @@ fn init_vel_estimator(est: &mut VelEstimator, avg_ax_stationary: Acceleration) {
 fn estimate_velocity(
     est: &mut VelEstimator,
     avg_front_rads: AngularVelocity,
-    ax: Acceleration,
+    ax: Option<Acceleration>,
     dt: Time,
 ) -> Velocity {
     let vx_wheel = wheel_speed(avg_front_rads);
-    let ax_corrected = ax - est.ax_bias;
-    let dv = ax_corrected * dt;
-    let vx_imu = est.v_x + dv;
-    let v = est.alpha * vx_wheel + (1.0 - est.alpha) * vx_imu;
+    let v = match ax {
+        Some(ax) => {
+            let vx_imu = est.v_x + (ax - est.ax_bias) * dt;
+            VEL_ALPHA * vx_wheel + (1.0 - VEL_ALPHA) * vx_imu
+        }
+        // No IMU sample: use wheel speed only.
+        None => vx_wheel,
+    };
 
     est.v_x = v.max(Velocity::ZERO);
     est.v_x
