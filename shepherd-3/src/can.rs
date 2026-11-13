@@ -1,69 +1,107 @@
 //! CAN stuff.
 
-use embassy_stm32::can::Frame;
+use can_handler::{ExtFilter, NerCan, StdFilter};
+use cangen::CanMessage;
+use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
+use embassy_stm32::can::{CanConfigurator, CanRx, CanTx, Frame};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 
-/// IDs we receive.
-/// u_TODO – cangen can make this obsolete
-mod rx_ids {
-    pub const CHARGER_BOX: u32 = 0x18FF_50E5;
-    pub const DTI_DC_CURRENT: u16 = 0x436;
-    pub const DTI_INPUT_VOLTAGE: u16 = 0x416;
-    pub const SHEPHERD_BMS_PWM_PERCENT: u16 = 0x455;
+/// Capacity of each CAN channel, in `Frame`s.
+pub const CHANNEL_SIZE: usize = 256;
+
+/// Frames received off the bus, waiting to be parsed by `can_inbox_task`.
+pub static INCOMING: Channel<ThreadModeRawMutex, Frame, CHANNEL_SIZE> = Channel::new();
+/// Frames queued by the program, waiting to go out on the bus.
+pub static OUTGOING: Channel<ThreadModeRawMutex, Frame, CHANNEL_SIZE> = Channel::new();
+
+/// Add a frame to the outgoing CAN channel.
+pub async fn send(frame: Frame) {
+    can_handler::send(OUTGOING.dyn_sender(), frame).await
 }
 
-/// MAIN PUBLIC API THE REST OF THE PROGRAM USES TO INTERACT WITH CAN.
-mod api {
-    use super::{channels, handler, interrupts};
-    use embassy_stm32::can::Frame;
+/// Tries to add a frame to the outgoing CAN channel.
+pub fn try_send(frame: Frame) -> Result<(), ()> {
+    can_handler::try_send(OUTGOING.dyn_sender(), frame)
+}
 
-    /// Add a frame to the outgoing CAN channel.
-    pub async fn send(frame: Frame) {
-        match channels::OUTGOING.try_send(frame) {
-            Ok(_) => {},
-            Err(_) => {
-                defmt::warn!("Tried to add a frame to the OUTGOING Channel, but the Channel was full. This is not a failure, because we will .await until the Channel is able to accept the frame. However, consider increasing the capacity of the Channel if this is occurring often.");
-                channels::OUTGOING.send(frame).await
+/// Initializes the FDCAN peripheral and returns the split CanTx and CanRx structs.
+pub fn init(r: crate::CanResources) -> (CanTx<'static>, CanRx<'static>) {
+    let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
+
+    const SLOT_0: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_0,
+        id1: cangen::ErpmDutyInputVoltageStatus::ID,
+        id2: Some(cangen::CurrentsStatus::ID),
+    };
+    const SLOT_1: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_1,
+        id1: cangen::ShepherdBmsPwmPercent::ID,
+        id2: None,
+    };
+    const SLOT_0E: ExtFilter = ExtFilter {
+        slot: ExtendedFilterSlot::_0,
+        id1: cangen::ChargerBoxStatus::ID,
+        id2: None,
+    };
+
+    let (tx, rx, _props) = NerCan::init(configurator).with_standard_filters(&[SLOT_0, SLOT_1]).with_extended_filters(&[SLOT_0E]).start();
+    interrupts::enable_extra();
+
+    (tx, rx)
+}
+
+/// Reads incoming CAN frames from the software queue and dispatches them.
+#[embassy_executor::task]
+pub async fn can_inbox_task() -> ! {
+    use crate::units::{Current, Voltage};
+    use crate::{charging, pack};
+    use cangen::Msg;
+    use uom::si::electric_current::ampere;
+    use uom::si::electric_potential::volt;
+
+    loop {
+        let frame = INCOMING.receive().await;
+
+        match Msg::decode(&frame) {
+            Some(Msg::ChargerBoxStatus(m)) => {
+                charging::alert_charger_received();
+                pack::analyzer::store_can_pack_current(Current::new::<ampere>(m.current()));
+                pack::analyzer::store_can_ts_voltage(Voltage::new::<volt>(m.voltage()));
             },
-        }
-    }
-
-    /// Tries to add a frame to the outgoing CAN channel.
-    pub fn try_send(frame: Frame) -> Result<(), ()> {
-        match channels::OUTGOING.try_send(frame) {
-            Ok(_) => Ok(()),
-            Err(_) => {
-                defmt::warn!("Tried to add a frame to the OUTGOING Channel, but the Channel was full. This is not a failure, because we will .await until the Channel is able to accept the frame. However, consider increasing the capacity of the Channel if this is occurring often.");
-                Err(())
+            Some(Msg::CurrentsStatus(_)) if !charging::is_charger_connected() => {
+                if let Some(current) = decode_dti_current(frame.data()) {
+                    pack::analyzer::store_can_pack_current(current);
+                }
             },
+            Some(Msg::ErpmDutyInputVoltageStatus(_)) if !charging::is_charger_connected() => {
+                if let Some(voltage) = decode_dti_voltage(frame.data()) {
+                    pack::analyzer::store_can_ts_voltage(voltage);
+                }
+            },
+            Some(Msg::ShepherdBmsPwmPercent(pwm)) => charging::update_pwm_duty_cycle(&pwm),
+            // DTI frames while the charger is connected.
+            Some(_) => {},
+            None => defmt::debug!("Failed to decode CAN frame"),
         }
-    }
-
-    /// Initializes CAN and starts up the CAN handler.
-    #[embassy_executor::task]
-    pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources) {
-        use super::rx_ids;
-        use embassy_stm32::can::CanConfigurator;
-        use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
-
-        let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
-        #[rustfmt::skip]
-        let can = handler::NerCan::init(configurator)
-            .add_standard_filter(StandardFilterSlot::_0, rx_ids::DTI_INPUT_VOLTAGE, None)
-            .add_standard_filter(StandardFilterSlot::_1, rx_ids::DTI_DC_CURRENT, None)
-            .add_standard_filter(StandardFilterSlot::_2, rx_ids::SHEPHERD_BMS_PWM_PERCENT, None)
-            .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None);
-
-        let (tx, rx, _props) = can.start();
-
-        spawner.spawn(handler::can_tx(tx).expect("Failed to spawn can_handler::can_tx()."));
-        spawner.spawn(handler::can_rx(rx).expect("Failed to spawn can_handler::can_rx()."));
-        spawner.spawn(handler::can_rx_processer().expect("Failed to spawn can_handler::can_rx_processer()."));
-
-        #[cfg(defmt_monitor)]
-        spawner.spawn(handler::can_props(_props).expect("Failed to spawn can_handler::can_props()."));
     }
 }
-pub use api::*;
+
+/// DC current from a DTI `Currents_Status` frame: big-endian `i16` at bytes 2..4, 0.1 A per LSB.
+fn decode_dti_current(data: &[u8]) -> Option<crate::units::Current> {
+    use uom::si::electric_current::ampere;
+
+    let raw = i16::from_be_bytes([*data.get(2)?, *data.get(3)?]);
+    Some(crate::units::Current::new::<ampere>(f32::from(raw) / 10.0))
+}
+
+/// TS voltage from a DTI `ERPM_Duty_Input_Voltage_Status` frame: big-endian `i16` at bytes 6..8, 1 V per LSB.
+fn decode_dti_voltage(data: &[u8]) -> Option<crate::units::Voltage> {
+    use uom::si::electric_potential::volt;
+
+    let raw = i16::from_be_bytes([*data.get(6)?, *data.get(7)?]);
+    Some(crate::units::Voltage::new::<volt>(f32::from(raw)))
+}
 
 /// CAN message types. This isn't really needed at all, the builder pattern is just somewhat messy for large CAN structs like this.
 /// u_TODO - eventually try adding stuff to `cangen` that generates these structs automatically so you don't need to use builder pattern
@@ -196,6 +234,19 @@ pub mod types {
         }
     }
 
+    pub struct EnergyMeterTemperatureMsg {
+        pub max_temp: u16,
+        pub min_temp: u16,
+        pub avg_temp: u16,
+    }
+    impl EnergyMeterTemperatureMsg {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::EnergyMeterTemperatureMessage::new().with_max_cell_temp(self.max_temp).with_min_cell_temp(self.min_temp).with_avg_cell_temp(self.avg_temp);
+
+            frame.to_can_frame()
+        }
+    }
+
     pub struct PackSocStatus {
         pub pack_soc: f32,
         pub pack_soc_drift: f32,
@@ -246,6 +297,22 @@ mod interrupts {
     /// Number of times the FDCAN2 IT1 interrupt has fired.
     pub static IT1_IRQ_COUNT: AtomicU32 = AtomicU32::new(0);
 
+    /// Enables the extra FDCAN interrupts that `It0Counter` clears. Call after `NerCan::start()`.
+    pub(super) fn enable_extra() {
+        let regs = embassy_stm32::pac::FDCAN2;
+
+        // Enable the transmission-cancellation interrupt.
+        regs.txbcie().write(|w| w.0 = 0xffff_ffff);
+        regs.ie().modify(|w| w.set_tcfe(true));
+
+        // Enable timestamp wraparound interrupt.
+        regs.ie().modify(|w| {
+            w.set_tswe(true);
+            w.set_peae(true);
+            w.set_pede(true);
+        });
+    }
+
     /// Counts FDCAN2 IT0 entries. Also clears the TCF flag. This runs alongside embassy's internal ISR (it doesn't replace it or anything)
     struct It0Counter;
     impl embassy_stm32::interrupt::typelevel::Handler<embassy_stm32::interrupt::typelevel::FDCAN2_IT0> for It0Counter {
@@ -285,345 +352,18 @@ mod interrupts {
         FDCAN2_IT0 => It0Counter, embassy_stm32::can::IT0InterruptHandler<embassy_stm32::peripherals::FDCAN2>;
         FDCAN2_IT1 => embassy_stm32::can::IT1InterruptHandler<embassy_stm32::peripherals::FDCAN2>, It1Counter;
     });
-}
 
-mod channels {
-    use super::Frame;
-    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-    use embassy_sync::channel::Channel;
-
-    /// Capacity of our incoming CAN channel, in `Frame`s.
-    pub const INCOMING_CHANNEL_SIZE: usize = 256;
-    /// Capacity of our outgoing CAN channel, in `Frame`s.
-    pub const OUTGOING_CHANNEL_SIZE: usize = 256;
-
-    /// Channel for frames that we recieve.
-    pub(super) static INCOMING: Channel<ThreadModeRawMutex, Frame, INCOMING_CHANNEL_SIZE> = Channel::new();
-    /// Channel for frames we queue to send.
-    pub(super) static OUTGOING: Channel<ThreadModeRawMutex, Frame, OUTGOING_CHANNEL_SIZE> = Channel::new();
-}
-
-mod handler {
-    use cangen::FromCanFrame;
-    use defmt::warn;
-    use embassy_stm32::can::filter::FilterType::{DedicatedDual, DedicatedSingle};
-    use embassy_stm32::can::filter::{Action, ExtendedFilter, ExtendedFilterSlot, StandardFilter, StandardFilterSlot};
-    use embassy_stm32::can::{CanConfigurator, CanRx, CanTx, Properties};
-    use embassy_time::Timer;
-    use embedded_can::{ExtendedId, StandardId};
-
-    use heapless::Vec;
-
-    pub struct NerCan {
-        pub can_configurator: CanConfigurator<'static>,
-        used_std_slots: Vec<StandardFilterSlot, 28>,
-        used_ext_slots: Vec<ExtendedFilterSlot, 28>,
-    }
-
-    impl NerCan {
-        pub fn init(mut can_configurator: CanConfigurator<'static>) -> Self {
-            use embassy_stm32::can::config::*;
-
-            let can_config = FdCanConfig::default().set_automatic_bus_off_recovery(true).set_automatic_retransmit(false).set_frame_transmit(FrameTransmissionConfig::ClassicCanOnly).set_transmit_pause(true).set_global_filter(GlobalFilter::reject_all());
-            can_configurator.set_config(can_config);
-            can_configurator.set_bitrate(500_000);
-
-            Self {
-                can_configurator,
-                used_std_slots: Vec::new(),
-                used_ext_slots: Vec::new(),
-            }
-        }
-
-        /// Starts up CAN in normal mode and returns the split objects.
-        pub fn start(self) -> (CanTx<'static>, CanRx<'static>, Properties) {
-            let split = self.can_configurator.into_normal_mode().split();
-
-            // Enable the transmission-cancellation interrupt.
-            let regs = embassy_stm32::pac::FDCAN2;
-            regs.txbcie().write(|w| w.0 = 0xffff_ffff);
-            regs.ie().modify(|w| w.set_tcfe(true));
-
-            // Enable timestamp wraparound interrupt.
-            regs.ie().modify(|w| {
-                w.set_tswe(true);
-                w.set_peae(true);
-                w.set_pede(true);
-            });
-
-            split
-        }
-
-        /// Sets adds a new CAN Standard Filter at the given slot
-        /// NOTE: will panic if the given slot is already in use
-        #[allow(dead_code)]
-        pub fn add_standard_filter(mut self, std_filter_slot: StandardFilterSlot, std_id1: u16, std_id2: Option<u16>) -> Self {
-            if self.used_std_slots.contains(&std_filter_slot) {
-                panic!("The selected CAN Standard Filter Slot is already in use.");
-            }
-
-            let mut std = StandardFilter::default();
-            match std_id2 {
-                Some(id2) => {
-                    std.filter = DedicatedDual(StandardId::new(std_id1).unwrap(), StandardId::new(id2).unwrap());
-                },
-                None => {
-                    std.filter = DedicatedSingle(StandardId::new(std_id1).unwrap());
-                },
-            }
-            std.action = Action::StoreInFifo0;
-            self.can_configurator.properties().set_standard_filter(std_filter_slot, std);
-            let _ = self.used_std_slots.push(std_filter_slot);
-
-            self
-        }
-
-        /// Sets adds a new CAN Extended Filter at the given slot
-        /// NOTE: will panic if the given slot is already in use
-        #[allow(dead_code)]
-        pub fn add_extended_filter(mut self, ext_filter_slot: ExtendedFilterSlot, ext_id1: u32, ext_id2: Option<u32>) -> Self {
-            if self.used_ext_slots.contains(&ext_filter_slot) {
-                panic!("The selected CAN Extended Filter Slot is already in use.");
-            }
-
-            let mut ext = ExtendedFilter::default();
-            match ext_id2 {
-                Some(id2) => {
-                    ext.filter = DedicatedDual(ExtendedId::new(ext_id1).unwrap(), ExtendedId::new(id2).unwrap());
-                },
-                None => {
-                    ext.filter = DedicatedSingle(ExtendedId::new(ext_id1).unwrap());
-                },
-            }
-            ext.action = Action::StoreInFifo0;
-            self.can_configurator.properties().set_extended_filter(ext_filter_slot, ext);
-            let _ = self.used_ext_slots.push(ext_filter_slot);
-
-            self
-        }
-    }
-
-    /// Drains the outgoing channel onto the bus.
+    /// Publishes the IRQ counters. can-handler's `can_props` covers every other `CanDebug/` register reading.
+    #[cfg(defmt_monitor)]
     #[embassy_executor::task]
-    pub async fn can_tx(mut tx: CanTx<'static>) -> ! {
-        use embassy_futures::select::{Either, select};
-        use embassy_time::Timer;
-
-        let mut send_count: u32 = 0;
-        let mut dropped_due_to_outgoing_full_count: u32 = 0;
-        let mut dropped_due_to_stalled_tx_count: u32 = 0;
-
+    pub async fn can_irq_monitor() -> ! {
         loop {
-            let frame = super::channels::OUTGOING.receive().await;
+            defmt_monitor::monitor!("CanDebug/it0_irq_count", desc = "Times the FDCAN2 IT0 ISR has fired.", "{=u32}", IT0_IRQ_COUNT.load(Ordering::Relaxed));
+            defmt_monitor::monitor!("CanDebug/it1_irq_count", desc = "Times the FDCAN2 IT1 ISR has fired.", "{=u32}", IT1_IRQ_COUNT.load(Ordering::Relaxed));
 
-            match select(tx.write(&frame), Timer::after_millis(50)).await {
-                // Case: frame was dropped
-                Either::First(Some(dropped)) => {
-                    // If we dropped a frame, try to send it back to OUTGOING so it can get sent again.
-                    // We can't do a normal `send().await` since this task is the one that drains OUTGOING, so doing
-                    // that could probably cause a deadlock somehow.
-                    match super::channels::OUTGOING.try_send(dropped) {
-                        Ok(_) => (),
-                        Err(_) => {
-                            dropped_due_to_outgoing_full_count += 1;
-                            warn!("Had to drop an outgoing CAN frame because OUTGOING was full! Not good.");
-                        },
-                    }
-                },
-
-                // Case: frame was sent successfully
-                Either::First(None) => {
-                    send_count += 1;
-                },
-
-                // Case: The Timer::after await returned before tx.write(), so CAN TX has stalled and we drop the frame.
-                // the "stall" shouldn't be a permanant thing, we just need to make sure this task can't sleep forever.
-                Either::Second(_) => {
-                    dropped_due_to_stalled_tx_count += 1;
-                    warn!("Had to drop an outgoing CAN frame because CAN TX stalled! Probably not good.");
-                },
-            }
-
-            defmt_monitor::monitor!("CanDebug/send_count", desc = "Send count", "{}", send_count);
-            defmt_monitor::monitor!("CanDebug/dropped_due_to_outgoing_full_count", desc = "Frames dropped due to the OUTGOING channel being full.", "{}", dropped_due_to_outgoing_full_count);
-            defmt_monitor::monitor!("CanDebug/dropped_due_to_stalled_tx_count", desc = "Frames dropped due to TX stalling.", "{}", dropped_due_to_stalled_tx_count);
-        }
-    }
-
-    /// Passes frames received off the bus to the incoming channel.
-    #[embassy_executor::task]
-    pub async fn can_rx(mut rx: CanRx<'static>) -> ! {
-        let mut rx_count: u32 = 0;
-        let mut rx_err_count: u32 = 0;
-
-        loop {
-            match rx.read().await {
-                Ok(can_recv) => {
-                    super::channels::INCOMING.send(can_recv.frame).await;
-                    rx_count += 1;
-                },
-                Err(err) => {
-                    warn!("Bus error! {}", err);
-                    rx_err_count += 1;
-                },
-            }
-
-            defmt_monitor::monitor!("CanDebug/rx_count", desc = "RX count", "{}", rx_count);
-            defmt_monitor::monitor!("CanDebug/rx_err_count", desc = "RX err count", "{}", rx_err_count);
-        }
-    }
-
-    /// Reads incoming CAN frames from the software queue and dispatches them.
-    #[embassy_executor::task]
-    pub async fn can_rx_processer() -> ! {
-        use super::rx_ids::*;
-        use crate::{pack, charging};
-        use embedded_can::Id;
-
-        loop {
-            let frame = super::channels::INCOMING.receive().await;
-
-            match frame.id() {
-                Id::Extended(id) if id.as_raw() == CHARGER_BOX => {
-                    charging::alert_charger_received();
-                    if let Some(current) = decode_current(frame.data()) {
-                        pack::analyzer::store_can_pack_current(current);
-                    }
-                    if let Some(voltage) = decode_charger_voltage(frame.data()) {
-                        pack::analyzer::store_can_ts_voltage(voltage);
-                    }
-                },
-                Id::Standard(id) if id.as_raw() == DTI_DC_CURRENT && !charging::is_charger_connected() => {
-                    if let Some(current) = decode_current(frame.data()) {
-                        pack::analyzer::store_can_pack_current(current);
-                    }
-                },
-                Id::Standard(id) if id.as_raw() == DTI_INPUT_VOLTAGE && !charging::is_charger_connected() => {
-                    if let Some(voltage) = decode_dti_voltage(frame.data()) {
-                        pack::analyzer::store_can_ts_voltage(voltage);
-                    }
-                },
-                Id::Standard(id) if id.as_raw() == SHEPHERD_BMS_PWM_PERCENT => {
-                    if let Some(pwm) = cangen::ShepherdBmsPwmPercent::from_can_frame(&frame) {
-                        charging::update_pwm_duty_cycle(&pwm);
-                    }
-                },
-                _ => {},
-            }
-        }
-    }
-
-    // u_TODO: change to use FromCanFrame later
-
-    /// Decodes pack current from a DTI or charger frame.
-    fn decode_current(data: &[u8]) -> Option<crate::units::Current> {
-        use uom::si::electric_current::ampere;
-
-        let raw = i16::from_be_bytes([*data.get(2)?, *data.get(3)?]);
-        Some(crate::units::Current::new::<ampere>(f32::from(raw) / 10.0))
-    }
-
-    /// TS voltage from a DTI input-voltage frame
-    fn decode_dti_voltage(data: &[u8]) -> Option<crate::units::Voltage> {
-        use uom::si::electric_potential::volt;
-
-        let raw = i16::from_be_bytes([*data.get(6)?, *data.get(7)?]);
-        Some(crate::units::Voltage::new::<volt>(f32::from(raw)))
-    }
-
-    /// TS voltage from a charger frame: big-endian `i16` at bytes 0..2, 0.1 V per LSB.
-    fn decode_charger_voltage(data: &[u8]) -> Option<crate::units::Voltage> {
-        use uom::si::electric_potential::volt;
-
-        let raw = i16::from_be_bytes([*data.get(0)?, *data.get(1)?]);
-        Some(crate::units::Voltage::new::<volt>(f32::from(raw) / 10.0))
-    }
-
-    /// Publishes CAN health diagnostics exposed by embassy-stm32.
-    #[embassy_executor::task]
-    pub async fn can_props(_props: Properties) -> ! {
-        use core::sync::atomic::Ordering;
-        use embassy_stm32::can::enums::BusErrorMode;
-        use embassy_stm32::pac;
-
-        /// Number of hardware TX mailboxes on STM32H563.
-        const TX_MAILBOX_COUNT: usize = 3;
-        /// How often this task should run, in ms.
-        const PROPS_SAMPLE_PERIOD_MS: u64 = 500;
-
-        let regs = pac::FDCAN2;
-
-        loop {
-            // Readings from CAN registers.
-            let psr = regs.psr().read();
-            let ecr = regs.ecr().read();
-            let cccr = regs.cccr().read();
-            let ir = regs.ir().read();
-            let ie = regs.ie().read();
-            let ils = regs.ils().read();
-            let ile = regs.ile().read();
-            let txfqs = regs.txfqs().read();
-            let txbrp = regs.txbrp().read();
-            let txbto = regs.txbto().read();
-            let txbcf = regs.txbcf().read();
-
-            // Find error mode. This is what embassy does internally (at least as of writing this).
-            let bus_error_mode = match (psr.bo(), psr.ep()) {
-                (false, false) => BusErrorMode::ErrorActive,
-                (false, true) => BusErrorMode::ErrorPassive,
-                (true, _) => BusErrorMode::BusOff,
-            };
-
-            // One bit per hardware TX mailbox.
-            let mut pending_mask = 0_u8;
-            let mut occurred_mask = 0_u8;
-            let mut cancelled_mask = 0_u8;
-            let mut pending_count = 0_u8;
-            for i in 0..TX_MAILBOX_COUNT {
-                if txbrp.trp(i) {
-                    pending_mask |= 1_u8 << i;
-                    pending_count += 1_u8;
-                }
-                if txbto.to(i) {
-                    occurred_mask |= 1_u8 << i;
-                }
-                if txbcf.cf(i) {
-                    cancelled_mask |= 1_u8 << i;
-                }
-            }
-
-            // Error counters and protocol status.
-            defmt_monitor::monitor!("CanDebug/tx_error_count", desc = "FDCAN TEC (ECR.TEC). Climbs by 8 per failed transmission. >255 means bus-off.", "{=u8}", ecr.tec());
-            defmt_monitor::monitor!("CanDebug/rx_error_count", desc = "FDCAN REC (ECR.REC).", "{=u8}", ecr.rec());
-            defmt_monitor::monitor!("CanDebug/bus_error_mode", desc = "FDCAN bus error state, from PSR.BO/PSR.EP.", "{}", bus_error_mode);
-            defmt_monitor::monitor!("CanDebug/error_warning", desc = "PSR.EW. An error counter has passed 96.", "{=bool}", psr.ew());
-            defmt_monitor::monitor!("CanDebug/node_activity", desc = "PSR.ACT. SYNC=still synchronizing to the bus, IDLE=neither sending nor receiving, RX/TX=actively on the bus.", "{}", psr.act());
-
-            // TX mailbox occupancy stuff.
-            defmt_monitor::monitor!("CanDebug/tx_pending_mask", desc = "TXBRP, one bit per mailbox. Set bit means a transmission is requested and not yet finished.", "{=u8}", pending_mask);
-            defmt_monitor::monitor!("CanDebug/tx_pending_count", desc = "Number of TX mailboxes with a pending request, 0 to 3.", "{=u8}", pending_count);
-            defmt_monitor::monitor!("CanDebug/tx_occurred_mask", desc = "TXBTO, one bit per mailbox. Set bit means a frame was successfully transmitted. Stays 0 if nothing has ever reached the bus.", "{=u8}", occurred_mask);
-            defmt_monitor::monitor!("CanDebug/tx_cancelled_mask", desc = "TXBCF, one bit per mailbox. Set bit means a transmission was cancelled.", "{=u8}", cancelled_mask);
-            defmt_monitor::monitor!("CanDebug/tx_fifo_full", desc = "TXFQS.TFQF. No free mailbox.", "{=bool}", txfqs.tfqf());
-            defmt_monitor::monitor!("CanDebug/tx_fifo_free_level", desc = "TXFQS.TFFL. Number of consecutive free mailboxes. Reads 0 in queue mode (TXBC.TFQM=1).", "{=u8}", txfqs.tffl());
-            defmt_monitor::monitor!("CanDebug/tx_put_index", desc = "TXFQS.TFQPI. The mailbox the next write goes into.", "{=u8}", txfqs.tfqpi());
-
-            // Interrupt stuff.
-            defmt_monitor::monitor!("CanDebug/it0_irq_count", desc = "Times the FDCAN2 IT0 ISR has fired.", "{=u32}", crate::can::interrupts::IT0_IRQ_COUNT.load(Ordering::Relaxed));
-            defmt_monitor::monitor!("CanDebug/it1_irq_count", desc = "Times the FDCAN2 IT1 ISR has fired.", "{=u32}", crate::can::interrupts::IT1_IRQ_COUNT.load(Ordering::Relaxed));
-            defmt_monitor::monitor!("CanDebug/ir_tc_latched", desc = "IR.TC still set at sample time. Embassy's ISR clears this on entry, so persistently true means the ISR is not running.", "{=bool}", ir.tc());
-            defmt_monitor::monitor!("CanDebug/ir", desc = "Raw FDCAN IR, all latched interrupt flags.", "{=u32}", ir.0);
-            defmt_monitor::monitor!("CanDebug/ie", desc = "Raw FDCAN IE, enabled interrupt sources.", "{=u32}", ie.0);
-            defmt_monitor::monitor!("CanDebug/ils", desc = "Raw FDCAN ILS, interrupt line select.", "{=u32}", ils.0);
-            defmt_monitor::monitor!("CanDebug/ile", desc = "Raw FDCAN ILE, interrupt line enable.", "{=u32}", ile.0);
-
-            // Operating mode stuff.
-            defmt_monitor::monitor!("CanDebug/cccr_init", desc = "CCCR.INIT. True means the peripheral is held out of bus traffic, which hardware does on bus-off.", "{=bool}", cccr.init());
-            defmt_monitor::monitor!("CanDebug/cccr_dar", desc = "CCCR.DAR. True means automatic retransmission is disabled, so a failed frame is discarded after one attempt.", "{=bool}", cccr.dar());
-            defmt_monitor::monitor!("CanDebug/cccr_mon", desc = "CCCR.MON. Bus monitoring mode. True means we never drive the bus dominant.", "{=bool}", cccr.mon());
-            defmt_monitor::monitor!("CanDebug/cccr_test", desc = "CCCR.TEST. True in loopback modes.", "{=bool}", cccr.test());
-
-            Timer::after_millis(PROPS_SAMPLE_PERIOD_MS).await;
+            embassy_time::Timer::after_millis(500).await;
         }
     }
 }
+#[cfg(defmt_monitor)]
+pub use interrupts::can_irq_monitor;
