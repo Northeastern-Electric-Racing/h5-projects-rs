@@ -38,8 +38,17 @@ const fn volts(microvolts: i32) -> f32 {
 }
 
 /// Re-signs a reading so that **positive means discharge**.
-pub(super) const fn discharge_positive(raw_shunt_microvolts: i32) -> i32 {
+const fn discharge_positive(raw_shunt_microvolts: i32) -> i32 {
     -raw_shunt_microvolts
+}
+
+/// Summed shunt voltage, in microvolts, from the accumulator's reading
+/// (`AccumulatedCurrent1::as_microvolts()`).
+///
+/// Stays an integer sum over `ACCN` conversions rather than becoming a [`Current`]: the
+/// calibrator subtracts its offset from it exactly and integrates it into microcoulombs.
+pub const fn summed_shunt_microvolts(raw_sum_microvolts: i32) -> i32 {
+    discharge_positive(raw_sum_microvolts)
 }
 
 /// Pack current, from the shunt voltage the I1ADC measured (`Current1::as_microvolts()`).
