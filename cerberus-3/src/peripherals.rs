@@ -14,12 +14,14 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Duration, Ticker};
 use embedded_sht3x::{Repeatability::Medium, Sht3x, Status, Temperature};
-use lsm6dsv16x_ner::NerLsm6dsv16x;
+use lsm6dsv16x_ner::mdps::millidegree_per_second;
+use lsm6dsv16x_ner::{NerLsm6dsv16x, milligravity};
 use uom::si::f32::{Ratio, ThermodynamicTemperature};
 use uom::si::ratio::percent;
 use uom::si::thermodynamic_temperature::degree_celsius;
 
-use crate::can;
+use crate::ethernet::Topic;
+use crate::{can, ethernet};
 
 const SHT30_ADDRESS: u8 = 0x44;
 const TEMP_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -160,35 +162,35 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
     let mut ticker = Ticker::every(IMU_POLL_INTERVAL);
     loop {
         if let Some(accel) = imu.get_accel().await {
+            let (x, y, z) = (
+                accel.x.get::<milligravity>(),
+                accel.y.get::<milligravity>(),
+                accel.z.get::<milligravity>(),
+            );
+
             let frame = cangen::ImuAccelerometer::new()
-                .with_imu_accelerometer_x(accel.x.get::<lsm6dsv16x_ner::milligravity>())
-                .with_imu_accelerometer_y(accel.y.get::<lsm6dsv16x_ner::milligravity>())
-                .with_imu_accelerometer_z(accel.z.get::<lsm6dsv16x_ner::milligravity>());
+                .with_imu_accelerometer_x(x)
+                .with_imu_accelerometer_y(y)
+                .with_imu_accelerometer_z(z);
             can::OUTGOING.send(frame.to_can_frame()).await;
 
-            // TODO: send over ethernet as well
+            ethernet::try_publish(Topic::Acceleration, [x, y, z]);
         }
 
         if let Some(ang_vel) = imu.get_angular_vel().await {
+            let (x, y, z) = (
+                ang_vel.roll_rate.get::<millidegree_per_second>(),
+                ang_vel.pitch_rate.get::<millidegree_per_second>(),
+                ang_vel.yaw_rate.get::<millidegree_per_second>(),
+            );
+
             let frame = cangen::ImuGyro::new()
-                .with_imu_gyro_x(
-                    ang_vel
-                        .roll_rate
-                        .get::<lsm6dsv16x_ner::mdps::millidegree_per_second>(),
-                )
-                .with_imu_gyro_y(
-                    ang_vel
-                        .pitch_rate
-                        .get::<lsm6dsv16x_ner::mdps::millidegree_per_second>(),
-                )
-                .with_imu_gyro_z(
-                    ang_vel
-                        .yaw_rate
-                        .get::<lsm6dsv16x_ner::mdps::millidegree_per_second>(),
-                );
+                .with_imu_gyro_x(x)
+                .with_imu_gyro_y(y)
+                .with_imu_gyro_z(z);
             can::OUTGOING.send(frame.to_can_frame()).await;
 
-            // TODO: send over ethernet as well
+            ethernet::try_publish(Topic::Gyro, [x, y, z]);
         }
 
         ticker.next().await;
