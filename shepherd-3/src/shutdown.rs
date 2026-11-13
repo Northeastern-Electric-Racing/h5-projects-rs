@@ -5,12 +5,23 @@ use crate::helpers::deadline::Deadline;
 use crate::can::types::ShutdownAsReadByBms;
 
 static CIRCUIT_CLOSED: AtomicBool = AtomicBool::new(false);
+static ACC_SENSE_CLOSED: AtomicBool = AtomicBool::new(false);
 
 /// `true` when all four sense pins have read high for 200ms straight. The BMS only
 /// taps four points, so the loop could still be cut somewhere it can't see.
 /// One atomic read, safe to call from an interrupt.
 pub fn circuit_closed() -> bool {
     CIRCUIT_CLOSED.load(Ordering::Relaxed)
+}
+
+/// `true` when the accumulator shutdown sense has read high for 200ms straight.
+///
+/// The segment of the loop inside the accumulator, on its own. While it is low the AIRs
+/// cannot be energized whatever else is going on, which is what makes it the half of the
+/// shunt calibration gate that does not depend on the relay having been written.
+/// One atomic read, safe to call from an interrupt.
+pub fn acc_sense_closed() -> bool {
+    ACC_SENSE_CLOSED.load(Ordering::Relaxed)
 }
 
 const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
@@ -36,6 +47,7 @@ impl Debouncer {
     /// The whole point of the debounce is that [`Self::stable`] does not move until the
     /// disagreement has lasted [`DEBOUNCE_TIME`], so a line that is chattering shows up here and
     /// nowhere else.
+    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     const fn pending(&self) -> bool {
         self.disagreed_at.is_some()
     }
@@ -102,6 +114,7 @@ pub async fn shutdown_task() -> ! {
         let changed: bool = updated_ts_minus || updated_ts_plus || updated_acc_sense || updated_tsip_sense || updated_and_for_all_reads;
 
         CIRCUIT_CLOSED.store(and_for_all_reads.stable(), Ordering::Relaxed);
+        ACC_SENSE_CLOSED.store(acc_sense.stable(), Ordering::Relaxed);
 
         #[cfg(defmt_monitor)]
         '_defmt_monitor: {
