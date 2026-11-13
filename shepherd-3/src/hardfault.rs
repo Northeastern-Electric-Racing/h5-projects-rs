@@ -9,6 +9,7 @@
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use cangen::ToCanFrame;
 use cortex_m::peripheral::scb::Exception;
 use cortex_m::peripheral::{DCB, SCB};
 use defmt::{info, warn};
@@ -30,9 +31,6 @@ pub mod kind {
     pub const DEFMT_PANIC: u32 = 3;
 }
 
-/// Standard CAN ID of the crash report frame, next to Shepherd's version messages (0x69A, 0x69B).
-/// TODO: add "Shepherd Crash Report" to Odyssey-Definitions bms.json so Calypso can decode it
-const CRASH_FRAME_ID: u16 = 0x69C;
 /// Sent more than once because CAN automatic retransmit is off.
 const CRASH_FRAME_REPEATS: usize = 3;
 const CRASH_FRAME_PERIOD: Duration = Duration::from_secs(1);
@@ -88,18 +86,13 @@ impl CrashInfo {
         }
     }
 
-    /// Packs the record into one 8-byte CAN frame, big endian like our other messages:
-    /// [kind, count, line (u16), file_hash for a panic / pc for a HardFault (u32)]
-    /// TODO: switch to the cangen struct once the message is in Odyssey-Definitions
+    /// Packs the record into the Shepherd Crash Report message (0x69C in bms.json).
+    /// `detail` is the PC for a HardFault, or the file hash for a panic.
     pub fn as_frame(&self) -> Frame {
-        let kind = self.kind as u8;
-        let count = self.count.min(u8::MAX as u32) as u8;
-        let line = (self.line.min(u16::MAX as u32) as u16).to_be_bytes();
         let detail = if self.kind == kind::HARDFAULT { self.pc } else { self.file_hash };
-        let detail = detail.to_be_bytes();
-        let data = [kind, count, line[0], line[1], detail[0], detail[1], detail[2], detail[3]];
+        let frame = cangen::ShepherdCrashReport::new().with_kind(self.kind as u8).with_count(self.count.min(u8::MAX as u32) as u8).with_line(self.line.min(u16::MAX as u32) as u16).with_detail(detail);
 
-        Frame::new_standard(CRASH_FRAME_ID, &data).unwrap()
+        frame.to_can_frame()
     }
 }
 
