@@ -49,7 +49,7 @@ pub async fn magnetometer_task(spi: MagSpi) {
     loop {
         match mag.read().await {
             Ok(Some(field)) => {
-                defmt::trace!("Magnetometer: {}", field);
+                defmt::debug!("Magnetometer: {}", field);
                 sender.send(field);
             }
             Ok(None) => {} // no new sample yet

@@ -23,6 +23,16 @@ const MG_TO_MPS2: f32 = 9.80665 / 1000.0;
 /// milligauss -> microtesla
 const MGAUSS_TO_UT: f32 = 0.1;
 
+/// which VQF estimate produced the quaternion
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, defmt::Format)]
+pub enum Fusion {
+    /// gyro + accel only: roll/pitch are absolute, yaw is relative and drifts
+    #[default]
+    SixD,
+    /// gyro + accel + mag: yaw is referenced to magnetic north
+    NineD,
+}
+
 /// orientation quaternion (w, x, y, z)
 #[derive(Debug, Clone, Copy, Default, defmt::Format)]
 pub struct Orientation {
@@ -30,6 +40,8 @@ pub struct Orientation {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+    /// which estimate this quaternion came from; only trust yaw as heading when `NineD`
+    pub fusion: Fusion,
     /// true when the magnetometer is being rejected as disturbed
     pub mag_disturbed: bool,
 }
@@ -80,16 +92,17 @@ pub async fn orientation_task() {
             mag,
         );
 
-        let q = if mag.is_some() {
-            vqf.quat_9d()
+        let (q, fusion) = if mag.is_some() {
+            (vqf.quat_9d(), Fusion::NineD)
         } else {
-            vqf.quat_6d()
+            (vqf.quat_6d(), Fusion::SixD)
         };
         sender.send(Orientation {
             w: q.0,
             x: q.1,
             y: q.2,
             z: q.3,
+            fusion,
             mag_disturbed: vqf.mag_dist_detected(),
         });
     }
