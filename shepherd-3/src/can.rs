@@ -205,7 +205,7 @@ pub mod types {
         pub fn as_frame(&self) -> Frame {
             let frame = cangen::EnergyMeterTemperatureMessage::new().with_max_cell_temp(self.max_temp).with_min_cell_temp(self.min_temp).with_avg_cell_temp(self.avg_temp);
 
-            frame.to_can_frame();
+            frame.to_can_frame()
         }
     }
 
