@@ -21,8 +21,9 @@ use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexer_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
 use msb_fw_2::{
-    imu, load_cell, magnetometer, shock_pot, steering_angle, strain_guage, thermocouple,
-}; //,hdc2021,magnetometer, , imu}; 
+    imu, load_cell, magnetometer, orientation, shock_pot, steering_angle, strain_guage,
+    thermocouple,
+};
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -123,7 +124,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // magnetometer on SPI2
     let mut spi2_config = spi::Config::default();
-    spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
+    spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=0 (first edge)
     spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
 
     let spi2 = Spi::new(
@@ -146,7 +147,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // imu on SPI1
     let mut spi1_config = spi::Config::default();
-    spi1_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
+    spi1_config.mode = spi::MODE_0; // CPOL=0, CPHA=0 (first edge)
     spi1_config.frequency = Hertz(1_000_000); // 1 MHz,
     let spi1 = Spi::new(
         p.SPI1,
@@ -162,6 +163,10 @@ async fn main(spawner: Spawner) -> ! {
     let imu_spi =
         ExclusiveDevice::new(spi1, imu_cs, Delay).expect("Failed to create SPI device for IMU");
     spawner.spawn(imu::imu_task(imu_spi).expect("Failed to spawn imu::imu_task()."));
+
+    spawner.spawn(
+        orientation::orientation_task().expect("Failed to spawn orientation::orientation_task()."),
+    );
 
     // // HDC2021 on I2C1 -> hardware issues, shorted
     // let mut i2c1_config = i2c::Config::default();
