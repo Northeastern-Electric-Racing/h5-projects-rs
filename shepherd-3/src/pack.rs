@@ -582,10 +582,10 @@ pub mod analyzer {
             const OCV_CURR_THRESH: Current = Current::from_amps(0.5_f32);
             const OCV_TIMER_DURATION: Duration = Duration::from_millis(1500);
 
-            let Some(data) = crate::hv_plate::cache().get_current_voltage().nice().try_get() else {
+            let Some(data) = crate::hv_plate::cache().current_voltage().reading().try_get() else {
                 return; // u_TODO probably should be redundancy here so should get from charger or DTI also so this isnt a failure case
             };
-            let mut pack_current = data.data().pack_current;
+            let mut pack_current = data.nice().pack_current;
             let mut update_ocv = false;
 
             let ocv_update_allowed: bool = { pack_current.abs() < OCV_CURR_THRESH && crate::charging::charger_output_disabled() && !crate::charging::are_we_actively_balancing().as_bool() };
@@ -699,9 +699,9 @@ pub mod analyzer {
             // Three sources, in descending order of how much the number has been cross-checked:
             // what another node reports over CAN, the shunt current the SOC estimator has calibrated, and the raw IVB1/V1A reading off our own 2950.
             // u_TODO - just use the 2950 (swap for 27)
-            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.and_then(|soc| soc.data.shunt_current)).or_else(|| crate::hv_plate::cache().get_current_voltage().nice().try_partial_get(|nice| nice.data().pack_current));
+            analyzer.pack_current = REPORTED_DATA.lock(|reported| reported.pack_current.get()).or(soc_data.and_then(|soc| soc.data.shunt_current)).or_else(|| crate::hv_plate::cache().current_voltage().reading().try_partial_get(|r| r.nice().pack_current));
             // u_TODO - switch to use 2950 sense for 27A.
-            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).or_else(|| crate::hv_plate::cache().get_voltages().nice().try_partial_get(|nice| nice.data().ts_voltage));
+            analyzer.ts_voltage = REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).or_else(|| crate::hv_plate::cache().voltages().reading().try_partial_get(|r| r.nice().ts_voltage));
             analyzer.soc = soc_data.and_then(|soc| soc.data.state_of_charge);
 
             // this whole section is supposed to look pretty similar to the C code just so
@@ -951,7 +951,7 @@ pub mod analyzer {
                 defmt_monitor::monitor!("AnalyzerDebug/Reported/ts_voltage", desc = "TS voltage as last reported over CAN by the DTI or the charger, in volts. NaN until a frame has arrived.", "{=f32}", REPORTED_DATA.lock(|reported| reported.ts_voltage.get()).map_or(f32::NAN, |voltage| voltage.get::<volt>()));
 
                 // The 2950's own readings, for cross-checking the reported ones against the plate.
-                defmt_monitor::monitor!("AnalyzerDebug/Plate/ts_voltage", desc = "TS voltage off the 2950's own divider behind GPO2, in volts. NaN until the voltages group has been read.", "{=f32}", crate::hv_plate::cache().get_voltages().nice().try_partial_get(|nice| nice.data().ts_voltage.get::<volt>()).unwrap_or(f32::NAN));
+                defmt_monitor::monitor!("AnalyzerDebug/Plate/ts_voltage", desc = "TS voltage off the 2950's own divider behind GPO2, in volts. NaN until the voltages group has been read.", "{=f32}", crate::hv_plate::cache().voltages().reading().try_partial_get(|r| r.nice().ts_voltage.get::<volt>()).unwrap_or(f32::NAN));
                 defmt_monitor::monitor!("AnalyzerDebug/Plate/shunt_current", desc = "Pack current off the 2950's shunt, in amps, discharge-positive. NaN until the estimator has published.", "{=f32}", crate::hv_plate::soc_data().and_then(|soc| soc.data.shunt_current).map_or(f32::NAN, |current| current.as_amps()));
 
                 // OCV snapshot bookkeeping.

@@ -164,13 +164,13 @@ pub async fn hv_plate_debug() {
     // Subscribe to the HV plate fresh data signal so we are notified when new data comes in.
     let mut subscription = HV_PLATE_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
 
-    let current_voltage_ready = hv_plate::cache().get_current_voltage().nice().ready().await;
-    let voltages_ready = hv_plate::cache().get_voltages().nice().ready().await;
+    let current_voltage_ready = hv_plate::cache().current_voltage().reading().ready().await;
+    let voltages_ready = hv_plate::cache().voltages().reading().ready().await;
     #[cfg(not(feature = "hil"))]
-    let accumulated_ready = hv_plate::cache().get_accumulated().nice().ready().await;
-    let flag_ready = hv_plate::cache().get_flag().nice().ready().await;
-    let aux_ready = hv_plate::cache().get_aux().nice().ready().await;
-    let status_ready = hv_plate::cache().get_status().nice().ready().await;
+    let accumulated_ready = hv_plate::cache().accumulated().reading().ready().await;
+    let flag_ready = hv_plate::cache().flag().reading().ready().await;
+    let aux_ready = hv_plate::cache().aux().reading().ready().await;
+    let status_ready = hv_plate::cache().status().reading().ready().await;
 
     loop {
         // Run one loop of this task every time new HV plate data arrives.
@@ -178,16 +178,16 @@ pub async fn hv_plate_debug() {
 
         // The accumulator, FLAG and STATUS readings are only consumed by the monitor block, so
         // they are annotated for the `DEFMT_MONITOR=off` build.
-        let current_voltage = *current_voltage_ready.get().data();
-        let voltages = *voltages_ready.get().data();
+        let current_voltage = *current_voltage_ready.get().nice();
+        let voltages = *voltages_ready.get().nice();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
         #[cfg(not(feature = "hil"))]
-        let accumulated = *accumulated_ready.get().data();
+        let accumulated = *accumulated_ready.get().nice();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let flag = *flag_ready.get().data();
-        let aux = *aux_ready.get().data();
+        let flag = *flag_ready.get().nice();
+        let aux = *aux_ready.get().nice();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
-        let status = *status_ready.get().data();
+        let status = *status_ready.get().nice();
 
         '_println: {
             defmt::println!("HV Plate Data:");
@@ -218,8 +218,8 @@ pub async fn hv_plate_debug() {
                 defmt_monitor::monitor!("HvPlate/Accumulated/CurrentSumMicrovolts", desc = "Summed shunt voltage across ACCN conversions, in microvolts, discharge positive. A running total, never reset here.", "{=i32}", accumulated.current_sum_microvolts);
                 defmt_monitor::monitor!("HvPlate/Accumulated/BattSumMicrovolts", desc = "Summed BATT-tap voltage across ACCN conversions, in microvolts.", "{=i32}", accumulated.batt_sum_microvolts);
             }
-            defmt_monitor::monitor!("HvPlate/Accumulated/I1Cnt", desc = "I1ADC conversion counter. Says how many conversions the accumulator sums cover.", "{=u16}", flag.i1cnt);
-            defmt_monitor::monitor!("HvPlate/Accumulated/I2Cnt", desc = "I2ADC conversion counter.", "{=u8}", flag.i2cnt);
+            defmt_monitor::monitor!("HvPlate/Accumulated/I1Cnt", desc = "I1ADC conversion counter. Says how many conversions the accumulator sums cover.", "{=u16}", flag.i1cnt());
+            defmt_monitor::monitor!("HvPlate/Accumulated/I2Cnt", desc = "I2ADC conversion counter.", "{=u8}", flag.i2cnt());
 
             // The chip's own rails and sensors.
             defmt_monitor::monitor!("HvPlate/Aux/Vref1p25", desc = "The 1.25 V reference, in volts. The TS divider and shunt thermistor both depend on it.", "{=f32}", aux.vref1p25.get::<volt>());

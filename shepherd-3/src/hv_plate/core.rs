@@ -331,9 +331,9 @@ mod jobs {
 
             // Run commands in async block so fail here still tries to unsnap
             let reads = async {
-                cache::CACHE.update_flag(self.api).await?;
-                cache::CACHE.update_accumulated(self.api).await?;
-                cache::CACHE.update_current_voltage(self.api).await?;
+                cache::CACHE.flag().update(self.api).await?;
+                cache::CACHE.accumulated().update(self.api).await?;
+                cache::CACHE.current_voltage().update(self.api).await?;
                 Ok::<(), UpdateError>(())
             }
             .await;
@@ -359,7 +359,7 @@ mod jobs {
             self.api.command(commands::adc::adv(commands::adc::OpenWireVoltage::Off, commands::adc::VoltageChannel::RoundRobinCh0ToCh8)).await.map_err(UpdateError::ConversionError)?;
             #[cfg(not(feature = "hil"))]
             self.api.adv_autoconvert(commands::adc::OpenWireVoltage::Off, commands::adc::VoltageChannel::RoundRobinCh0ToCh8, CONVERSION_TIMEOUT).await.map_err(UpdateError::ConversionError)?;
-            cache::CACHE.update_voltages(self.api).await?;
+            cache::CACHE.voltages().update(self.api).await?;
 
             job_diagnostics::log_job_diagnostics!("HvPlate", "job_update_voltage_registers", run.finish());
 
@@ -376,7 +376,7 @@ mod jobs {
             self.api.command(commands::adc::adx()).await.map_err(UpdateError::ConversionError)?;
             #[cfg(not(feature = "hil"))]
             self.api.adx_autoconvert(CONVERSION_TIMEOUT).await.map_err(UpdateError::ConversionError)?;
-            cache::CACHE.update_aux(self.api).await?;
+            cache::CACHE.aux().update(self.api).await?;
 
             job_diagnostics::log_job_diagnostics!("HvPlate", "job_update_aux_registers", run.finish());
 
@@ -388,7 +388,7 @@ mod jobs {
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
             let run = DIAGNOSTICS.start();
 
-            cache::CACHE.update_status(self.api).await?;
+            cache::CACHE.status().update(self.api).await?;
 
             job_diagnostics::log_job_diagnostics!("HvPlate", "job_update_status_registers", run.finish());
 

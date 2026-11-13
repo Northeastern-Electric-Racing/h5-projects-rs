@@ -1,5 +1,3 @@
-#![cfg_attr(not(defmt_monitor), allow(dead_code, unused_mut, unused_variables, unused_assignments))]
-
 use crate::hv_plate;
 
 /// Samples each accumulator window sums, from the depth `core` configures the chip with.
@@ -43,13 +41,13 @@ mod accumulator {
     }
 
     impl Registers {
-        pub fn read(flag: &hv_plate::cache::flag::Nice, accumulated: &hv_plate::cache::accumulated::Nice) -> Self {
+        pub fn read(flag: &hv_plate::cache::flag::Reading, accumulated: &hv_plate::cache::accumulated::Reading) -> Self {
             Self {
-                i1cnt: flag.data().i1cnt,
-                i1cntpha: flag.data().i1cntpha,
-                current_sum_microvolts: accumulated.data().current_sum_microvolts,
-                batt_sum_microvolts: accumulated.data().batt_sum_microvolts,
-                read_at: accumulated.oldest_read(),
+                i1cnt: flag.registers().i1cnt(),
+                i1cntpha: flag.registers().i1cntpha(),
+                current_sum_microvolts: accumulated.nice().current_sum_microvolts,
+                batt_sum_microvolts: accumulated.nice().batt_sum_microvolts,
+                read_at: accumulated.read_at(),
             }
         }
 
@@ -567,9 +565,9 @@ mod task {
             return;
         };
 
-        let flag = hv_plate::cache().get_flag().nice().ready().await;
-        let accumulated = hv_plate::cache().get_accumulated().nice().ready().await;
-        let voltages = hv_plate::cache().get_voltages().nice().ready().await;
+        let flag = hv_plate::cache().flag().reading().ready().await;
+        let accumulated = hv_plate::cache().accumulated().reading().ready().await;
+        let voltages = hv_plate::cache().voltages().reading().ready().await;
 
         let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
         loop {
@@ -578,7 +576,7 @@ mod task {
 
             // Read registers
             let acc_registers = acc_window_status.fresh.then(|| accumulator::Registers::read(&flag.get(), &accumulated.get()));
-            let shunt_temp = voltages.get().data().shunt_temperature;
+            let shunt_temp = voltages.get().nice().shunt_temperature;
             // Get latest OCV value
             #[rustfmt::skip]
             let ocv_seed = analyzer::analyzer()

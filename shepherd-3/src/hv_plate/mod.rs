@@ -6,6 +6,11 @@
 //! - shunt temperature through a thermistor on a voltage channel
 //!
 //! The chip also drives the HV control relay from GPO4, via `HvPlate::set_hv_relay`.
+//!
+//! Much of what this module computes is read only by the `#[cfg(defmt_monitor)]` blocks inside
+//! it, so with monitors compiled out those accessors and locals really are dead. One allow here
+//! covers every file in the module; monitor-on builds, which is the default, still lint normally.
+#![cfg_attr(not(defmt_monitor), allow(dead_code, unused_mut, unused_variables, unused_assignments))]
 
 mod board;
 mod cache;
@@ -23,11 +28,11 @@ pub use soc::soc_task;
 
 // API
 /// Allows you to read the cache data.
-pub const fn cache() -> &'static CacheData {
+pub(crate) const fn cache() -> &'static CacheData {
     &cache::CACHE
 }
 pub use core::task::signal::HV_PLATE_FRESH_DATA_SIGNAL;
 pub(crate) use soc::api::soc_data;
 
 // Re-export cache types
-pub use cache::CacheData;
+pub(crate) use cache::CacheData;
