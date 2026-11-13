@@ -1,7 +1,7 @@
 //! This module handles the button presses and calls the appropriate
 //! functions in the pedals and statemachine modules.
 
-use crate::{pedals, statemachine};
+use crate::{pedals, statemachine, traction};
 use defmt::debug;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
@@ -64,7 +64,7 @@ pub async fn button_task() -> ! {
             Button::DownTorque => pedals::decrease_torque_limit(),
 
             Button::ToggleLaunchControl => pedals::toggle_launch_control(),
-            Button::ToggleTractionControl => {}
+            Button::ToggleTractionControl => traction::toggle_tc(),
         }
     }
 }

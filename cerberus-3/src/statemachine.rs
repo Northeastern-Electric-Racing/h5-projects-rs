@@ -5,8 +5,8 @@
 use crate::pedals::{
     get_accel_pressed, get_brake_pressed, get_launch_control_enabled, get_torque_limit,
 };
-use crate::rtds;
 use crate::shutdown::{self, BmsShutdownState};
+use crate::{rtds, traction};
 use cangen::ToCanFrame;
 use defmt::{bitflags, debug, info, warn};
 use embassy_futures::select::{Either3, select3};
@@ -113,10 +113,6 @@ bitflags!(
 // ---------------------------------------------------------------------------
 // TEMP functions, replace later
 // ---------------------------------------------------------------------------
-
-fn get_traction_control() -> bool {
-    false
-}
 
 fn get_mph() -> f32 {
     0.0f32
@@ -316,7 +312,7 @@ impl CerberusState {
             .with_reverse(self.state != FuncState::Reverse)
             .with_launch_control(get_launch_control_enabled())
             .with_functional_state(self.state as u8)
-            .with_traction_control(get_traction_control())
+            .with_traction_control(traction::is_enabled())
             .with_state_transition_error(self.transition_error.bits())
     }
 }

@@ -4,8 +4,8 @@
 //! values based on the current drive mode.
 
 use crate::can;
-use crate::statemachine;
 use crate::statemachine::FuncState;
+use crate::{statemachine, traction};
 use cangen::ToCanFrame;
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::debug;
@@ -31,15 +31,9 @@ fn dti_get_velocity() -> Velocity {
     Velocity::new::<meter_per_second>(0.0)
 }
 
-fn get_traction_control() -> f32 {
-    0.0
-}
-
 fn is_not_precharge() -> bool {
     false
 }
-
-fn tc_process() {}
 
 // ---------------------------------------------------------------------------
 // END TEMP functions
@@ -418,9 +412,7 @@ mod drive_modes {
         ACCELERATION_THRESHOLD, DELTA_ACCELERATION_MAX, MAX_LIMITING_SPEED, MAX_TORQUE,
         MAX_TORQUE_RATIO, MIN_REGEN, PIT_MAX_SPEED, REGEN_THRESHOLD,
     };
-    use crate::pedals::{
-        dti_set_regen, dti_set_torque, get_launch_control, get_regen_limit, get_traction_control,
-    };
+    use crate::pedals::{dti_set_regen, dti_set_torque, get_launch_control, get_regen_limit};
     use crate::statemachine::FuncState;
     use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
@@ -473,22 +465,17 @@ mod drive_modes {
             0.0
         }
 
-        fn linear_accel_to_torque(&self, accel: Ratio) {
-            dti_set_torque(MAX_TORQUE * self.clamp_accel(accel) * get_traction_control())
+        fn linear_accel_to_torque(&self, accel: Ratio, tc: f32) {
+            dti_set_torque(MAX_TORQUE * self.clamp_accel(accel) * tc)
         }
 
-        fn power_regression_accel_to_torque(&self, accel: Ratio) {
+        fn power_regression_accel_to_torque(&self, accel: Ratio, tc: f32) {
             // Constants come from power-regression fit model through (0,0), (20, 10) and (100, 100)
-            dti_set_torque(
-                MAX_TORQUE
-                    * 0.137609f32
-                    * self.clamp_accel(accel).powf(1.43068)
-                    * get_traction_control(),
-            )
+            dti_set_torque(MAX_TORQUE * 0.137609f32 * self.clamp_accel(accel).powf(1.43068) * tc)
         }
 
-        fn accel_pedal_regen_torque(&self, accel: Ratio) {
-            let coefficient = get_traction_control() * (accel - ACCELERATION_THRESHOLD)
+        fn accel_pedal_regen_torque(&self, accel: Ratio, tc: f32) {
+            let coefficient = tc * (accel - ACCELERATION_THRESHOLD)
                 / (Ratio::new::<ratio>(1.0) - ACCELERATION_THRESHOLD);
 
             dti_set_torque(
@@ -532,7 +519,7 @@ mod drive_modes {
             Torque::new::<newton_meter>(average / (TORQUE_ACCUMULATOR_SIZE as f32))
         }
 
-        fn launch_control(&mut self, vel: Velocity, accel: Ratio) {
+        fn launch_control(&mut self, vel: Velocity, accel: Ratio, tc: f32) {
             let Some(prev) = self.prev_time else {
                 self.prev_time = Some(Instant::now());
                 self.prev_velocity = vel;
@@ -547,24 +534,25 @@ mod drive_modes {
                 DELTA_ACCELERATION_MAX * Time::new::<millisecond>(delta_time.as_millis() as f32);
 
             if vel < MAX_LIMITING_SPEED && delta_vel > ceil_delta_vel {
-                self.linear_accel_to_torque(self.prev_accel / 2.0);
+                self.linear_accel_to_torque(self.prev_accel / 2.0, tc);
             } else {
-                self.linear_accel_to_torque(accel);
+                self.linear_accel_to_torque(accel, tc);
             }
             self.prev_accel = accel;
             self.prev_time = Some(Instant::now());
             self.prev_velocity = vel;
         }
 
-        fn handle_performance(&mut self, vel: Velocity, accel: Ratio) {
+        fn handle_performance(&mut self, vel: Velocity, accel: Ratio, tc: f32) {
             if accel > ACCELERATION_THRESHOLD {
                 if get_launch_control() {
                     self.launch_control(
                         vel,
                         (accel - Ratio::new::<ratio>(0.25)) / Ratio::new::<ratio>(0.75),
+                        tc,
                     );
                 } else {
-                    self.linear_accel_to_torque(accel);
+                    self.linear_accel_to_torque(accel, tc);
                 }
             } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD {
                 self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Performance));
@@ -573,9 +561,9 @@ mod drive_modes {
             }
         }
 
-        fn handle_endurance(&self, vel: Velocity, accel: Ratio) {
+        fn handle_endurance(&self, vel: Velocity, accel: Ratio, tc: f32) {
             if accel > ACCELERATION_THRESHOLD {
-                self.accel_pedal_regen_torque(accel);
+                self.accel_pedal_regen_torque(accel, tc);
             } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD {
                 self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Efficiency));
             } else {
@@ -588,13 +576,14 @@ mod drive_modes {
             vel: Velocity,
             accel: Ratio,
             func_state: FuncState,
+            tc: f32,
         ) {
             match func_state {
                 FuncState::Ready => dti_set_torque(Torque::new::<newton_meter>(0.0)),
                 FuncState::Pit => dti_set_torque(self.derate_torque(vel, accel)),
                 FuncState::Reverse => dti_set_torque(-self.derate_torque(vel.abs(), accel)),
-                FuncState::Performance => self.handle_performance(vel, accel),
-                FuncState::Efficiency => self.handle_endurance(vel, accel),
+                FuncState::Performance => self.handle_performance(vel, accel, tc),
+                FuncState::Efficiency => self.handle_endurance(vel, accel, tc),
                 FuncState::Faulted => dti_set_torque(Torque::new::<newton_meter>(0.0)),
             }
         }
@@ -728,6 +717,7 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
 
     let mut drive_lock: locks::State = locks::State::INIT;
     let mut torque_lock: drive_modes::State = drive_modes::State::INIT;
+    let mut tc_state = traction::TcState::new();
 
     let mut ticker = Ticker::every(Duration::from_millis(10));
     let mut last_can_send_time = Instant::now();
@@ -777,12 +767,13 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
             dti_set_torque(Torque::new::<newton_meter>(0.0));
             debug!("Drive locked due to faults: {:?}", drive_lock.drive_locks);
         } else {
-            tc_process();
+            let tc = tc_state.process();
 
             torque_lock.handle_drive_mode(
                 dti_get_velocity(),
                 pedal_data.accel_r,
                 statemachine::get_func_state().await,
+                tc,
             );
         }
         *LOCK_MUTEX.lock().await = drive_lock;

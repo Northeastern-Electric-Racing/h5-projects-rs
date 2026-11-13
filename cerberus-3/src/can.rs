@@ -4,7 +4,7 @@
 //! other devices on the vehicle.
 
 use crate::bms::{PrechargeState, set_precharge_state};
-use crate::{bms, buttons, efuses, lightning, rtds, shutdown};
+use crate::{bms, buttons, efuses, lightning, rtds, shutdown, traction};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -15,7 +15,8 @@ use embassy_stm32::can::{IT0InterruptHandler, IT1InterruptHandler};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use uom::si::f32::ThermodynamicTemperature as Temperature;
+use uom::si::angular_velocity::revolution_per_minute;
+use uom::si::f32::{AngularVelocity, ThermodynamicTemperature as Temperature};
 use uom::si::thermodynamic_temperature::degree_celsius;
 
 bind_interrupts!(struct Irqs {
@@ -144,7 +145,10 @@ pub async fn can_inbox_task() -> ! {
             }
             Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
 
-            Some(Msg::FrontWheelRpm(_)) => {}
+            Some(Msg::FrontWheelRpm(m)) => traction::set_front_wheel_speeds(
+                AngularVelocity::new::<revolution_per_minute>(m.left_rpm() as f32),
+                AngularVelocity::new::<revolution_per_minute>(m.right_rpm() as f32),
+            ),
             Some(Msg::TempsFaultCodeStatus(_)) => {}
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
             Some(Msg::CurrentsStatus(_)) => {}
