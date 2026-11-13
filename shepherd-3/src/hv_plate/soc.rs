@@ -1,3 +1,5 @@
+#![cfg_attr(not(defmt_monitor), allow(dead_code, unused_mut, unused_variables, unused_assignments))]
+
 use crate::hv_plate;
 
 /// Samples each accumulator window sums, from the depth `core` configures the chip with.
@@ -7,10 +9,10 @@ const NANOS_PER_MICRO: u32 = 1_000;
 
 /// Handles reading 2950's acc registers - does window bookkeeping, `t_CONV` measurement, restart handling.
 mod accumulator {
-    use super::{ACCN, NANOS_PER_MICRO, hv_plate};
     use adbms2950::chip::registers::flag::Flag;
     use adbms2950::line::conversion_times;
     use embassy_time::{Duration, Instant};
+    use super::{ACCN, NANOS_PER_MICRO, hv_plate};
 
     /// Phase ticks per conversion, as [`Flag::i1cntpha`] packs them.
     const PHA_PER_CNT: u32 = Flag::PHASES_PER_CONVERSION as u32;
@@ -40,7 +42,6 @@ mod accumulator {
         read_at: Instant,
     }
 
-    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     impl Registers {
         pub fn read(flag: &hv_plate::cache::flag::Nice, accumulated: &hv_plate::cache::accumulated::Nice) -> Self {
             Self {
@@ -114,8 +115,6 @@ mod accumulator {
         desyncs: u32,
     }
 
-    // `missed_windows` and `desyncs` are read only by the `#[cfg(defmt_monitor)]` block in `task`.
-    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     impl Reader {
         pub const fn new() -> Self {
             Self {
@@ -230,10 +229,10 @@ mod accumulator {
 
 /// Calibrates the shunt as a current sensor
 mod shunt {
-    use super::accumulator;
-    use super::{ACCN, NANOS_PER_MICRO, hv_plate};
-    use crate::units::{Current, Temperature, Voltage};
+    use embassy_time::Duration;
     use uom::si::electric_current::ampere;
+    use super::{ACCN, NANOS_PER_MICRO, accumulator, hv_plate};
+    use crate::units::{Current, Temperature, Voltage};
 
     /// u_TODO: worth replacing with a bench measurement of the installed part,
     /// we also can do stuff to get temp coeff but it is tricky with MANGANIN resistor as
@@ -244,24 +243,17 @@ mod shunt {
     /// Table 2, conversion noise at a ACC32 conversion time: 0.283 uV RMS.
     /// When we sum over 32 conversions individually we get 0.283 x 32 uV = 9.05 uV RMS.
     const WINDOW_NOISE_SUM_MICROVOLTS: i32 = 9;
-    /// The expected spread of [`CALIBRATION_WINDOWS`] samples is ~4 sigma, so 9 sigmas will cover that in both directions.
+    /// A run's samples spread ~4 sigma, so 9 sigmas covers that in both directions.
     const CALIBRATION_MAX_SPREAD_SUM_MICROVOLTS: i32 = 9 * WINDOW_NOISE_SUM_MICROVOLTS;
 
-    /// 32 averages the ~9 uV RMS window noise down to 1.00 mA over ~1.0 s.
-    /// A constant offset only has time to show as drift across a long idle, and 1 mA there is 0.05% of pack over 8 hours.
-    ///
-    /// 82 is the other defensible value: it reaches the 1 uV storage quantum, 0.625 mA, past which
-    /// the `i32` of summed microvolts floors the estimate and collecting longer buys nothing at
-    /// all. Worth 0.02% of pack, costs ~2.6 s of AIRs-open time instead of ~1.0 s.
-    const CALIBRATION_WINDOWS: u32 = 32;
+    /// How long a run collects before it is judged.
+    const CALIBRATION_PERIOD: Duration = Duration::from_millis(500);
 
     // u_TODO: tighten once a bench run shows the actual total on `HvPlate/Soc/ShuntOffset`.
     const CALIBRATION_MAX_OFFSET_MILLIAMPS: i64 = 500;
     const CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS: i32 = (CALIBRATION_MAX_OFFSET_MILLIAMPS * SUM_NANOVOLTS_PER_AMP / 1_000_000) as i32;
-    const CALIBRATION_MAX_REFERENCE_AMPS: f32 = 0.15;
 
     /// One window, corrected and in physical units. What every estimator consumes.
-    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     #[derive(Copy, Clone)]
     pub struct Measurement {
         /// Mean current across the window. Positive is discharge.
@@ -278,8 +270,37 @@ mod shunt {
     struct Run {
         sum: i64,
         windows: u32,
+        elapsed_nanos: u64,
         min: i32,
         max: i32,
+    }
+
+    impl Run {
+        const fn new() -> Self {
+            Self { sum: 0, windows: 0, elapsed_nanos: 0, min: i32::MAX, max: i32::MIN }
+        }
+
+        fn push(&mut self, window: &accumulator::Window) {
+            self.sum += i64::from(window.current_sum_microvolts);
+            self.windows += 1;
+            self.elapsed_nanos += window.duration_nanos();
+            self.min = self.min.min(window.current_sum_microvolts);
+            self.max = self.max.max(window.current_sum_microvolts);
+        }
+
+        /// Whether the run has collected for [`CALIBRATION_PERIOD`] and can be judged.
+        const fn complete(&self) -> bool {
+            self.elapsed_nanos >= CALIBRATION_PERIOD.as_nanos()
+        }
+
+        /// Mean sum across the run, which is the offset it proposes.
+        const fn offset(&self) -> i32 {
+            (self.sum / self.windows as i64) as i32
+        }
+
+        const fn spread(&self) -> i32 {
+            self.max - self.min
+        }
     }
 
     pub struct Calibrator {
@@ -291,8 +312,6 @@ mod shunt {
         runs_rejected: u32,
     }
 
-    // The offset and run tallies are read only by the `#[cfg(defmt_monitor)]` block in `task`.
-    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     impl Calibrator {
         pub const fn new() -> Self {
             Self {
@@ -304,33 +323,22 @@ mod shunt {
             }
         }
 
-        /// Offers a window to the calibration routine. `zero_current` is essentially only when the AIR's are open.
-        pub fn observe(&mut self, window: &accumulator::Window, contacts_open: bool, reference_current: Option<Current>, temp: Temperature) {
-            let zero_current = contacts_open && reference_current.is_some_and(|current| current.get::<ampere>().abs() < CALIBRATION_MAX_REFERENCE_AMPS);
-
-            if !zero_current {
+        /// Offers a window to the calibration routine, which only keeps it while `can_calibrate`
+        /// says nothing can be moving through the shunt. [`super::task`] decides that.
+        pub fn observe(&mut self, window: &accumulator::Window, can_calibrate: bool, temp: Temperature) {
+            if !can_calibrate {
                 self.abort();
                 return;
             }
 
-            let (sum, windows, min, max) = {
-                let run = self.run.get_or_insert(Run { sum: 0, windows: 0, min: i32::MAX, max: i32::MIN });
-
-                run.sum += i64::from(window.current_sum_microvolts);
-                run.windows += 1;
-                run.min = run.min.min(window.current_sum_microvolts);
-                run.max = run.max.max(window.current_sum_microvolts);
-
-                (run.sum, run.windows, run.min, run.max)
-            };
-
-            if windows < CALIBRATION_WINDOWS {
+            let run = self.run.get_or_insert_with(Run::new);
+            run.push(window);
+            if !run.complete() {
                 return;
             }
 
+            let (offset, spread, windows) = (run.offset(), run.spread(), run.windows);
             self.run = None;
-            let offset = (sum / i64::from(windows)) as i32;
-            let spread = max - min;
 
             if offset.abs() > CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS || spread > CALIBRATION_MAX_SPREAD_SUM_MICROVOLTS {
                 self.runs_rejected = self.runs_rejected.saturating_add(1);
@@ -387,9 +395,9 @@ mod shunt {
 }
 
 mod charge {
+    use embassy_time::Instant;
     use super::shunt::Measurement;
     use crate::units::Voltage;
-    use embassy_time::Instant;
 
     /// 130s3p of 5 Ah cells, in microcoulombs.
     const CAPACITY_MICROCOULOMBS: i64 = 5 * 3 * 3600 * 1_000_000;
@@ -430,7 +438,6 @@ mod charge {
         seeded_from: Option<Instant>,
     }
 
-    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     impl Counter {
         pub const fn new() -> Self {
             Self {
@@ -491,9 +498,9 @@ mod charge {
 
 /// Api used for communication with analyzer
 pub mod api {
+    use embassy_time::Instant;
     use crate::helpers::snapshot_cell::SnapshotCell;
     use crate::units::{Current, Ratio};
-    use embassy_time::Instant;
 
     #[derive(Copy, Clone)]
     pub struct SocData {
@@ -505,7 +512,6 @@ pub mod api {
         pub drift: f32,
     }
 
-    #[cfg_attr(not(defmt_monitor), allow(dead_code))]
     #[derive(Copy, Clone)]
     pub struct SocDataHolder {
         /// The actual estimator data.
@@ -530,15 +536,15 @@ pub mod api {
 
 mod task {
     use super::*;
-    #[cfg(defmt_monitor)]
     use crate::helpers::deadline::Deadline;
+    use crate::hv_plate::core::relay;
     use crate::{hv_plate, pack};
     #[cfg(defmt_monitor)]
-    use crate::units::{degree_celsius, volt};
-    #[cfg(defmt_monitor)]
-    use uom::si::electric_current::ampere;
-    #[cfg(defmt_monitor)]
-    use embassy_time::Duration;
+    use {
+        crate::units::{degree_celsius, volt},
+        embassy_time::Duration,
+        uom::si::electric_current::ampere,
+    };
 
     #[cfg(defmt_monitor)]
     const DIAGNOSTIC_PERIOD: Duration = Duration::from_millis(500);
@@ -553,7 +559,6 @@ mod task {
         let mut counter = charge::Counter::new();
 
         let mut latest_measurement: Option<shunt::Measurement> = None;
-        #[cfg(defmt_monitor)]
         let mut latest_window: Option<accumulator::Window> = None;
         let mut latest_registers: Option<accumulator::Registers> = None;
 
@@ -566,7 +571,6 @@ mod task {
         let accumulated = hv_plate::cache().get_accumulated().nice().ready().await;
         let voltages = hv_plate::cache().get_voltages().nice().ready().await;
 
-        #[cfg(defmt_monitor)]
         let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
         loop {
             // Period of ~25ms (how often we read acc data registers)
@@ -575,19 +579,13 @@ mod task {
             // Read registers
             let acc_registers = acc_window_status.fresh.then(|| accumulator::Registers::read(&flag.get(), &accumulated.get()));
             let shunt_temp = voltages.get().data().shunt_temperature;
-
-            // Both are read under one lock so the OCV seed and the reference current always come from the same analyzer publish.
+            // Get latest OCV value
             #[rustfmt::skip]
-            let (ocv_seed, reference_current) = analyzer::analyzer()
-                .try_partial_get(|inner| {
-                    let seed = inner.data.last_settled_at.map(|settled_at| (inner.data.min_ocv.value(), settled_at));
-                    (seed, inner.data.pack_current)
-                })
-                .unwrap_or((None, None));
-
-            // u_TODO - should pull from hv plates understanding of the contacts state (which is in precharge PR for now)
-            // Open AIRs mean we can do calibration, cross-checked against the reported current
-            let contacts_open = true; // Set to true for HIL testing without precharge or shutdown setup
+            let ocv_seed = analyzer::analyzer()
+                .try_partial_get(|inner| inner.data.last_settled_at.map(|settled_at| (inner.data.min_ocv.value(), settled_at)))
+                .flatten();
+            // Read relay & shutdown state to see if we can calibrate shunt
+            let can_calibrate = if cfg!(feature = "hil") { false } else { relay::state() == relay::RelayState::Open && !crate::shutdown::acc_sense_closed() };
 
             // Reset state in acc register reader and shunt calibrator
             if acc_window_status.chip_restarted {
@@ -598,16 +596,9 @@ mod task {
             // Accumulate acc_registers
             let window = acc_registers.and_then(|regs| reader.convert(regs));
 
-            latest_registers = acc_registers.or(latest_registers);
-
-            // Seed estimator with OCV values if available
-            if let Some((min_ocv, settled_at)) = ocv_seed {
-                counter.seed(min_ocv, settled_at);
-            }
-
             // Step the estimator
             if let Some(window) = window {
-                calibrator.observe(&window, contacts_open, reference_current, shunt_temp);
+                calibrator.observe(&window, can_calibrate, shunt_temp);
 
                 let measurement = calibrator.correct(&window);
 
@@ -617,10 +608,12 @@ mod task {
                 }
 
                 latest_measurement = Some(measurement);
-                #[cfg(defmt_monitor)]
-                {
-                    latest_window = Some(window);
-                }
+                latest_window = Some(window);
+            }
+
+            // Seed estimator with OCV values if available
+            if let Some((min_ocv, settled_at)) = ocv_seed {
+                counter.seed(min_ocv, settled_at);
             }
 
             // Store
@@ -639,9 +632,11 @@ mod task {
                 defmt_monitor::monitor!("Soc/HilSimClockUs", desc = "Simulation time the rig last reported over RDHILTIME, in us. Stuck at zero means the model is not answering and no window will ever close.", "{=u64}", hv_plate::hil::sim_time::now().as_micros());
                 defmt_monitor::monitor!("Soc/ShuntOffset", desc = "Calibrated zero-current offset on the summed window, in microvolts. Datasheet bound is +/-32 uV across ACCN=32.", "{=i32}", calibrator.offset_sum_microvolts());
                 defmt_monitor::monitor!("Soc/ShuntOffsetTemp", desc = "Shunt temperature when the offset was taken, in celsius. NaN until a calibration run is accepted.", "{=f32}", calibrator.offset_taken_at().map_or(f32::NAN, |temp| temp.get::<degree_celsius>()));
+                defmt_monitor::monitor!("Soc/CanCalibrate", desc = "Whether windows are currently being collected for a shunt offset. Needs the relay read back open from CFGA and the accumulator shutdown sense low; always false under HIL, where the rig drives neither.", "{=bool}", can_calibrate);
                 defmt_monitor::monitor!("Soc/CalibrationsAccepted", desc = "Shunt calibration runs that passed the offset and spread checks.", "{=u32}", calibrator.runs_accepted());
                 defmt_monitor::monitor!("Soc/CalibrationsRejected", desc = "Shunt calibration runs thrown out. Persistent rejections with the AIRs commanded open suggest real current, i.e. a welded contactor.", "{=u32}", calibrator.runs_rejected());
 
+                latest_registers = acc_registers.or(latest_registers);
                 if let Some(regs) = latest_registers {
                     defmt_monitor::monitor!("Soc/Window/I1cnt", desc = "Conversion counter as read from FLAG. Climbs by ACCN each window and wraps at 2048; standing still means the chip stopped converting.", "{=u16}", regs.i1cnt());
                     defmt_monitor::monitor!("Soc/Window/I1cntPha", desc = "Sub-phase of the conversion counter, 13 bits with I1CNT. The change in this across two reads is what t_CONV is measured from.", "{=u16}", regs.i1cntpha());
