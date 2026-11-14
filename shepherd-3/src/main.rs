@@ -27,6 +27,7 @@ pub mod charging;
 pub mod gpios;
 pub mod shutdown;
 pub mod control;
+pub mod limits;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
@@ -182,6 +183,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
     spawner.spawn(charging::charger_task().expect("Failed to spawn charging::charger_task()."));
     spawner.spawn(control::fan_task(r.fan).expect("Failed to spawn control::fan_task()."));
+    spawner.spawn(limits::limits_task().expect("Failed to spawn limits::limits_task()."));
 }
 
 /// pet the dog beat the heart
