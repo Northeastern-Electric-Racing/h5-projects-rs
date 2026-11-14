@@ -130,6 +130,8 @@ assign_resources! {
     }
 }
 
+const BOOT_REQUEST_ID: u16 = 0x013;
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Initializing project...");
@@ -139,11 +141,15 @@ async fn main(spawner: Spawner) {
     let last_crash = hardfault::report_last_reset();
     hardfault::set_watchdog_debug_freeze();
 
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     let r = split_resources!(p);
 
     gpios::init(r.gpios);
 
-    spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
+    bootloader.confirm_boot().expect("Failed to confirm application startup");
+    spawner.spawn(can::can_task(spawner, r.can, bootloader).expect("Failed to spawn can::can_task()."));
     spawner.spawn(hardfault::crash_report_task(last_crash).expect("Failed to spawn hardfault::crash_report_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));

@@ -1,0 +1,2 @@
+[alias]
+download = ["run", "--release", "--package", "atlas", "--config", 'target.thumbv8m.main-none-eabihf.runner="probe-rs download --chip STM32H563ZITx --verify --reset"']

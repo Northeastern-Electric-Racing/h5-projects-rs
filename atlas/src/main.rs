@@ -1,0 +1,116 @@
+#![no_std]
+#![no_main]
+
+//! Initialize the bootloader, prepare firmware swaps, and hand control to the application.
+
+use core::cell::RefCell;
+
+use can_bootloader_core::{BootAction, BootloaderCanIds};
+use cortex_m::peripheral::SCB;
+use embassy_boot_stm32::{
+    AlignedBuffer, BlockingFirmwareUpdater, BootLoader, BootLoaderConfig, FirmwareUpdaterConfig,
+};
+use embassy_executor::Spawner;
+use embassy_stm32::flash::Flash;
+use embassy_stm32::rcc::{Hse, HseMode};
+use embassy_stm32::time::Hertz;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use {defmt_rtt as _, panic_probe as _};
+
+mod can;
+
+use can::CanHandler;
+
+/// CAN IDs and bitrate for the ECU selected by BOOTLOADER_ECU.
+mod ecu {
+    include!(concat!(env!("OUT_DIR"), "/ecu_can.rs"));
+}
+
+// External oscillator frequency used by the bootloader.
+const HSE_HZ: u32 = 25_000_000;
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) -> ! {
+    let mut config = embassy_stm32::Config::default();
+
+    config.rcc.hse = Some(Hse {
+        freq: Hertz(HSE_HZ),
+        mode: HseMode::Oscillator,
+    });
+
+    let p = embassy_stm32::init(config);
+
+    let regions = Flash::new_blocking(p.FLASH, Default::default()).into_blocking_regions();
+
+    // Flash access stays in this task; partitions share their bank through RefCell.
+    let bank1 = Mutex::<NoopRawMutex, _>::new(RefCell::new(regions.bank1_region));
+
+    let bank2 = Mutex::<NoopRawMutex, _>::new(RefCell::new(regions.bank2_region));
+
+    // ACTIVE lives in bank 1; DFU and persistent swap state live in bank 2.
+    let config = BootLoaderConfig::from_linkerfile_blocking(&bank1, &bank2, &bank2);
+
+    // Complete any pending software swap or rollback before inspecting the app.
+    let boot = BootLoader::prepare::<_, _, _, { embassy_stm32::flash::MAX_ERASE_SIZE }>(config);
+
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&bank2, &bank2);
+
+    // State writes need a scratch buffer aligned to the flash programming unit.
+    let mut aligned = AlignedBuffer([0; embassy_stm32::flash::WRITE_SIZE]);
+
+    let mut updater = BlockingFirmwareUpdater::new(config, aligned.as_mut());
+
+    let ids = BootloaderCanIds {
+        request: ecu::REQUEST_ID,
+        data: ecu::DATA_ID,
+        response: ecu::RESPONSE_ID,
+    };
+
+    // Take the pins selected by BOOTLOADER_ECU.
+    #[cfg(ecu = "bms")]
+    let mut can = CanHandler::new(p.FDCAN2, p.PD9, p.PB13, ids);
+    #[cfg(ecu = "lightning")]
+    let mut can = CanHandler::new(p.FDCAN2, p.PB12, p.PB13, ids);
+    #[cfg(any(ecu = "vcu", ecu = "msb_front", ecu = "msb_back"))]
+    let mut can = CanHandler::new(p.FDCAN2, p.PB5, p.PB6, ids);
+
+    match can_bootloader_core::run(&mut can, ids, &mut updater, &boot.state).await {
+        BootAction::Reset => SCB::sys_reset(),
+        BootAction::StartApp => {}
+    }
+
+    // Get the application's start address from the active partition in memory.x.
+    let active_address = can_bootloader_core::active_address();
+
+    // Stop bootloader interrupts before the app replaces the vector table and RAM.
+    cortex_m::interrupt::disable();
+    can.shutdown();
+
+    // This final handoff ends the bootloader's use of the core peripherals.
+    unsafe {
+        let mut core = cortex_m::Peripherals::steal();
+        core.SYST.disable_interrupt();
+        core.SYST.disable_counter(); // Prevent new ticks during application startup.
+        core.SYST.clear_current();
+        // Mask every external IRQ, including the Embassy timer interrupt.
+        for register in &core.NVIC.icer {
+            register.write(u32::MAX);
+        }
+        // Discard events queued before shutdown.
+        for register in &core.NVIC.icpr {
+            register.write(u32::MAX);
+        }
+        SCB::clear_pendsv(); // Discard deferred work from the bootloader executor.
+        SCB::clear_pendst(); // Clear any tick queued before SysTick was stopped.
+        // Complete peripheral writes before changing interrupt delivery.
+        cortex_m::asm::dsb();
+        cortex_m::asm::isb();
+
+        // Individual IRQs are masked and pending system ticks are cleared.
+        // cortex-m-rt expects PRIMASK clear; the app enables its own IRQs later.
+        cortex_m::interrupt::enable();
+        // StartApp is returned only after validating the active vectors.
+        boot.load(active_address)
+    }
+}

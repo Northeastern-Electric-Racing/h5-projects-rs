@@ -3,6 +3,9 @@ edition = "2024"
 name = "shepherd-3"
 version = "0.1.0"
 
+[package.metadata.can-flash]
+ecu = "bms"
+
 [features]
 hil = []
 four-segments = []
@@ -11,6 +14,7 @@ four-segments = []
 halt-on-crash = []
 
 [dependencies]
+boot-control.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true

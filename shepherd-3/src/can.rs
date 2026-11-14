@@ -40,7 +40,7 @@ mod api {
 
     /// Initializes CAN and starts up the CAN handler.
     #[embassy_executor::task]
-    pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources) {
+    pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources, bootloader: boot_control::Bootloader<'static>) {
         use super::rx_ids;
         use embassy_stm32::can::CanConfigurator;
         use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
@@ -51,13 +51,14 @@ mod api {
             .add_standard_filter(StandardFilterSlot::_0, rx_ids::DTI_INPUT_VOLTAGE, None)
             .add_standard_filter(StandardFilterSlot::_1, rx_ids::DTI_DC_CURRENT, None)
             .add_standard_filter(StandardFilterSlot::_2, rx_ids::SHEPHERD_BMS_PWM_PERCENT, None)
-            .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None);
+            .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None)
+            .add_standard_filter(StandardFilterSlot::_3, crate::BOOT_REQUEST_ID, None);
 
         let (tx, rx, _props) = can.start();
 
         spawner.spawn(handler::can_tx(tx).expect("Failed to spawn can_handler::can_tx()."));
         spawner.spawn(handler::can_rx(rx).expect("Failed to spawn can_handler::can_rx()."));
-        spawner.spawn(handler::can_rx_processer().expect("Failed to spawn can_handler::can_rx_processer()."));
+        spawner.spawn(handler::can_rx_processer(bootloader).expect("Failed to spawn can_handler::can_rx_processer()."));
 
         #[cfg(defmt_monitor)]
         spawner.spawn(handler::can_props(_props).expect("Failed to spawn can_handler::can_props()."));
@@ -474,7 +475,7 @@ mod handler {
 
     /// Reads incoming CAN frames from the software queue and dispatches them.
     #[embassy_executor::task]
-    pub async fn can_rx_processer() -> ! {
+    pub async fn can_rx_processer(mut bootloader: boot_control::Bootloader<'static>) -> ! {
         use super::rx_ids::*;
         use crate::{pack, charging};
         use embedded_can::Id;
@@ -483,6 +484,14 @@ mod handler {
             let frame = super::channels::INCOMING.receive().await;
 
             match frame.id() {
+                Id::Standard(id) if id.as_raw() == crate::BOOT_REQUEST_ID => {
+                    if !embedded_can::Frame::is_remote_frame(&frame) && boot_control::is_valid_request(frame.data()) {
+                        // Begin cleanup before reset: add application-specific shutdown here.
+
+                        // End cleanup before reset.
+                        bootloader.enter_bootloader();
+                    }
+                },
                 Id::Extended(id) if id.as_raw() == CHARGER_BOX => {
                     charging::alert_charger_received();
                     if let Some(current) = decode_current(frame.data()) {

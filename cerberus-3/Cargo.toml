@@ -3,11 +3,16 @@ edition = "2024"
 name = "cerberus-3"
 version = "0.1.0"
 
+[package.metadata.can-flash]
+ecu = "vcu"
+
 [features]
 disable_reverse = []
 tsms_overide = []
 
 [dependencies]
+boot-control.workspace = true
+embedded-can.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true
