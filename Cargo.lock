@@ -286,10 +286,11 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=eb98e0f0072674f8d467a9b665f5081d1398ce66#eb98e0f0072674f8d467a9b665f5081d1398ce66"
 dependencies = [
  "bitfield-struct 0.13.0",
- "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31)",
+ "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=eb98e0f0072674f8d467a9b665f5081d1398ce66)",
+ "defmt 1.2.0",
  "embedded-can",
 ]
 
@@ -309,9 +310,9 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=eb98e0f0072674f8d467a9b665f5081d1398ce66#eb98e0f0072674f8d467a9b665f5081d1398ce66"
 dependencies = [
- "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31)",
+ "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=eb98e0f0072674f8d467a9b665f5081d1398ce66)",
  "heck",
  "proc-macro2",
  "quote",
@@ -491,7 +492,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=eb98e0f0072674f8d467a9b665f5081d1398ce66#eb98e0f0072674f8d467a9b665f5081d1398ce66"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1971,7 +1972,7 @@ dependencies = [
  "assign-resources",
  "atomic_enum",
  "boot-control",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31)",
+ "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=eb98e0f0072674f8d467a9b665f5081d1398ce66)",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
@@ -1989,7 +1990,6 @@ dependencies = [
  "function_name",
  "heapless 0.9.3",
  "libm",
- "panic-probe",
  "static_cell",
  "strum",
  "uom",
