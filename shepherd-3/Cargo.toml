@@ -6,6 +6,9 @@ version = "0.1.0"
 [features]
 hil = []
 four-segments = []
+# Crashes (panics and HardFaults) hang instead of resetting, so a debugger can be attached to the
+# crashed board with `probe-rs attach`. Bench debugging only, never on the car.
+halt-on-crash = []
 
 [dependencies]
 cortex-m.workspace = true
@@ -21,17 +24,15 @@ embassy-futures.workspace = true
 embedded-hal-async.workspace = true
 embedded-hal-bus.workspace = true
 heapless.workspace = true
-panic-probe.workspace = true
 assign-resources.workspace = true
 cangen.workspace = true
 can-handler = { workspace = true, features = ["defmt-monitor"] }
 static_cell.workspace = true
 
 function_name = { version = "0.3.0" }
-variant_count.workspace = true
-strum = { version = "0.28.0", default-features = false, features = ["derive"] }
+variant_count = { version = "1.2.1" }
+strum.workspace = true
 atomic_enum = { version = "0.3.0" }
-
 # u_TODO - probably maybe move this to the workspace Cargo.toml eventually if this is gonna be something we use
 uom = { version = "0.38.0", default-features = false, features = ["si", "f32"] }
 
