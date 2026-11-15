@@ -9,6 +9,7 @@ mod rx_ids {
     pub const DTI_DC_CURRENT: u16 = 0x436;
     pub const DTI_INPUT_VOLTAGE: u16 = 0x416;
     pub const SHEPHERD_BMS_PWM_PERCENT: u16 = 0x455;
+    pub const SHEPHERD_BMS_FAN_PERCENT: u16 = 0x500;
 }
 
 /// MAIN PUBLIC API THE REST OF THE PROGRAM USES TO INTERACT WITH CAN.
@@ -51,7 +52,8 @@ mod api {
             .add_standard_filter(StandardFilterSlot::_0, rx_ids::DTI_INPUT_VOLTAGE, None)
             .add_standard_filter(StandardFilterSlot::_1, rx_ids::DTI_DC_CURRENT, None)
             .add_standard_filter(StandardFilterSlot::_2, rx_ids::SHEPHERD_BMS_PWM_PERCENT, None)
-            .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None);
+            .add_extended_filter(ExtendedFilterSlot::_0, rx_ids::CHARGER_BOX, None)
+            .add_standard_filter(StandardFilterSlot::_3, rx_ids::SHEPHERD_BMS_FAN_PERCENT, None);
 
         let (tx, rx, _props) = can.start();
 
@@ -222,6 +224,17 @@ pub mod types {
         }
     }
 
+    pub struct FanDutyCyclePercentage {
+        /// Final fan duty, 0-100.
+        pub duty_cycle_percentage: u8,
+    }
+    impl FanDutyCyclePercentage {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::FanDutyCyclePercentage::new().with_fan_duty_cycle(self.duty_cycle_percentage);
+            frame.to_can_frame()
+        }
+    }
+
     pub struct ShutdownAsReadByBms {
         pub shutdown_state: bool,
         pub shutdown_ts_minus_sense: bool,
@@ -312,6 +325,8 @@ mod handler {
     use embedded_can::{ExtendedId, StandardId};
 
     use heapless::Vec;
+
+    use crate::control;
 
     pub struct NerCan {
         pub can_configurator: CanConfigurator<'static>,
@@ -505,6 +520,11 @@ mod handler {
                 Id::Standard(id) if id.as_raw() == SHEPHERD_BMS_PWM_PERCENT => {
                     if let Some(cangen::Msg::ShepherdBmsPwmPercent(pwm)) = cangen::Msg::decode(&frame) {
                         charging::update_pwm_duty_cycle(&pwm);
+                    }
+                },
+                Id::Standard(id) if id.as_raw() == SHEPHERD_BMS_FAN_PERCENT => {
+                    if let Some(cangen::Msg::ShepherdBmsFanPercent(fan)) = cangen::Msg::decode(&frame) {
+                        control::store_calypso_request(fan.pwm_duty());
                     }
                 },
                 _ => {},

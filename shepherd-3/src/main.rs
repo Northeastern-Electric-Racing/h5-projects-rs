@@ -26,6 +26,7 @@ pub mod state_machine;
 pub mod charging;
 pub mod gpios;
 pub mod shutdown;
+pub mod control;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
@@ -89,6 +90,11 @@ assign_resources! {
         acc_sense_pin: PB0,
         tsip_sense_pin: PB1,
     }
+    /// Resources for the battery box fans (PWM0 on the compute board).
+    fan: FanResources {
+        fan_timer: TIM3,
+        fan_pin: PB5, // placeholder, confirm against the C pin config
+    },
 }
 
 #[cfg(feature = "hil")]
@@ -128,6 +134,11 @@ assign_resources! {
         acc_sense_pin: PB0,
         tsip_sense_pin: PB1,
     }
+     /// Resources for the battery box fans (PWM0 on the compute board).
+    fan: FanResources {
+        fan_timer: TIM3,
+        fan_pin: PB5,
+    },
 }
 
 #[embassy_executor::main]
@@ -158,6 +169,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(pack::analyzer::analyzer_task().expect("Failed to spawn pack::analyzer_task()."));
     spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
     spawner.spawn(charging::charger_task().expect("Failed to spawn charging::charger_task()."));
+    spawner.spawn(control::fan_task(r.fan).expect("Failed to spawn control::fan_task()."));
 }
 
 /// pet the dog beat the heart
