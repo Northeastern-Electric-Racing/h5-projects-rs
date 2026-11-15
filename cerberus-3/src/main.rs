@@ -179,6 +179,10 @@ async fn main(spawner: Spawner) -> ! {
     spawner
         .spawn(bms::bms_can_monitor_task().expect("Failed to spawn bms::bms_can_monitor_task()."));
 
+    spawner.spawn(
+        dti::motor_temp_sensor_task().expect("Failed to spawn dti::motor_temp_sensor_task()."),
+    );
+
     // Statemachine
     spawner.spawn(
         statemachine::statemachine_task()

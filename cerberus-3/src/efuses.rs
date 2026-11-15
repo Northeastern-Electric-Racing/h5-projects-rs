@@ -5,7 +5,6 @@
 //! The efuse condition can also be updated using update_control_state <br>
 
 use cangen::ToCanFrame;
-use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::debug;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
@@ -17,7 +16,6 @@ use uom::si::thermodynamic_temperature::degree_celsius;
 use variant_count::VariantCount;
 
 use crate::adc::{self, AdcMuxData};
-use crate::statemachine::{self, FuncState};
 use crate::{bms, can, dti, pedals};
 
 const V_REF: f32 = 3.3;
@@ -208,54 +206,6 @@ const EN_SPEED: Speed = Speed::Low;
 const COOLING_ON_TEMP: f32 = 45.0;
 const COOLING_OFF_TEMP: f32 = 40.0;
 const PUMP_SWITCH_INTERVAL: Duration = Duration::from_secs(5);
-const MOTOR_TEMP_SENSOR_MAX: f32 = 125.0;
-const MOTOR_TEMP_SENSOR_FAULT_TIMEOUT: Duration = Duration::from_secs(5);
-
-static MOTOR_TEMP_SENSOR_FAULT: AtomicBool = AtomicBool::new(false);
-
-fn motor_temp() -> f32 {
-    dti::get_motor_temp().get::<degree_celsius>()
-}
-
-fn motor_temp_if_sensor_ok() -> f32 {
-    if MOTOR_TEMP_SENSOR_FAULT.load(Ordering::Relaxed) {
-        f32::MIN
-    } else {
-        motor_temp()
-    }
-}
-
-fn controller_temp() -> f32 {
-    dti::get_controller_temp().get::<degree_celsius>()
-}
-
-fn battery_box_temp() -> f32 {
-    bms::get_battery_box_temp().get::<degree_celsius>()
-}
-
-fn brake_pressed() -> f32 {
-    if pedals::get_brake_pressed() {
-        1.0
-    } else {
-        0.0
-    }
-}
-
-fn cooling_on(temp: fn() -> f32) -> Option<AutoPredicate> {
-    Some(AutoPredicate {
-        value1: temp,
-        value2: || COOLING_ON_TEMP,
-        operation: PredicateOperation::GREQ,
-    })
-}
-
-fn cooling_off(temp: fn() -> f32) -> Option<AutoPredicate> {
-    Some(AutoPredicate {
-        value1: temp,
-        value2: || COOLING_OFF_TEMP,
-        operation: PredicateOperation::LEQ,
-    })
-}
 
 impl Efuse {
     pub fn new(
@@ -320,12 +270,12 @@ impl Efuse {
                 200.0,
                 EfuseControlState::EfuseAuto,
                 Some(AutoPredicate {
-                    value1: brake_pressed,
+                    value1: || f32::from(u8::from(pedals::get_brake_pressed())),
                     value2: || 1.0,
                     operation: PredicateOperation::EQ,
                 }),
                 Some(AutoPredicate {
-                    value1: brake_pressed,
+                    value1: || f32::from(u8::from(pedals::get_brake_pressed())),
                     value2: || 0.0,
                     operation: PredicateOperation::EQ,
                 }),
@@ -357,8 +307,22 @@ impl Efuse {
                 Input::new(pins.radfan_er, ER_PULL),
                 56.0,
                 EfuseControlState::EfuseAuto,
-                cooling_on(motor_temp_if_sensor_ok),
-                cooling_off(motor_temp),
+                Some(AutoPredicate {
+                    value1: || {
+                        if dti::motor_temp_sensor_faulted() {
+                            f32::MIN
+                        } else {
+                            dti::get_motor_temp().get::<degree_celsius>()
+                        }
+                    },
+                    value2: || COOLING_ON_TEMP,
+                    operation: PredicateOperation::GREQ,
+                }),
+                Some(AutoPredicate {
+                    value1: || dti::get_motor_temp().get::<degree_celsius>(),
+                    value2: || COOLING_OFF_TEMP,
+                    operation: PredicateOperation::LEQ,
+                }),
                 frame_for::<cangen::RadfanEfuse>,
             ),
             Efuse::new(
@@ -367,8 +331,16 @@ impl Efuse {
                 Input::new(pins.fanbatt_er, ER_PULL),
                 27.0,
                 EfuseControlState::EfuseAuto,
-                cooling_on(battery_box_temp),
-                cooling_off(battery_box_temp),
+                Some(AutoPredicate {
+                    value1: || bms::get_battery_box_temp().get::<degree_celsius>(),
+                    value2: || COOLING_ON_TEMP,
+                    operation: PredicateOperation::GREQ,
+                }),
+                Some(AutoPredicate {
+                    value1: || bms::get_battery_box_temp().get::<degree_celsius>(),
+                    value2: || COOLING_OFF_TEMP,
+                    operation: PredicateOperation::LEQ,
+                }),
                 frame_for::<cangen::FanbattEfuse>,
             ),
             Efuse::new(
@@ -377,8 +349,16 @@ impl Efuse {
                 Input::new(pins.pump1_er, ER_PULL),
                 47.0,
                 EfuseControlState::EfuseAuto,
-                cooling_on(controller_temp),
-                cooling_off(controller_temp),
+                Some(AutoPredicate {
+                    value1: || dti::get_controller_temp().get::<degree_celsius>(),
+                    value2: || COOLING_ON_TEMP,
+                    operation: PredicateOperation::GREQ,
+                }),
+                Some(AutoPredicate {
+                    value1: || dti::get_controller_temp().get::<degree_celsius>(),
+                    value2: || COOLING_OFF_TEMP,
+                    operation: PredicateOperation::LEQ,
+                }),
                 frame_for::<cangen::PumponeEfuse>,
             )
             .with_min_switch_interval(PUMP_SWITCH_INTERVAL),
@@ -388,8 +368,22 @@ impl Efuse {
                 Input::new(pins.pump2_er, ER_PULL),
                 47.0,
                 EfuseControlState::EfuseAuto,
-                cooling_on(motor_temp_if_sensor_ok),
-                cooling_off(motor_temp),
+                Some(AutoPredicate {
+                    value1: || {
+                        if dti::motor_temp_sensor_faulted() {
+                            f32::MIN
+                        } else {
+                            dti::get_motor_temp().get::<degree_celsius>()
+                        }
+                    },
+                    value2: || COOLING_ON_TEMP,
+                    operation: PredicateOperation::GREQ,
+                }),
+                Some(AutoPredicate {
+                    value1: || dti::get_motor_temp().get::<degree_celsius>(),
+                    value2: || COOLING_OFF_TEMP,
+                    operation: PredicateOperation::LEQ,
+                }),
                 frame_for::<cangen::PumptwoEfuse>,
             )
             .with_min_switch_interval(PUMP_SWITCH_INTERVAL),
@@ -421,8 +415,16 @@ impl Efuse {
                 Input::new(pins.spare_er, ER_PULL),
                 0.0,
                 EfuseControlState::EfuseAuto,
-                cooling_on(controller_temp),
-                cooling_off(controller_temp),
+                Some(AutoPredicate {
+                    value1: || dti::get_controller_temp().get::<degree_celsius>(),
+                    value2: || COOLING_ON_TEMP,
+                    operation: PredicateOperation::GREQ,
+                }),
+                Some(AutoPredicate {
+                    value1: || dti::get_controller_temp().get::<degree_celsius>(),
+                    value2: || COOLING_OFF_TEMP,
+                    operation: PredicateOperation::LEQ,
+                }),
                 frame_for::<cangen::SpareEfuse>,
             ),
         ]
@@ -488,23 +490,8 @@ const EFUSE_PERIOD: Duration = Duration::from_millis(100);
 #[embassy_executor::task]
 pub async fn efuse_task(pins: EfusePins) {
     let mut efuses: [Efuse; _] = Efuse::init_all(pins);
-    let mut last_sensor_fault: Option<Instant> = None;
 
     loop {
-        if motor_temp() >= MOTOR_TEMP_SENSOR_MAX {
-            MOTOR_TEMP_SENSOR_FAULT.store(true, Ordering::Relaxed);
-            last_sensor_fault = Some(Instant::now());
-            statemachine::set_fault_state().await;
-        } else if let Some(last) = last_sensor_fault
-            && last.elapsed() >= MOTOR_TEMP_SENSOR_FAULT_TIMEOUT
-        {
-            MOTOR_TEMP_SENSOR_FAULT.store(false, Ordering::Relaxed);
-            last_sensor_fault = None;
-            if statemachine::get_func_state().await == FuncState::Faulted {
-                statemachine::set_ready_state().await;
-            }
-        }
-
         while let Ok(command) = COMMAND.try_receive() {
             if let Some(efuse) = efuses.get_mut(command.get_id() as usize) {
                 efuse.update_control_state(command.efuse_control_state);
