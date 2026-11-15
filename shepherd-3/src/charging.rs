@@ -297,12 +297,18 @@ mod state {
     impl Settle {
         /// Creates a new `Settle`.
         fn new(now: PlantTime) -> Self {
-            Self { deadline: Deadline::expire_after(now, SETTLE_DURATION), were_balancing: false }
+            Self {
+                deadline: Deadline::expire_after(now, SETTLE_DURATION),
+                were_balancing: false,
+            }
         }
 
         /// Creates a new `Settle` with `were_balancing` = true.
         fn new_from_balancing(now: PlantTime) -> Self {
-            Self { deadline: Deadline::expire_after(now, SETTLE_DURATION), were_balancing: true }
+            Self {
+                deadline: Deadline::expire_after(now, SETTLE_DURATION),
+                were_balancing: true,
+            }
         }
     }
 

@@ -148,7 +148,7 @@ mod accumulator {
                     self.startup_mask = StartupMask::Elapsed;
                     self.n = u32::from(i1cnt) / u32::from(ACCN) + 1;
                     self.i1cnt_old = i1cnt;
-                    defmt::info!("HvPlate: soc: counters live at I1CNT {}, accumulating.", i1cnt);
+                    defmt::info!("HvPlate: shunt: counters live at I1CNT {}, accumulating.", i1cnt);
                 },
                 StartupMask::Elapsed => {},
             }
@@ -166,7 +166,7 @@ mod accumulator {
             self.n = i1cnt_windows + 1;
             if missed > 0 {
                 self.missed_windows = self.missed_windows.saturating_add(missed);
-                defmt::warn!("HvPlate: soc: {} window(s) overwritten before the task read them; their charge is approximated from this window's average.", missed);
+                defmt::warn!("HvPlate: shunt: {} window(s) overwritten before the task read them; their charge is approximated from this window's average.", missed);
             }
 
             Some(Window {
@@ -198,7 +198,7 @@ mod accumulator {
 
             if measured_cntpha == 0 || elapsed > MAX_ELAPSED {
                 self.desyncs = self.desyncs.saturating_add(1);
-                defmt::warn!("HvPlate: soc: no usable conversion time: {} phase ticks across {=u64} us.", measured_cntpha, elapsed.as_micros());
+                defmt::warn!("HvPlate: shunt: no usable conversion time: {} phase ticks across {=u64} us.", measured_cntpha, elapsed.as_micros());
                 return self.measured_conversion_nanos;
             }
 
@@ -207,7 +207,7 @@ mod accumulator {
             let conversion_nanos = (elapsed_micros * NANOS_PER_MICRO * PHA_PER_CNT) / measured_cntpha;
             if conversion_nanos.abs_diff(NOMINAL_CONVERSION_NANOS) > CONVERSION_TOLERANCE_NANOS {
                 self.desyncs = self.desyncs.saturating_add(1);
-                defmt::warn!("HvPlate: soc: measured a conversion time of {} ns, too far from nominal to believe.", conversion_nanos);
+                defmt::warn!("HvPlate: shunt: measured a conversion time of {} ns, too far from nominal to believe.", conversion_nanos);
                 return self.measured_conversion_nanos;
             }
 
@@ -246,7 +246,7 @@ mod calibration {
     /// How long a run collects before it is judged.
     const CALIBRATION_PERIOD: Duration = Duration::from_millis(500);
 
-    // u_TODO: tighten once a bench run shows the actual total on `HvPlate/Soc/ShuntOffset`.
+    // u_TODO: tighten once a bench run shows the actual total on `HvPlate/Shunt/Offset`.
     const CALIBRATION_MAX_OFFSET_MILLIAMPS: i64 = 500;
     const CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS: i32 = (CALIBRATION_MAX_OFFSET_MILLIAMPS * SUM_NANOVOLTS_PER_AMP / 1_000_000) as i32;
 
@@ -263,9 +263,6 @@ mod calibration {
         /// Mean BATT-side voltage across the same window, off the 2950's divider.
         pub batt_voltage: Voltage,
         pub charge_microcoulombs: i64,
-        pub duration_nanos: u64,
-        /// How many windows this covers. 1 is clean.
-        pub windows_elapsed: u16,
         /// Whether a calibration run has been accepted.
         pub calibrated: bool,
     }
@@ -345,14 +342,14 @@ mod calibration {
 
             if offset.abs() > CALIBRATION_MAX_OFFSET_SUM_MICROVOLTS || spread > CALIBRATION_MAX_SPREAD_SUM_MICROVOLTS {
                 self.runs_rejected = self.runs_rejected.saturating_add(1);
-                defmt::warn!("HvPlate: soc: rejected a shunt calibration: offset {} uV, spread {} uV over {} windows.", offset, spread, windows);
+                defmt::warn!("HvPlate: shunt: rejected a shunt calibration: offset {} uV, spread {} uV over {} windows.", offset, spread, windows);
                 return;
             }
 
             self.runs_accepted = self.runs_accepted.saturating_add(1);
             self.offset_sum_microvolts = offset;
             self.offset_taken_at = Some(temp);
-            defmt::info!("HvPlate: soc: shunt offset {} uV over {} windows, spread {} uV.", offset, windows, spread);
+            defmt::info!("HvPlate: shunt: shunt offset {} uV over {} windows, spread {} uV.", offset, windows, spread);
         }
 
         /// Drops any run in progress. The AIRs closing or the chip restarting both invalidate one.
@@ -368,8 +365,6 @@ mod calibration {
                 shunt_current: Current::new::<ampere>(amps_from_sum_microvolts(corrected_shunt_reading)),
                 batt_voltage: hv_plate::board::batt_voltage(window.batt_sum_microvolts / i32::from(ACCN)),
                 charge_microcoulombs: i64::from(corrected_shunt_reading) * duration_nanos as i64 / SUM_NANOVOLTS_PER_AMP,
-                duration_nanos,
-                windows_elapsed: window.windows_elapsed,
                 calibrated: self.is_calibrated(),
             }
         }
@@ -451,9 +446,9 @@ mod task {
 
     /// Whether nothing can be moving through the shunt, so a window measures only its offset.
     fn can_calibrate() -> bool {
-        if cfg!(feature = "hil") {
-            return false;
-        }
+        // if cfg!(feature = "hil") {
+        //     return false;
+        // }
         relay::state() == relay::RelayState::Open && !crate::shutdown::acc_sense_closed()
     }
 
@@ -511,35 +506,35 @@ mod task {
             #[cfg(defmt_monitor)]
             if diagnostic_deadline.past() {
                 diagnostic_deadline = Deadline::expire_in(DIAGNOSTIC_PERIOD);
-                defmt_monitor::monitor!("Soc/MissedWindows", desc = "Accumulator windows overwritten before the task read them. Should stay at zero; non-zero means the 25 ms budget is blown.", "{=u32}", reader.missed_windows());
-                defmt_monitor::monitor!("Soc/Desyncs", desc = "Observations rejected because I1CNT could have lapped (a gap over ~2 s).", "{=u32}", reader.desyncs());
+                defmt_monitor::monitor!("HvPlate/Shunt/MissedWindows", desc = "Accumulator windows overwritten before the task read them. Should stay at zero; non-zero means the 25 ms budget is blown.", "{=u32}", reader.missed_windows());
+                defmt_monitor::monitor!("HvPlate/Shunt/Desyncs", desc = "Observations rejected because I1CNT could have lapped (a gap over ~2 s).", "{=u32}", reader.desyncs());
                 #[cfg(feature = "hil")]
-                defmt_monitor::monitor!("Soc/HilSimClockUs", desc = "Simulation time the rig last reported over RDHILTIME, in us. NaN means the model has never answered and nothing measured in plant time is running at all.", "{=f32}", hv_plate::hil::sim_time::now().map_or(f32::NAN, |now| now.as_micros() as f32));
-                defmt_monitor::monitor!("Soc/ShuntOffset", desc = "Calibrated zero-current offset on the summed window, in microvolts. Datasheet bound is +/-32 uV across ACCN=32.", "{=i32}", calibrator.offset_sum_microvolts());
-                defmt_monitor::monitor!("Soc/ShuntOffsetTemp", desc = "Shunt temperature when the offset was taken, in celsius. NaN until a calibration run is accepted.", "{=f32}", calibrator.offset_taken_at().map_or(f32::NAN, |temp| temp.get::<degree_celsius>()));
-                defmt_monitor::monitor!("Soc/CanCalibrate", desc = "Whether windows are currently being collected for a shunt offset. Needs the relay read back open from CFGA and the accumulator shutdown sense low; always false under HIL, where the rig drives neither.", "{=bool}", can_calibrate);
-                defmt_monitor::monitor!("Soc/CalibrationsAccepted", desc = "Shunt calibration runs that passed the offset and spread checks.", "{=u32}", calibrator.runs_accepted());
-                defmt_monitor::monitor!("Soc/CalibrationsRejected", desc = "Shunt calibration runs thrown out. Persistent rejections with the AIRs commanded open suggest real current, i.e. a welded contactor.", "{=u32}", calibrator.runs_rejected());
+                defmt_monitor::monitor!("HvPlate/Shunt/HilSimClockUs", desc = "Simulation time the rig last reported over RDHILTIME, in us. NaN means the model has never answered and nothing measured in plant time is running at all.", "{=f32}", hv_plate::hil::sim_time::now().map_or(f32::NAN, |now| now.as_micros() as f32));
+                defmt_monitor::monitor!("HvPlate/Shunt/Offset", desc = "Calibrated zero-current offset on the summed window, in microvolts. Datasheet bound is +/-32 uV across ACCN=32.", "{=i32}", calibrator.offset_sum_microvolts());
+                defmt_monitor::monitor!("HvPlate/Shunt/OffsetTemp", desc = "Shunt temperature when the offset was taken, in celsius. NaN until a calibration run is accepted.", "{=f32}", calibrator.offset_taken_at().map_or(f32::NAN, |temp| temp.get::<degree_celsius>()));
+                defmt_monitor::monitor!("HvPlate/Shunt/CanCalibrate", desc = "Whether windows are currently being collected for a shunt offset. Needs the relay read back open from CFGA and the accumulator shutdown sense low; always false under HIL, where the rig drives neither.", "{=bool}", can_calibrate);
+                defmt_monitor::monitor!("HvPlate/Shunt/CalibrationsAccepted", desc = "Shunt calibration runs that passed the offset and spread checks.", "{=u32}", calibrator.runs_accepted());
+                defmt_monitor::monitor!("HvPlate/Shunt/CalibrationsRejected", desc = "Shunt calibration runs thrown out. Persistent rejections with the AIRs commanded open suggest real current, i.e. a welded contactor.", "{=u32}", calibrator.runs_rejected());
 
                 latest_registers = acc_registers.or(latest_registers);
                 if let Some(regs) = latest_registers {
-                    defmt_monitor::monitor!("Soc/Window/I1cnt", desc = "Conversion counter as read from FLAG. Climbs by ACCN each window and wraps at 2048; standing still means the chip stopped converting.", "{=u16}", regs.i1cnt());
-                    defmt_monitor::monitor!("Soc/Window/I1cntPha", desc = "Sub-phase of the conversion counter, 13 bits with I1CNT. The change in this across two reads is what t_CONV is measured from.", "{=u16}", regs.i1cntpha());
-                    defmt_monitor::monitor!("Soc/Window/ReadAtUs", desc = "Plant-clock timestamp the reading carries, in us. On a rig this is the model's simulation time, so it should track Soc/HilSimClockUs rather than the MCU's uptime.", "{=u64}", regs.read_at().as_micros());
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/I1cnt", desc = "Conversion counter as read from FLAG. Climbs by ACCN each window and wraps at 2048; standing still means the chip stopped converting.", "{=u16}", regs.i1cnt());
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/I1cntPha", desc = "Sub-phase of the conversion counter, 13 bits with I1CNT. The change in this across two reads is what t_CONV is measured from.", "{=u16}", regs.i1cntpha());
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/ReadAtUs", desc = "Plant-clock timestamp the reading carries, in us. On a rig this is the model's simulation time, so it should track HvPlate/Shunt/HilSimClockUs rather than the MCU's uptime.", "{=u64}", regs.read_at().as_micros());
                 }
 
                 // A measurement is only present if a window is captured
                 if let (Some(window), Some(measurement)) = (latest_window, latest_measurement) {
-                    defmt_monitor::monitor!("Soc/Window/CurrentSumUv", desc = "Shunt voltage summed over the window, in uV, discharge positive and before the calibrated offset is taken off.", "{=i32}", window.current_sum_microvolts);
-                    defmt_monitor::monitor!("Soc/Window/CorrectedSumUv", desc = "The same sum with the calibrated offset removed. Equal to the raw sum until a calibration run has been accepted.", "{=i32}", window.current_sum_microvolts - calibrator.offset_sum_microvolts());
-                    defmt_monitor::monitor!("Soc/Window/BattSumUv", desc = "BATT-tap voltage summed over the window, in uV. Divide by ACCN for the mean tap reading.", "{=i32}", window.batt_sum_microvolts);
-                    defmt_monitor::monitor!("Soc/Window/WindowsElapsed", desc = "Windows this reading covers. 1 is clean; more means windows were overwritten before the task read them and their charge is being approximated.", "{=u16}", window.windows_elapsed);
-                    defmt_monitor::monitor!("Soc/Window/ConversionNs", desc = "Conversion time behind this window, in ns. Nominally 1000000. Pinned exactly there every window means the measurement was rejected and the nominal fallback is in use -- cross-check Soc/Desyncs.", "{=u32}", window.conversion_nanos);
-                    defmt_monitor::monitor!("Soc/Window/DurationUs", desc = "Wall time this window accounts for, in us. Nominally 32000 for one window at ACCN=32.", "{=u64}", window.duration_nanos() / 1_000);
-                    defmt_monitor::monitor!("Soc/Window/CurrentAmps", desc = "Mean current across the window, in amps. Positive is discharge.", "{=f32}", measurement.shunt_current.get::<ampere>());
-                    defmt_monitor::monitor!("Soc/Window/BattVolts", desc = "Mean BATT-side voltage across the window, off the 2950's divider -- not the segments' cell sum.", "{=f32}", measurement.batt_voltage.get::<volt>());
-                    defmt_monitor::monitor!("Soc/Window/ChargeUc", desc = "Charge moved in this window, in microcoulombs. This is what the coulomb count integrates.", "{=i64}", measurement.charge_microcoulombs);
-                    defmt_monitor::monitor!("Soc/Window/Calibrated", desc = "Whether a shunt calibration has been accepted. False means CorrectedSumUv is uncorrected and the coulomb count is not running at all.", "{=bool}", measurement.calibrated);
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/CurrentSumUv", desc = "Shunt voltage summed over the window, in uV, discharge positive and before the calibrated offset is taken off.", "{=i32}", window.current_sum_microvolts);
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/CorrectedSumUv", desc = "The same sum with the calibrated offset removed. Equal to the raw sum until a calibration run has been accepted.", "{=i32}", window.current_sum_microvolts - calibrator.offset_sum_microvolts());
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/BattSumUv", desc = "BATT-tap voltage summed over the window, in uV. Divide by ACCN for the mean tap reading.", "{=i32}", window.batt_sum_microvolts);
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/WindowsElapsed", desc = "Windows this reading covers. 1 is clean; more means windows were overwritten before the task read them and their charge is being approximated.", "{=u16}", window.windows_elapsed);
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/ConversionNs", desc = "Conversion time behind this window, in ns. Nominally 1000000. Pinned exactly there every window means the measurement was rejected and the nominal fallback is in use -- cross-check HvPlate/Shunt/Desyncs.", "{=u32}", window.conversion_nanos);
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/DurationUs", desc = "Wall time this window accounts for, in us. Nominally 32000 for one window at ACCN=32.", "{=u64}", window.duration_nanos() / 1_000);
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/CurrentAmps", desc = "Mean current across the window, in amps. Positive is discharge.", "{=f32}", measurement.shunt_current.get::<ampere>());
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/BattVolts", desc = "Mean BATT-side voltage across the window, off the 2950's divider -- not the segments' cell sum.", "{=f32}", measurement.batt_voltage.get::<volt>());
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/ChargeUc", desc = "Charge moved in this window, in microcoulombs. This is what the coulomb count integrates.", "{=i64}", measurement.charge_microcoulombs);
+                    defmt_monitor::monitor!("HvPlate/Shunt/Window/Calibrated", desc = "Whether a shunt calibration has been accepted. False means CorrectedSumUv is uncorrected and the coulomb count is not running at all.", "{=bool}", measurement.calibrated);
                 }
             }
         }

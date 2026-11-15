@@ -213,15 +213,7 @@ mod task {
 
             #[cfg(defmt_monitor)]
             {
-                use crate::units::volt;
-                use uom::si::electric_current::ampere;
-
-                defmt_monitor::monitor!("Soc/Measurement/BattVolts", desc = "Mean BATT-side voltage over the window, off the 2950's divider. Compare against analyzer.pack_voltage: that one sums the cells and is the more accurate figure, so the gap here is this divider's tolerance.", "{=f32}", measurement.batt_voltage.get::<volt>());
-                defmt_monitor::monitor!("Soc/Measurement/AverageCurrent", desc = "Mean shunt current over the most recent accumulator window, in amps. Cross-check against the instantaneous reading from IVB1.", "{=f32}", measurement.shunt_current.get::<ampere>());
                 defmt_monitor::monitor!("Soc/Measurement/StateOfCharge", desc = "State of charge 0..1. NaN until an open-circuit voltage has seeded the count -- the estimate does not exist yet, rather than being zero.", "{=f32}", counter.state_of_charge().unwrap_or(f32::NAN));
-                defmt_monitor::monitor!("Soc/Measurement/SampleCharge", desc = "Charge moved in the most recent accumulator window, in microcoulombs.", "{=i64}", measurement.charge_microcoulombs);
-                defmt_monitor::monitor!("Soc/Measurement/WindowsElapsed", desc = "Accumulator windows covered by the most recent sample. 1 is clean.", "{=u16}", measurement.windows_elapsed);
-                defmt_monitor::monitor!("Soc/Measurement/TConvUs", desc = "Measured t_CONV, the accumulator window, in us. Nominally 32000; drift from that is the internal oscillator, specified at +/-10%.", "{=u64}", measurement.duration_nanos / u64::from(measurement.windows_elapsed) / 1_000);
                 defmt_monitor::monitor!("Soc/Measurement/CC", desc = "The datasheet's CC: net charge moved since boot, in microcoulombs. Positive is discharge. Never reset -- not by a chip restart, not by a reseed.", "{=i64}", counter.cc_microcoulombs());
                 defmt_monitor::monitor!("Soc/Measurement/Drift", desc = "Gap the last accepted OCV found against the coulomb count, in state of charge. Positive means the OCV read higher. Holds until the next reference rather than being wiped by one taken moments later.", "{=f32}", counter.drift());
                 defmt_monitor::monitor!("Soc/Measurement/SecsSinceSeed", desc = "Seconds of plant time since the count last referenced itself off an OCV. Sits between 0 and SEED_MIN_INTERVAL while the pack rests, and climbs without bound once it does not. NaN until the first reference, and whenever the plant clock cannot be read.", "{=f32}", counter.secs_since_seed(plant).unwrap_or(f32::NAN));

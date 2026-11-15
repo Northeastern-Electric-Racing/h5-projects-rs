@@ -280,6 +280,12 @@ mod task {
                 defmt_monitor::monitor!("HvPlate/Precharge/BattVolts", desc = "Averaged pack voltage, in volts, off the 2950's BATT divider -- not the segments' cell sum. NaN until the plate has read BATT.", "{=f32}", batt.unwrap_or(f32::NAN));
                 defmt_monitor::monitor!("HvPlate/Precharge/Ratio", desc = "Averaged TS voltage as a fraction of averaged BATT-side voltage. NaN when either is unknown.", "{=f32}", ratio);
                 defmt_monitor::monitor!("HvPlate/Precharge/Weld", desc = "Welded-contact verdict. Unknown means the test could not run, not that the contacts are fine.", "{}", detected_weld_state);
+                defmt_monitor::monitor!(
+                    "HvPlate/Precharge/PlateAgeMs",
+                    desc = "Age of the plate's BATT reading when precharge looked, in ms. This is what PLATE_MAX_AGE is judged against: once it reaches that, the reading is dropped and precharge loses the input entirely. Compare the two to see how much headroom the rig actually leaves. NaN before the plate has read once.",
+                    "{=f32}",
+                    crate::hv_plate::instant_batt_voltage().map_or(f32::NAN, |reading| reading.age().as_millis() as f32)
+                );
                 defmt_monitor::monitor!("HvPlate/Precharge/PlantClock", desc = "Whether the plant clock can be read. False on a rig whose model has not answered RDHILTIME, and while it is false the relay cannot close however charged the bus looks.", "{=bool}", plant.is_some());
                 defmt_monitor::monitor!("HvPlate/Precharge/RelayState", desc = "What the 2950 last acknowledged about GPO4, which is not necessarily what the contacts are doing.", "{}", relay_detected_state);
             }

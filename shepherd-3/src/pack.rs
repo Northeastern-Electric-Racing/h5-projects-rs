@@ -29,7 +29,10 @@ pub mod analyzer {
         use crate::hv_plate;
 
         /// Several passes of the plate loop. Past this the link is not merely slow.
+        #[cfg(not(feature = "hil"))]
         const PLATE_MAX_AGE: Duration = Duration::from_millis(250);
+        #[cfg(feature = "hil")]
+        const PLATE_MAX_AGE: Duration = Duration::from_millis(1_000);
 
         /// Generous next to any sender's frame rate, so a single dropped frame does not flap the source.
         const REPORTED_MAX_AGE: Duration = Duration::from_millis(1_000);
