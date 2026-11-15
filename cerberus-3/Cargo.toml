@@ -20,6 +20,7 @@ embassy-time.workspace = true
 embassy-futures.workspace = true
 heapless.workspace = true
 panic-probe.workspace = true
+strum.workspace = true
 
 cangen.workspace = true
 can-handler.workspace = true
