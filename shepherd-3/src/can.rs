@@ -69,19 +69,18 @@ pub async fn can_inbox_task() -> ! {
                 pack::analyzer::store_can_pack_current(Current::new::<ampere>(m.current()));
                 pack::analyzer::store_can_ts_voltage(Voltage::new::<volt>(m.voltage()));
             },
-            Some(Msg::CurrentsStatus(_)) if !charging::is_charger_connected() => {
+            Some(Msg::CurrentsStatus(_)) => {
                 if let Some(current) = decode_dti_current(frame.data()) {
                     pack::analyzer::store_can_pack_current(current);
                 }
             },
-            Some(Msg::ErpmDutyInputVoltageStatus(_)) if !charging::is_charger_connected() => {
+            Some(Msg::ErpmDutyInputVoltageStatus(_)) => {
                 if let Some(voltage) = decode_dti_voltage(frame.data()) {
                     pack::analyzer::store_can_ts_voltage(voltage);
                 }
             },
             Some(Msg::ShepherdBmsPwmPercent(pwm)) => charging::update_pwm_duty_cycle(&pwm),
-            // DTI frames while the charger is connected.
-            Some(_) => {},
+            Some(m) => defmt::debug!("Received unhandled CAN message: {}", m.name()),
             None => defmt::debug!("Failed to decode CAN frame"),
         }
     }

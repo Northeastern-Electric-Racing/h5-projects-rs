@@ -30,10 +30,9 @@ cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.gi
 static_cell.workspace = true
 
 function_name = { version = "0.3.0" }
-variant_count.workspace = true
-strum = { version = "0.28.0", default-features = false, features = ["derive"] }
+variant_count = { version = "1.2.1" }
+strum.workspace = true
 atomic_enum = { version = "0.3.0" }
-
 # u_TODO - probably maybe move this to the workspace Cargo.toml eventually if this is gonna be something we use
 uom = { version = "0.38.0", default-features = false, features = ["si", "f32"] }
 

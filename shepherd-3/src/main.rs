@@ -151,6 +151,7 @@ async fn main(spawner: Spawner) {
         spawner.spawn(can_handler::can_props(embassy_stm32::pac::FDCAN2).expect("Failed to spawn can_handler::can_props()."));
         spawner.spawn(can::can_irq_monitor().expect("Failed to spawn can::can_irq_monitor()."));
     }
+    spawner.spawn(hardfault::crash_report_task(last_crash).expect("Failed to spawn hardfault::crash_report_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
