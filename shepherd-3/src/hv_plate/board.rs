@@ -1,7 +1,7 @@
 use crate::units::{Current, Resistance, Temperature, Voltage};
 
 /// Shunt resistance, in microohms. 0.05 milliohms.
-pub(super) const SHUNT_MICROOHMS: i64 = 50;
+pub const SHUNT_MICROOHMS: i64 = 50;
 /// Shunt resistance, in ohms, for the instantaneous readings.
 const SHUNT_RESISTANCE_OHMS: f32 = SHUNT_MICROOHMS as f32 * 1.0e-6_f32;
 

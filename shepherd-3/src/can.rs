@@ -25,6 +25,58 @@ pub fn try_send(frame: Frame) -> Result<(), ()> {
     can_handler::try_send(OUTGOING.dyn_sender(), frame)
 }
 
+/// Values reported by other devices about the accumulator
+pub mod reported {
+    use core::cell::Cell;
+    use embassy_sync::blocking_mutex::ThreadModeMutex;
+    use embassy_time::Instant;
+
+    use crate::helpers::stamped::Stamped;
+    use crate::units::{Current, Voltage};
+
+    /// All the possible sources of a reported value
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    #[derive(defmt::Format)]
+    pub enum Reporter {
+        /// On the far side of the AIRs.
+        Charger,
+        /// The motor controller, on the tractive-system bus.
+        Dti,
+    }
+
+    /// A value and who claimed it.
+    #[derive(Copy, Clone)]
+    pub struct Claim<T> {
+        pub value: Stamped<T>,
+        pub from: Reporter,
+    }
+
+    struct Inbox {
+        pack_current: Cell<Option<Claim<Current>>>,
+        ts_voltage: Cell<Option<Claim<Voltage>>>,
+    }
+
+    static INBOX: ThreadModeMutex<Inbox> = ThreadModeMutex::new(Inbox { pack_current: Cell::new(None), ts_voltage: Cell::new(None) });
+
+    /// Pack current as last reported, with when the frame arrived.
+    pub fn pack_current() -> Option<Claim<Current>> {
+        INBOX.lock(|inbox| inbox.pack_current.get())
+    }
+
+    /// TS voltage as last reported, with when the frame arrived.
+    pub fn ts_voltage() -> Option<Claim<Voltage>> {
+        INBOX.lock(|inbox| inbox.ts_voltage.get())
+    }
+
+    pub(super) fn store_pack_current(current: Current, from: Reporter) {
+        INBOX.lock(|inbox| inbox.pack_current.set(Some(Claim { value: Stamped::new(current, Instant::now()), from })));
+    }
+
+    pub(super) fn store_ts_voltage(voltage: Voltage, from: Reporter) {
+        INBOX.lock(|inbox| inbox.ts_voltage.set(Some(Claim { value: Stamped::new(voltage, Instant::now()), from })));
+    }
+}
+
 /// Initializes the FDCAN peripheral and returns the split CanTx and CanRx structs.
 pub fn init(r: crate::CanResources) -> (CanTx<'static>, CanRx<'static>) {
     let configurator = CanConfigurator::new(r.can, r.can_rx, r.can_tx, interrupts::Irqs);
@@ -55,7 +107,7 @@ pub fn init(r: crate::CanResources) -> (CanTx<'static>, CanRx<'static>) {
 #[embassy_executor::task]
 pub async fn can_inbox_task() -> ! {
     use crate::units::{Current, Voltage};
-    use crate::{charging, pack};
+    use crate::charging;
     use cangen::Msg;
     use uom::si::electric_current::ampere;
     use uom::si::electric_potential::volt;
@@ -66,17 +118,17 @@ pub async fn can_inbox_task() -> ! {
         match Msg::decode(&frame) {
             Some(Msg::ChargerBoxStatus(m)) => {
                 charging::alert_charger_received();
-                pack::analyzer::store_can_pack_current(Current::new::<ampere>(m.current()));
-                pack::analyzer::store_can_ts_voltage(Voltage::new::<volt>(m.voltage()));
+                reported::store_pack_current(Current::new::<ampere>(m.current()), reported::Reporter::Charger);
+                reported::store_ts_voltage(Voltage::new::<volt>(m.voltage()), reported::Reporter::Charger);
             },
             Some(Msg::CurrentsStatus(_)) => {
                 if let Some(current) = decode_dti_current(frame.data()) {
-                    pack::analyzer::store_can_pack_current(current);
+                    reported::store_pack_current(current, reported::Reporter::Dti);
                 }
             },
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {
                 if let Some(voltage) = decode_dti_voltage(frame.data()) {
-                    pack::analyzer::store_can_ts_voltage(voltage);
+                    reported::store_ts_voltage(voltage, reported::Reporter::Dti);
                 }
             },
             Some(Msg::ShepherdBmsPwmPercent(pwm)) => charging::update_pwm_duty_cycle(&pwm),

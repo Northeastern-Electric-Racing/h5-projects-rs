@@ -10,22 +10,26 @@ use embassy_stm32::{peripherals, Peri};
 use embassy_time::{Timer};
 use defmt_rtt as _;
 
-pub mod segments;
-pub mod hv_plate;
-pub mod hardfault;
-pub mod can;
-pub mod clocks;
-pub mod units;
 pub mod broadcast;
-pub mod job_diagnostics;
+pub mod can;
+pub mod charging;
+pub mod clocks;
 pub mod debug;
 pub mod faults;
-pub mod pack;
-pub mod helpers;
-pub mod state_machine;
-pub mod charging;
 pub mod gpios;
+pub mod hardfault;
+pub mod helpers;
+pub mod hv_plate;
+pub mod job_diagnostics;
+pub mod ocv;
+pub mod pack;
+pub mod precharge;
+pub mod segments;
 pub mod shutdown;
+pub mod soc;
+pub mod state_machine;
+pub mod time;
+pub mod units;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
@@ -157,14 +161,16 @@ async fn main(spawner: Spawner) {
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
     spawner.spawn(shutdown::shutdown_task().expect("Failed to spawn shutdown::shutdown_task()."));
-    spawner.spawn(hv_plate::soc_task().expect("Failed to spawn hv_plate::soc_task()."));
-    spawner.spawn(hv_plate::precharge_task().expect("Failed to spawn hv_plate::precharge_task()."));
+    spawner.spawn(hv_plate::shunt_task().expect("Failed to spawn hv_plate::shunt_task()."));
+    spawner.spawn(soc::soc_task().expect("Failed to spawn soc::soc_task()."));
+    spawner.spawn(precharge::precharge_task().expect("Failed to spawn precharge::precharge_task()."));
     spawner.spawn(state_machine::state_machine_task().expect("Faield to spawn state_machine::state_machine_task()"));
     spawner.spawn(faults::task::faults_task().expect("Failed to spawn faults task."));
     spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
     spawner.spawn(debug::faults_debug(spawner).expect("Failed to spawn faults debug task."));
     spawner.spawn(pack::analyzer::analyzer_task().expect("Failed to spawn pack::analyzer_task()."));
-    spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
+    spawner.spawn(ocv::ocv_task().expect("Failed to spawn ocv::ocv_task()."));
+    spawner.spawn(hv_plate::hv_plate_debug().expect("Failed to spawn hv_plate::hv_plate_debug()."));
     spawner.spawn(charging::charger_task().expect("Failed to spawn charging::charger_task()."));
 }
 

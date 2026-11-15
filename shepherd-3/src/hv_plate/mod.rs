@@ -15,24 +15,53 @@
 mod board;
 mod cache;
 mod core;
+mod debug;
 #[cfg(feature = "hil")]
-mod hil;
+pub(crate) mod hil;
 mod isospi_recovery;
-mod precharge;
-mod soc;
+mod shunt;
 
 // Tasks
 pub use core::task::hv_plate_task;
-pub use precharge::precharge_task;
-pub use soc::soc_task;
+pub use debug::hv_plate_debug;
+pub use shunt::shunt_task;
 
-// API
-/// Allows you to read the cache data.
-pub(crate) const fn cache() -> &'static CacheData {
-    &cache::CACHE
+// -- API for hv_plate module --
+use crate::helpers::stamped::Stamped;
+use crate::units::{Current, Voltage};
+
+/// One accumulator window, offset-corrected and in physical units.
+pub(crate) use shunt::Measurement;
+
+/// The relay is the one thing the plate takes commands about rather than only reporting.
+pub(crate) use self::core::relay::{RelayRequest, RelayState};
+
+/// TS voltage off the 2950's own divider behind GPO2.
+pub(crate) fn ts_voltage() -> Option<Stamped<Voltage>> {
+    cache::CACHE.voltages().reading().try_partial_get(|reading| Stamped::new(reading.nice().ts_voltage, reading.read_at()))
 }
-pub use core::task::signal::HV_PLATE_FRESH_DATA_SIGNAL;
-pub(crate) use soc::api::soc_data;
 
-// Re-export cache types
-pub(crate) use cache::CacheData;
+/// BATT-side voltage, off the 2950's own divider.
+pub(crate) fn instant_batt_voltage() -> Option<Stamped<Voltage>> {
+    cache::CACHE.current_voltage().reading().try_partial_get(|reading| Stamped::new(reading.nice().batt_voltage, reading.read_at()))
+}
+
+/// Pack current off a single conversion, offset-corrected. Positive is discharge.
+pub(crate) fn instant_current() -> Option<Stamped<Current>> {
+    shunt::published::instant()
+}
+
+/// The last accumulator window to close
+pub(crate) fn shunt_window() -> &'static shunt::published::UnwriteableWindowWatch {
+    shunt::published::window()
+}
+
+/// What the 2950 last acknowledged about GPO4, which is not necessarily what the contacts are doing.
+pub(crate) fn relay_state() -> RelayState {
+    self::core::relay::state()
+}
+
+/// Asks the plate to open or close the HV relay; it is applied on the plate's next pass.
+pub(crate) fn request_relay(request: RelayRequest) {
+    self::core::relay::request(request);
+}

@@ -82,7 +82,10 @@ impl SpiDevice for HilDevice {
                     match result {
                         Ok(Err(err)) => return Err(HilError::Uart(err)),
                         Ok(Ok(())) => {
-                            // Fetch the model's clock while it still describes this reading.
+                            // The model answers RDHILTIME from its live clock -- SNAP does not
+                            // freeze it -- so this is the simulation time a fraction of a frame
+                            // after the registers above were sent. `cache::Group::update` samples
+                            // it once this read returns, which is what pins it to this reading.
                             sim_time::refresh_after(command, tx, rx).await;
                             return Ok(());
                         },
@@ -136,6 +139,8 @@ async fn drain_rx(rx: &mut UartRx<'static, Async>) {
 }
 
 /// The simulink model's own clock, read over UART.
+///
+/// This is the plant clock on a rig: see [`crate::time`] for what that is and is not for.
 pub mod sim_time {
     use super::{Async, READ_TIMEOUT, UartRx, UartTx, with_timeout};
     use adbms2950::chip::{
@@ -143,11 +148,16 @@ pub mod sim_time {
         registers::{ReadableGroup, results::AccumulatedCurrentAndBatteryVoltage},
     };
     use core::cell::Cell;
+    use crate::time::PlantTime;
     use embassy_sync::blocking_mutex::ThreadModeMutex;
 
     const RDHILTIME: u16 = 0b111_1111_1111;
-    /// Last simulation time the rig reported, in microseconds. Zero until the first answer.
-    static MICROS: ThreadModeMutex<Cell<u64>> = ThreadModeMutex::new(Cell::new(0));
+
+    /// Last simulation time the rig reported, in microseconds.
+    ///
+    /// `None` until the rig has answered. Never zero-as-unknown: a consumer that cannot tell those
+    /// apart measures its first dwell against a clock that was never read.
+    static MICROS: ThreadModeMutex<Cell<Option<u64>>> = ThreadModeMutex::new(Cell::new(None));
 
     /// The wire frame for [`RDHILTIME`]: opcode then command PEC, same as any other command.
     const fn query() -> [u8; 4] {
@@ -158,11 +168,22 @@ pub mod sim_time {
     }
 
     /// The model's clock as of its last answer, on the model's own timebase.
-    pub fn now() -> embassy_time::Instant {
-        embassy_time::Instant::from_micros(MICROS.lock(|micros| micros.get()))
+    ///
+    /// `None` until the rig has answered. Refreshed once per HV plate pass, so it is quantised to
+    /// that period and can read the same value twice -- callers must not assume it advances
+    /// between two calls.
+    pub fn now() -> Option<PlantTime> {
+        MICROS.lock(|micros| micros.get()).map(PlantTime::from_micros)
     }
 
     /// Reads the rig's clock, but only after the one read whose timestamp is load bearing.
+    ///
+    /// `job_update_snap_registers` reads this group on every pass, so the gate is already "once per
+    /// HV plate tick" -- ungating it would buy nothing and cost a frame per register group.
+    ///
+    /// The reply is the model's clock at the moment it handles this frame, which is a couple of
+    /// frames after the SNAP that froze the registers being stamped. That offset is near enough
+    /// constant and the accumulator only ever takes differences of two stamps, so it cancels.
     pub(super) async fn refresh_after(command: &[u8], tx: &mut UartTx<'static, Async>, rx: &mut UartRx<'static, Async>) {
         if command != AccumulatedCurrentAndBatteryVoltage::READ_COMMAND.to_bytes().as_slice() {
             return;
@@ -177,12 +198,12 @@ pub mod sim_time {
         .await;
 
         if !matches!(fetched, Ok(Ok(()))) {
-            defmt::warn!("HvPlate: hil: the rig did not answer RDHILTIME; the next SOC window is measured against a stale simulation time.");
+            defmt::warn!("HvPlate: hil: the rig did not answer RDHILTIME; everything measured in plant time is holding against a stale simulation clock.");
             return;
         }
 
         if !DataPecRx::from_bytes([reply[6], reply[7]]).verify(&reply[..6]) {
-            defmt::warn!("HvPlate: hil: RDHILTIME failed its PEC; the next SOC window is measured against a stale simulation time.");
+            defmt::warn!("HvPlate: hil: RDHILTIME failed its PEC; everything measured in plant time is holding against a stale simulation clock.");
             return;
         }
 
@@ -192,6 +213,16 @@ pub mod sim_time {
             micros |= u64::from(*byte) << (index * 8);
         }
 
-        MICROS.lock(|stamp| stamp.set(micros));
+        // The model restarted under a firmware that did not. Every dwell and deadline measured in
+        // plant time is now counting against a world that no longer exists: they will not fire
+        // until the clock climbs back past where they were set. Reported, not papered over --
+        // restart the firmware with the model.
+        if let Some(previous) = MICROS.lock(|stamp| stamp.get())
+            && micros < previous
+        {
+            defmt::error!("HvPlate: hil: the rig's clock went backwards ({=u64} us -> {=u64} us). Every deadline and dwell measured in plant time is now stale; restart the firmware along with the model.", previous, micros);
+        }
+
+        MICROS.lock(|stamp| stamp.set(Some(micros)));
     }
 }

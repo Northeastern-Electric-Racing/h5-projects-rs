@@ -1,11 +1,6 @@
 //! Caches SPI reads to the HV plate's ADBMS2950B chip.
 //!
-//! One cell per group holding the registers, the converted form built from those same registers,
-//! and when they were read. A [`Reading`] is replaced whole, so the two can never disagree, and a
-//! failed read leaves the cell untouched -- staleness shows as `read_at` not advancing.
-//!
 //! Device health (command counter, PEC tallies) lives in [`adbms2950::api::DeviceState`].
-//! `StartupCell` rather than `RefCell` because any task may read at any time.
 
 use adbms2950::chip::registers::{
     ReadableGroup,
@@ -17,11 +12,13 @@ use adbms2950::chip::registers::{
 };
 use adbms2950::line::Error;
 use crate::helpers::startup_cell::{StartupCell, UnwriteableStartupCell};
+use crate::time::PlantTime;
+use embassy_time::Instant;
 
 use super::core::alias;
 
 /// Cache to hold read data.
-pub(super) static CACHE: CacheData = CacheData::new();
+pub static CACHE: CacheData = CacheData::new();
 
 /// A driver error, carrying the concrete SPI error type.
 pub type LineError = Error<alias::SpiError>;
@@ -40,22 +37,36 @@ pub enum UpdateError {
     ConversionError(LineError),
 }
 
-/// A group's converted values, its registers, and how to read them. The only part that differs
-/// between groups; the cell, the timestamp and the update are generic over it.
-pub(crate) trait Decode: Copy {
+/// A group's converted values, its registers, and how to read them.
+pub trait Decode: Copy {
     /// The registers this group reads in one pass.
     type Registers: Copy;
 
     /// One SPI transaction per register, in the order the chip wants them.
     async fn read_registers(api: &mut alias::Api) -> Result<Self::Registers, UpdateError>;
 
-    /// Applies the board's networks and the driver's scaling. Groups with nothing to convert
-    /// alias `Self` to their own `Registers` and return a copy.
+    /// Applies the board's networks and the driver's scaling.
     fn decode(registers: &Self::Registers) -> Self;
 
-    /// Taken *before* the first SPI read, so it bounds every register in the group.
-    fn read_at() -> embassy_time::Instant {
-        embassy_time::Instant::now()
+    /// Taken *before* the first SPI read, so it bounds every register in the group. Contrast
+    /// [`Self::plant_at`], which is sampled after.
+    ///
+    /// Always the MCU's clock: this is what freshness and liveness are judged on, and those have
+    /// to keep working when a rig's model stops. For how much time the *plant* experienced, see
+    /// [`Self::plant_at`].
+    fn read_at() -> Instant {
+        Instant::now()
+    }
+
+    /// The same moment on the plant's clock, for a group something integrates over or dwells on.
+    ///
+    /// `None` by default, and that is not a failure: most groups are read for what they say, not
+    /// for how much time the pack experienced between two reads, so they have no use for a second
+    /// timestamp. A group that does need one overrides this. See [`crate::time`].
+    ///
+    /// Sampled *after* the registers are read, unlike [`Self::read_at`] -- see `Group::update`.
+    fn plant_at() -> Option<PlantTime> {
+        None
     }
 }
 
@@ -70,34 +81,42 @@ async fn read<R: ReadableGroup>(api: &mut alias::Api) -> Result<R, UpdateError> 
     }
 }
 
-/// A group's registers, their converted form, and when they were read.
+/// A group's registers and the form converted from them, under one timestamp.
 #[derive(Copy, Clone)]
-pub(crate) struct Reading<N: Decode> {
+pub struct Reading<N: Decode> {
     registers: N::Registers,
     nice: N,
-    read_at: embassy_time::Instant,
+    read_at: Instant,
+    plant_at: Option<PlantTime>,
 }
 
 impl<N: Decode> Reading<N> {
     /// Exactly as the chip reported them.
-    pub(crate) const fn registers(&self) -> &N::Registers {
+    pub const fn registers(&self) -> &N::Registers {
         &self.registers
     }
 
-    /// Made when the registers were read.
-    pub(crate) const fn nice(&self) -> &N {
-        &self.nice
+    /// The converted form: board networks and driver scaling applied.
+    pub const fn nice(&self) -> N {
+        self.nice
     }
 
-    /// Nothing in [`Self::registers`] predates this.
-    pub(crate) const fn read_at(&self) -> embassy_time::Instant {
+    /// Nothing in this reading predates this, on the MCU's clock. This is the stamp freshness and
+    /// liveness are judged against; it keeps advancing whatever a rig's model is doing.
+    pub const fn read_at(&self) -> Instant {
         self.read_at
+    }
+
+    /// The same moment on the plant's clock, for the groups that declare one -- see
+    /// [`Decode::plant_at`]. `None` both for a group that has no use for it and for a rig whose
+    /// clock could not be read, which is why the one consumer treats it as a precondition.
+    pub const fn plant_at(&self) -> Option<PlantTime> {
+        self.plant_at
     }
 }
 
-/// One cached group. `inner` is private so [`Self::update`] is the only writer -- aliasing this
-/// to the cell directly would hand `set` to everything holding a group.
-pub(crate) struct Group<N: Decode> {
+/// One cached group. `inner` is private so [`Self::update`] is the only writer.
+pub struct Group<N: Decode> {
     inner: StartupCell<Reading<N>>,
 }
 
@@ -108,24 +127,27 @@ impl<N: Decode> Group<N> {
     }
 
     /// The cached reading, once there is one. The `Option`/`await` is the validity boundary.
-    pub(crate) const fn reading(&self) -> &UnwriteableStartupCell<Reading<N>> {
+    pub const fn reading(&self) -> &UnwriteableStartupCell<Reading<N>> {
         self.inner.to_unwriteable()
     }
 
-    /// Reads the registers and publishes them with their converted form. On any failure nothing
-    /// is published, so a partially-read group never reaches a consumer.
-    pub(in crate::hv_plate) async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+    /// Reads the registers and publishes them with their converted form; nothing on failure.
+    pub async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
         let read_at = N::read_at();
         let registers = N::read_registers(api).await?;
+        // After the read, not before. On a rig the plant clock only moves when the HIL shim asks
+        // the model for it, and it does that on the back of this very read -- so sampling it here
+        // gets the reading's own timestamp, where sampling it above would get the previous pass's.
+        let plant_at = N::plant_at();
 
-        self.inner.set(Reading { nice: N::decode(&registers), registers, read_at });
+        self.inner.set(Reading { nice: N::decode(&registers), registers, read_at, plant_at });
 
         Ok(())
     }
 }
 
 /// All of the HV plate's register caches.
-pub(crate) struct CacheData {
+pub struct CacheData {
     current_voltage: Group<current_voltage::Nice>,
     accumulated: Group<accumulated::Nice>,
     flag: Group<Flag>,
@@ -136,7 +158,7 @@ pub(crate) struct CacheData {
 
 impl CacheData {
     /// Uninitialized. Called once, to build the static.
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             current_voltage: Group::new(),
             accumulated: Group::new(),
@@ -147,22 +169,22 @@ impl CacheData {
         }
     }
 
-    pub(crate) const fn current_voltage(&self) -> &Group<current_voltage::Nice> {
+    pub const fn current_voltage(&self) -> &Group<current_voltage::Nice> {
         &self.current_voltage
     }
-    pub(crate) const fn accumulated(&self) -> &Group<accumulated::Nice> {
+    pub const fn accumulated(&self) -> &Group<accumulated::Nice> {
         &self.accumulated
     }
-    pub(crate) const fn flag(&self) -> &Group<Flag> {
+    pub const fn flag(&self) -> &Group<Flag> {
         &self.flag
     }
-    pub(crate) const fn voltages(&self) -> &Group<voltages::Nice> {
+    pub const fn voltages(&self) -> &Group<voltages::Nice> {
         &self.voltages
     }
-    pub(crate) const fn aux(&self) -> &Group<aux::Nice> {
+    pub const fn aux(&self) -> &Group<aux::Nice> {
         &self.aux
     }
-    pub(crate) const fn status(&self) -> &Group<status::Nice> {
+    pub const fn status(&self) -> &Group<status::Nice> {
         &self.status
     }
 }
@@ -170,6 +192,7 @@ impl CacheData {
 /// Pack current and BATT voltage, read coherently inside one SNAP window.
 pub mod current_voltage {
     use super::{CurrentAndBatteryVoltage, UpdateError, alias, read};
+
     use crate::hv_plate::board;
     use crate::units::{Current, Voltage};
 
@@ -203,13 +226,13 @@ pub mod current_voltage {
 /// Accumulated current and BATT voltage, for coulomb counting.
 pub mod accumulated {
     use super::{AccumulatedCurrentAndBatteryVoltage, UpdateError, alias, read};
+
+    pub type Reading = super::Reading<Nice>;
     use crate::hv_plate::board;
 
     pub type Registers = AccumulatedCurrentAndBatteryVoltage;
-    pub type Reading = super::Reading<Nice>;
 
-    /// Sums of `ACCN` conversions, not averages, never cleared here. Divide by `ACCN` (CFGA's
-    /// `acci`) for an average; diff against your own previous value to integrate.
+    /// Sums of `ACCN` conversions, not averages, never cleared here.
     #[derive(Copy, Clone)]
     pub struct Nice {
         /// Microvolts, discharge positive.
@@ -232,16 +255,15 @@ pub mod accumulated {
             }
         }
 
-        /// On a rig the accumulator's timebase is the model's, not the MCU's.
-        #[cfg(feature = "hil")]
-        fn read_at() -> embassy_time::Instant {
-            crate::hv_plate::hil::sim_time::now()
+        /// The one group that is integrated over rather than simply read, so it is the one that
+        /// needs the interval the pack actually lived through. On a rig that is the model's clock.
+        fn plant_at() -> Option<crate::time::PlantTime> {
+            crate::time::plant_now()
         }
     }
 }
 
-/// FLAG: fault latches and the conversion counters. Nothing needs converting, so the register
-/// *is* the converted form and no promoted copy of an accessor can rot beside it.
+/// FLAG: fault latches and conversion counters; the register is its own converted form.
 pub mod flag {
     use super::Flag;
 
@@ -371,8 +393,7 @@ pub mod aux {
     }
 }
 
-/// STATUS and the overcurrent codes. Neither can be converted: scaling an OC code needs CFGB's
-/// `OCxGC` gain bit, which only `Api` caches. Grouping them gets them one shared `read_at`.
+/// STATUS and the overcurrent codes. Neither can be converted here.
 pub mod status {
     use super::{OverCurrentResults, Status, UpdateError, alias, read};
 

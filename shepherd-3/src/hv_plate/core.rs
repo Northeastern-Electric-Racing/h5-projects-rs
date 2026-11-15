@@ -6,7 +6,6 @@ use static_cell::StaticCell;
 
 use super::cache::{self, UpdateError};
 use super::isospi_recovery;
-use super::precharge;
 use crate::broadcast::Broadcast;
 use crate::helpers::deadline::Deadline;
 use crate::job_diagnostics::JobDiagnosticsContainer;
@@ -15,7 +14,7 @@ use adbms2950::line::Error;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 
 /// Accumulation depth (`ACCN`), written into ConfigA's `ACCI` by [`HvPlate::startup`].
-pub(in crate::hv_plate) const ACCUMULATOR_DEPTH: AccumulatorDepth = AccumulatorDepth::Samples32;
+pub const ACCUMULATOR_DEPTH: AccumulatorDepth = AccumulatorDepth::Samples32;
 
 #[cfg(not(feature = "hil"))]
 embassy_stm32::bind_interrupts!(struct Irqs {
@@ -62,7 +61,6 @@ enum Cause {
     /// Never configured since power-up.
     ColdStart,
     /// The command counter says the chip restarted and threw its configuration away.
-    /// HIL keeps no command counter, so this cannot arise there.
     #[cfg(not(feature = "hil"))]
     ChipReset,
     /// Recovery moved comms to the other isoSPI port.
@@ -296,7 +294,18 @@ pub mod relay {
         Closed,
     }
 
+    /// What something outside the plate is asking GPO4 to do.
+    #[atomic_enum]
+    #[derive(PartialEq, Eq, defmt::Format)]
+    pub enum RelayRequest {
+        Open = 0,
+        Closed,
+    }
+
     static STATE: AtomicRelayState = AtomicRelayState::new(RelayState::Unknown);
+
+    /// Open until something asks otherwise: the fail-safe direction for a contactor.
+    static REQUESTED: AtomicRelayRequest = AtomicRelayRequest::new(RelayRequest::Open);
 
     pub(super) fn store(state: RelayState) {
         STATE.store(state, Ordering::Relaxed);
@@ -306,6 +315,16 @@ pub mod relay {
     /// unknown: nothing written yet, or the last write or read-back failed.
     pub fn state() -> RelayState {
         STATE.load(Ordering::Relaxed)
+    }
+
+    /// Read by [`super::task::hv_plate_task`] on each pass.
+    pub(super) fn requested() -> RelayRequest {
+        REQUESTED.load(Ordering::Relaxed)
+    }
+
+    /// Asks the plate to open or close the relay, applied on its next pass.
+    pub fn request(request: RelayRequest) {
+        REQUESTED.store(request, Ordering::Relaxed);
     }
 }
 
@@ -403,6 +422,7 @@ pub mod task {
     /// `Broadcast` static for the HV plate task, so other tasks can await fresh cache data.
     pub mod signal {
         use super::*;
+        use crate::helpers::unwriteable_watch::UnwriteableWatch;
         use embassy_sync::watch::Watch;
 
         const HV_PLATE_FRESH_DATA_MAX_WAITERS: usize = 10;
@@ -410,23 +430,29 @@ pub mod task {
 
         #[derive(Copy, Clone)]
         pub struct AccWindowStatus {
-            /// The chip restarted this pass, so anything derived from its counters has to
-            /// re-baseline.
-            ///
-            /// A flag rather than an instant: the consumer re-bases off the timestamp of the next
-            /// reading instead, which keeps its arithmetic on a single clock.
+            /// The chip restarted this pass, so anything derived from its counters must re-baseline.
             pub chip_restarted: bool,
             pub fresh: bool,
         }
+        /// Slots for tasks that `await` a pass. `shunt` is the only one.
         const ACC_DATA_RECEIVERS: usize = 1;
-        pub static ACC_WINDOW_SIGNAL: Watch<ThreadModeRawMutex, AccWindowStatus, ACC_DATA_RECEIVERS> = Watch::new();
+        static ACC_WINDOW_SIGNAL: Watch<ThreadModeRawMutex, AccWindowStatus, ACC_DATA_RECEIVERS> = Watch::new();
+
+        /// Every pass of [`super::hv_plate_task`], once the snap has been attempted.
+        pub fn acc_window() -> &'static UnwriteableWatch<ThreadModeRawMutex, AccWindowStatus, ACC_DATA_RECEIVERS> {
+            UnwriteableWatch::of(&ACC_WINDOW_SIGNAL)
+        }
+
+        /// Called only by [`super::hv_plate_task`].
+        pub(super) fn publish(status: AccWindowStatus) {
+            ACC_WINDOW_SIGNAL.sender().send(status);
+        }
     }
 
     #[embassy_executor::task]
     pub async fn hv_plate_task(r: crate::HvPlateResources) {
-        /// With ACCN = 32 and IXADC_CONVERSION_MS = 1, IVB1ACC is overwritten every 32 ms *nominally*,
-        /// but the internal oscillator runs up to 10% fast, so a window can close in 32/1.1 = 29.09 ms.
-        /// 25 ms leaves headroom for jitter on top.
+        /// Must beat the accumulator window -- `ACCN` conversions of `IXADC_CONVERSION_MS`, shortened
+        /// by the oscillator's worst-case fast tolerance -- with headroom for jitter on top.
         const PERIOD: Duration = Duration::from_millis(25);
         const DIAGNOSTIC_PERIOD: Duration = Duration::from_secs(1);
         const DIAGNOSTIC_TICKS: u32 = (DIAGNOSTIC_PERIOD.as_ticks() / PERIOD.as_ticks()) as u32;
@@ -450,12 +476,13 @@ pub mod task {
                 ChipState::Restarted => true,
                 // Nothing downstream can trust a chip that is not configured, so skip the pass.
                 ChipState::Unconfigured => {
-                    signal::ACC_WINDOW_SIGNAL.sender().send(signal::AccWindowStatus { chip_restarted: true, fresh: false });
+                    signal::publish(signal::AccWindowStatus { chip_restarted: true, fresh: false });
                     ticker.next().await;
                     continue;
                 },
             };
 
+            // Read current and voltage sense registers
             let snap_ok = match hv_plate.job_update_snap_registers().await {
                 Ok(()) => true,
                 Err(err) => {
@@ -463,7 +490,7 @@ pub mod task {
                     false
                 },
             };
-            signal::ACC_WINDOW_SIGNAL.sender().send(signal::AccWindowStatus { chip_restarted, fresh: snap_ok });
+            signal::publish(signal::AccWindowStatus { chip_restarted, fresh: snap_ok });
 
             let voltage_ok = match hv_plate.job_update_voltage_registers().await {
                 Ok(()) => true,
@@ -477,7 +504,8 @@ pub mod task {
                 signal::HV_PLATE_FRESH_DATA_SIGNAL.signal();
             }
 
-            let want_closed = precharge::relay_should_be_closed();
+            // Control relay and read back its state
+            let want_closed = relay::requested() == relay::RelayRequest::Closed;
             let wanted = if want_closed { relay::RelayState::Closed } else { relay::RelayState::Open };
             let confirm = wanted != relay::state() || relay_confirm_deadline.past();
             if let Err(err) = hv_plate.set_hv_relay(want_closed).await {
@@ -503,6 +531,7 @@ pub mod task {
                 }
             }
 
+            // Read aux and status registers at diagnostic frequency
             tick_count = (tick_count + 1) % DIAGNOSTIC_TICKS;
             if tick_count == 1 {
                 if let Err(err) = hv_plate.job_update_aux_registers().await {

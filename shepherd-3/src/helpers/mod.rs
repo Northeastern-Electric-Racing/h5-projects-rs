@@ -2,10 +2,12 @@
 
 pub mod deadline;
 pub mod debouncer;
+pub mod hysteresis;
 pub mod moving_average;
 pub mod snapshot_cell;
+pub mod stamped;
 pub mod startup_cell;
-pub mod hysteresis;
+pub mod unwriteable_watch;
 
 /// Helpers that aren't cool enough for their own module.
 mod misc {
