@@ -93,7 +93,7 @@ assign_resources! {
     /// Resources for the battery box fans (PWM0 on the compute board).
     fan: FanResources {
         fan_timer: TIM3,
-        fan_pin: PC6, // placeholder, confirm against the C pin config
+        fan_pin: PC7,
     },
 }
 
@@ -137,7 +137,7 @@ assign_resources! {
      /// Resources for the battery box fans (PWM0 on the compute board).
     fan: FanResources {
         fan_timer: TIM3,
-        fan_pin: PC6,
+        fan_pin: PC7,
     },
 }
 

@@ -1414,6 +1414,7 @@ dependencies = [
  "lsm6dsv16x-ner",
  "panic-probe",
  "static_cell",
+ "vqf-rs",
 ]
 
 [[package]]
@@ -2318,6 +2319,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de437e2a6208b014ab52972a27e59b33fa2920d3e00fe05026167a1c509d19cc"
 dependencies = [
  "vcell",
+]
+
+[[package]]
+name = "vqf-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6bee49d5fd327532ec2dae66b261f858a8055ba45c24677ce8cacf9206a192a"
+dependencies = [
+ "libm",
 ]
 
 [[package]]
