@@ -208,7 +208,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#eb98e0f0072674f8d467a9b665f5081d1398ce66"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
@@ -223,7 +223,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#eb98e0f0072674f8d467a9b665f5081d1398ce66"
 dependencies = [
  "bitfield-struct 0.13.0",
  "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
@@ -245,7 +245,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#eb98e0f0072674f8d467a9b665f5081d1398ce66"
 dependencies = [
  "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
  "heck",
@@ -270,9 +270,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.11.1"
+version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ff2a8126fff0f8c839080d619675a585e61720bb12d2baceae45769fd66f155"
+checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -300,6 +300,7 @@ dependencies = [
  "nereth",
  "num-traits",
  "panic-probe",
+ "strum",
  "uom",
  "variant_count",
 ]
@@ -427,7 +428,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#eb98e0f0072674f8d467a9b665f5081d1398ce66"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1256,7 +1257,7 @@ dependencies = [
 [[package]]
 name = "lsm6dsv16x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#eb98e0f0072674f8d467a9b665f5081d1398ce66"
 dependencies = [
  "defmt 1.2.0",
  "embassy-time",
@@ -1433,7 +1434,7 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 [[package]]
 name = "nereth"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#eb98e0f0072674f8d467a9b665f5081d1398ce66"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
@@ -1529,9 +1530,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9f016da56b311cff4659f5e7335c4d5fda5ca86cae4f48b8ce1cf3335246a7d"
+checksum = "3ef0b569d1d907ab3a28596aee62cf1f61dacb0529a4bedcd8e7460e2d5228b4"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -1539,9 +1540,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9a367f131d93b3395fc6207c11e67098493ab040def4ce3085adbf186687f7e"
+checksum = "1ad9c5423459fa2f729b8d9235fab810aa29628b171467744fc86d21460ad70d"
 dependencies = [
  "anyhow",
  "itertools",
@@ -1564,9 +1565,9 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96e89651c132da91958fd6092a2f7262c2c36c08df4f68af0bb3591caacbbb45"
+checksum = "f29a7c4c7a84cef41a53d338a2d10d4f1b043ea5c3dde26db22ee2c9c1b1c75b"
 dependencies = [
  "prost",
 ]
