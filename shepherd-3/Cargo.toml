@@ -25,8 +25,8 @@ embedded-hal-async.workspace = true
 embedded-hal-bus.workspace = true
 heapless.workspace = true
 assign-resources.workspace = true
+cangen.workspace = true
 can-handler = { workspace = true, features = ["defmt-monitor"] }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git" }
 static_cell.workspace = true
 
 function_name = { version = "0.3.0" }

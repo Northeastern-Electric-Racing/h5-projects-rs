@@ -136,7 +136,8 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_stm32::init(clocks::rcc_config());
 
-    hardfault::report_last_reset();
+    let last_crash = hardfault::report_last_reset();
+    hardfault::set_watchdog_debug_freeze();
 
     let r = split_resources!(p);
 
