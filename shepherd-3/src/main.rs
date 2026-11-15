@@ -8,7 +8,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{peripherals, Peri};
 use embassy_time::{Timer};
-use {defmt_rtt as _, panic_probe as _};
+use defmt_rtt as _;
 
 pub mod segments;
 pub mod hv_plate;
@@ -136,13 +136,15 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_stm32::init(clocks::rcc_config());
 
-    hardfault::report_last_reset();
+    let last_crash = hardfault::report_last_reset();
+    hardfault::set_watchdog_debug_freeze();
 
     let r = split_resources!(p);
 
     gpios::init(r.gpios);
 
     spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
+    spawner.spawn(hardfault::crash_report_task(last_crash).expect("Failed to spawn hardfault::crash_report_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));

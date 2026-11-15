@@ -304,7 +304,6 @@ mod channels {
 }
 
 mod handler {
-    use cangen::FromCanFrame;
     use defmt::warn;
     use embassy_stm32::can::filter::FilterType::{DedicatedDual, DedicatedSingle};
     use embassy_stm32::can::filter::{Action, ExtendedFilter, ExtendedFilterSlot, StandardFilter, StandardFilterSlot};
@@ -504,7 +503,7 @@ mod handler {
                     }
                 },
                 Id::Standard(id) if id.as_raw() == SHEPHERD_BMS_PWM_PERCENT => {
-                    if let Some(pwm) = cangen::ShepherdBmsPwmPercent::from_can_frame(&frame) {
+                    if let Some(cangen::Msg::ShepherdBmsPwmPercent(pwm)) = cangen::Msg::decode(&frame) {
                         charging::update_pwm_duty_cycle(&pwm);
                     }
                 },
