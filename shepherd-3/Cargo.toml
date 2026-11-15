@@ -6,6 +6,9 @@ version = "0.1.0"
 [features]
 hil = []
 four-segments = []
+# Crashes (panics and HardFaults) hang instead of resetting, so a debugger can be attached to the
+# crashed board with `probe-rs attach`. Bench debugging only, never on the car.
+halt-on-crash = []
 
 [dependencies]
 cortex-m.workspace = true
@@ -21,7 +24,6 @@ embassy-futures.workspace = true
 embedded-hal-async.workspace = true
 embedded-hal-bus.workspace = true
 heapless.workspace = true
-panic-probe.workspace = true
 assign-resources.workspace = true
 can-handler = { workspace = true, features = ["defmt-monitor"] }
 cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "15a97fb9d680c44d82125d3898089b88686b7020"}
