@@ -7,11 +7,9 @@ use uom::ConstZero;
 use uom::si::angular_velocity::revolution_per_minute;
 use uom::si::electric_current::ampere;
 use uom::si::f32::{
-    AngularVelocity, ElectricCurrent, Length, MagneticFlux,
-    ThermodynamicTemperature as Temperature, Velocity,
+    AngularVelocity, ElectricCurrent, Length, ThermodynamicTemperature as Temperature, Velocity,
 };
 use uom::si::length::{inch, meter};
-use uom::si::magnetic_flux::weber;
 use uom::si::thermodynamic_temperature::degree_celsius;
 use uom::si::velocity::{meter_per_second, mile_per_hour};
 

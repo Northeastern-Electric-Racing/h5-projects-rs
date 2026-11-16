@@ -145,7 +145,7 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
 
             Some(Msg::FrontWheelRpm(_)) => {}
-            Some(Msg::ErpmDutyInputVoltageStatus(m)) => dti::set_rpm_from_can(m.erpm()),
+            Some(Msg::ErpmDutyInputVoltageStatus(m)) => dti::set_rpm_from_can(m.erpm() as f32),
             Some(Msg::TempsFaultCodeStatus(m)) => {
                 dti::set_motor_temp_from_can(m.motor_temp());
                 dti::set_controller_temp_from_can(m.controller_temp());
