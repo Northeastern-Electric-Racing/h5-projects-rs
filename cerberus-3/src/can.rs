@@ -15,8 +15,9 @@ use embassy_stm32::can::{IT0InterruptHandler, IT1InterruptHandler};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use uom::si::angular_velocity::revolution_per_minute;
 use uom::si::electric_current::ampere;
-use uom::si::f32::{ElectricCurrent, ThermodynamicTemperature as Temperature};
+use uom::si::f32::{AngularVelocity, ElectricCurrent, ThermodynamicTemperature as Temperature};
 use uom::si::thermodynamic_temperature::degree_celsius;
 
 bind_interrupts!(struct Irqs {
@@ -147,7 +148,7 @@ pub async fn can_inbox_task() -> ! {
 
             Some(Msg::FrontWheelRpm(_)) => {}
             Some(Msg::ErpmDutyInputVoltageStatus(m)) => {
-                dti::set_rpm_from_can(m.erpm() as f32).await
+                dti::set_rpm(AngularVelocity::new::<revolution_per_minute>(m.erpm() as f32 / dti::POLE_PAIRS)).await
             }
             Some(Msg::TempsFaultCodeStatus(m)) => {
                 dti::set_motor_temp(Temperature::new::<degree_celsius>(m.motor_temp())).await;

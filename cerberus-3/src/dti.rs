@@ -4,11 +4,10 @@ use cangen::ToCanFrame;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use uom::ConstZero;
-use uom::si::angular_velocity::revolution_per_minute;
 use uom::si::f32::{AngularVelocity, Velocity};
 use uom::si::f32::{ElectricCurrent, Length, ThermodynamicTemperature as Temperature};
-use uom::si::length::{inch, meter};
-use uom::si::velocity::{meter_per_second, mile_per_hour};
+use uom::si::length::inch;
+use uom::si::velocity::mile_per_hour;
 
 use crate::can;
 
@@ -121,15 +120,8 @@ pub async fn get_motor_temp() -> Temperature {
 }
 
 pub async fn get_velocity() -> Velocity {
-    let tire_diameter = Length::new::<inch>(TIRE_DIAMETER_INCHES);
-
-    // wheel revolutions per minute = motor rpm / gear ratio
-    let wheel_rpm = get_rpm().await.get::<revolution_per_minute>() / GEAR_RATIO;
-
-    // each wheel revolution travels one circumference (π × diameter)
-    let circumference_m = tire_diameter.get::<meter>() * PI;
-
-    Velocity::new::<meter_per_second>(circumference_m * wheel_rpm / 60.0)
+    let circumference_m = Length::new::<inch>(TIRE_DIAMETER_INCHES) * PI;
+    circumference_m * get_rpm().await / GEAR_RATIO / 60.0
 }
 
 pub async fn get_mph() -> f32 {
@@ -138,11 +130,6 @@ pub async fn get_mph() -> f32 {
 
 pub async fn set_rpm(rpm: AngularVelocity) {
     DTI_STATE.lock().await.rpm = rpm
-}
-
-pub async fn set_rpm_from_can(raw: f32) {
-    let rpm = AngularVelocity::new::<revolution_per_minute>(raw / POLE_PAIRS);
-    set_rpm(rpm).await;
 }
 
 pub async fn set_ac_current(ac_current: ElectricCurrent) {
