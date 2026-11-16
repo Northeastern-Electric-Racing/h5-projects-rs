@@ -113,7 +113,7 @@ fn shock_pot_frames(readings: &[ShockPotReading; NUM_SHOCK_POTS]) -> [Frame; 2] 
 fn strain_gauge_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Frame {
     let strain1 = u32::from(readings[StrainGauge::Sg1 as usize].raw);
     let strain2 = u32::from(readings[StrainGauge::Sg2 as usize].raw);
-    cangen::FrontMsbStrain::new()
+    cangen::FrontMsbStrainOneTwo::new()
         .with_strain1(strain1)
         .with_strain2(strain2)
         .to_can_frame()
