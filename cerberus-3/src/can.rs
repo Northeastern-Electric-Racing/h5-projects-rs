@@ -4,7 +4,7 @@
 //! other devices on the vehicle.
 
 use crate::bms::{PrechargeState, set_precharge_state};
-use crate::{bms, buttons, efuses, lightning, rtds, shutdown};
+use crate::{bms, buttons, dti, efuses, lightning, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -145,9 +145,15 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
 
             Some(Msg::FrontWheelRpm(_)) => {}
-            Some(Msg::TempsFaultCodeStatus(_)) => {}
-            Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
-            Some(Msg::CurrentsStatus(_)) => {}
+            Some(Msg::ErpmDutyInputVoltageStatus(m)) => dti::set_rpm_from_can(m.erpm()),
+            Some(Msg::TempsFaultCodeStatus(m)) => {
+                dti::set_motor_temp(m.motor_temp());
+                dti::set_controller_temp(m.controller_temp());
+            }
+            Some(Msg::CurrentsStatus(m)) => {
+                dti::set_ac_current(m.ac_current());
+                dti::set_dc_current(m.dc_current())
+            }
 
             Some(Msg::DashboardEfuseState(m)) => efuses::send_command(EfuseDashboard, m.state()),
             Some(Msg::BrakeEfuseState(m)) => efuses::send_command(EfuseBrake, m.state()),

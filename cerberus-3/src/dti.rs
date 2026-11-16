@@ -7,30 +7,17 @@ use uom::ConstZero;
 use uom::si::angular_velocity::revolution_per_minute;
 use uom::si::electric_current::ampere;
 use uom::si::f32::{
-    AngularVelocity, ElectricCurrent, Length, MagneticFlux, Ratio,
+    AngularVelocity, ElectricCurrent, Length, MagneticFlux,
     ThermodynamicTemperature as Temperature, Velocity,
 };
 use uom::si::length::{inch, meter};
-use uom::si::magnetic_field_strength::ampere_per_meter;
 use uom::si::magnetic_flux::weber;
-use uom::si::ratio::basis_point;
 use uom::si::thermodynamic_temperature::degree_celsius;
 use uom::si::velocity::{meter_per_second, mile_per_hour};
 
-/// Number of samples used for averaging.
 pub const SAMPLES: usize = 3;
-
-/// Motor pole pairs
 pub const POLE_PAIRS: u32 = 10;
-
-// /// Tire diameter: 16 in
-// pub const TIRE_DIAMETER: Length = Length::new::<inch>(16.0);
-
-/// Gear ratio 39:13
 pub const GEAR_RATIO: f32 = 39.0 / 13.0;
-
-// /// EMRAX torque constant, N·m per A (SI)
-// pub const EMRAX_KT: MagneticFlux = MagneticFlux::new::<weber>(0.61);
 
 pub struct DtiState {
     rpm: AngularVelocity,
@@ -103,7 +90,7 @@ pub fn set_torque(torque: i16) {
     let kt = MagneticFlux::new::<weber>(0.61);
     let ac_current = average / kt.get::<weber>() * 1.414;
 
-    cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_override") as u8);
+    cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
     cangen::AcCurrentCommand::new().with_current_target_ac(ac_current);
 }
 
@@ -142,4 +129,49 @@ pub fn get_velocity() -> Velocity {
 
 pub fn get_mph() -> f32 {
     get_velocity().get::<mile_per_hour>()
+}
+
+pub fn set_rpm(rpm: AngularVelocity) {
+    DTI_STATE.lock(|t| t.borrow_mut().rpm = rpm)
+}
+
+pub fn set_rpm_from_can(raw: f32) {
+    let rpm = AngularVelocity::new::<revolution_per_minute>(raw);
+    DTI_STATE.lock(|t| t.borrow_mut().rpm = rpm)
+}
+
+pub fn set_ac_current(ac_current: ElectricCurrent) {
+    DTI_STATE.lock(|t| t.borrow_mut().ac_current = ac_current)
+}
+
+pub fn set_ac_current_from_can(raw: f32) {
+    let ac_current = ElectricCurrent::new::<ampere>(raw);
+    set_ac_current(ac_current);
+}
+
+pub fn set_dc_current(dc_current: ElectricCurrent) {
+    DTI_STATE.lock(|t| t.borrow_mut().dc_current = dc_current)
+}
+
+pub fn set_dc_current_from_can(raw: f32) {
+    let dc_current = ElectricCurrent::new::<ampere>(raw);
+    set_dc_current(dc_current);
+}
+
+pub fn set_controller_temp(controller_temp: Temperature) {
+    DTI_STATE.lock(|t| t.borrow_mut().controller_temp = controller_temp)
+}
+
+pub fn set_controller_temp_from_can(raw: f32) {
+    let controller_temp = Temperature::new::<degree_celsius>(raw);
+    set_controller_temp(controller_temp);
+}
+
+pub fn set_motor_temp(motor_temp: Temperature) {
+    DTI_STATE.lock(|t| t.borrow_mut().motor_temp = motor_temp)
+}
+
+pub fn set_motor_temp_from_can(raw: f32) {
+    let motor_temp = Temperature::new::<degree_celsius>(raw);
+    set_motor_temp(motor_temp);
 }
