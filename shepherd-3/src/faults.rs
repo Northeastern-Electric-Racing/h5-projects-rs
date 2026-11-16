@@ -266,6 +266,8 @@ mod system {
         CellVoltageTooLow              => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
         CellVoltageTooHigh             => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
         DieTempMaximumFault            => Critical, PassFail { consecutive_bads: const { duration_to_segments_task_cycles(Duration::from_secs(30)).unwrap() }, consecutive_okays: 0  },
+        // u_TODO - add this fault bit to the CAN spec (Fault Status 0x89 has a spare Non-Critical/Extra bit)
+        PackCurrentStale               => NonCritical, PassFail { consecutive_bads: 0, consecutive_okays: 0 },
     }
 }
 pub use system::*;

@@ -37,12 +37,18 @@ pub mod analyzer {
     struct ReportedOverCan {
         /// Positive is discharge.
         pack_current: Cell<Option<Current>>,
+        /// When `pack_current` was last stored.
+        pack_current_received_at: Cell<Option<Instant>>,
         ts_voltage: Cell<Option<Voltage>>,
     }
 
     impl ReportedOverCan {
         const fn new() -> Self {
-            Self { pack_current: Cell::new(None), ts_voltage: Cell::new(None) }
+            Self {
+                pack_current: Cell::new(None),
+                pack_current_received_at: Cell::new(None),
+                ts_voltage: Cell::new(None),
+            }
         }
     }
 
@@ -50,7 +56,15 @@ pub mod analyzer {
 
     /// Records pack current from a CAN frame. Called by the CAN RX processor.
     pub fn store_can_pack_current(current: Current) {
-        REPORTED_DATA.lock(|reported| reported.pack_current.set(Some(current)));
+        REPORTED_DATA.lock(|reported| {
+            reported.pack_current.set(Some(current));
+            reported.pack_current_received_at.set(Some(Instant::now()));
+        });
+    }
+
+    /// The last pack current reported over CAN and when it arrived. Callers judge staleness from the `Instant`.
+    pub fn can_pack_current() -> Option<(Current, Instant)> {
+        REPORTED_DATA.lock(|reported| reported.pack_current.get().zip(reported.pack_current_received_at.get()))
     }
 
     /// Records TS voltage from a CAN frame. Called by the CAN RX processor.
