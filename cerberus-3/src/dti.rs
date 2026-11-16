@@ -9,7 +9,6 @@ use uom::si::f32::{AngularVelocity, Torque, Velocity};
 use uom::si::f32::{ElectricCurrent, Length, ThermodynamicTemperature as Temperature};
 use uom::si::length::inch;
 use uom::si::torque::newton_meter;
-use uom::si::velocity::mile_per_hour;
 
 use crate::can;
 
@@ -87,24 +86,40 @@ pub async fn set_torque(torque: Torque) {
 
     let ac_current = average / KT * 1.414; //1.414 is the sqrt of 2
 
-    let de =
-        cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
-    let ac = cangen::AcCurrentCommand::new().with_current_target_ac(ac_current);
-
-    can::OUTGOING.send(de.to_can_frame()).await;
-    can::OUTGOING.send(ac.to_can_frame()).await;
+    can::OUTGOING
+        .send(
+            cangen::DriveEnableCommand::new()
+                .with_drive_enable(!cfg!(feature = "tsms_overide") as u8)
+                .to_can_frame(),
+        )
+        .await;
+    can::OUTGOING
+        .send(
+            cangen::AcCurrentCommand::new()
+                .with_current_target_ac(ac_current)
+                .to_can_frame(),
+        )
+        .await;
 }
 
 pub async fn set_regen(regen: ElectricCurrent) {
     let rg = regen.get::<ampere>();
     let average = FILTER_STATE.lock().await.push_regen(rg);
 
-    let de =
-        cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
-    let ac = cangen::BrakeCurrentCommand::new().with_brake_ac_current(average);
-
-    can::OUTGOING.send(de.to_can_frame()).await;
-    can::OUTGOING.send(ac.to_can_frame()).await;
+    can::OUTGOING
+        .send(
+            cangen::DriveEnableCommand::new()
+                .with_drive_enable(!cfg!(feature = "tsms_overide") as u8)
+                .to_can_frame(),
+        )
+        .await;
+    can::OUTGOING
+        .send(
+            cangen::BrakeCurrentCommand::new()
+                .with_brake_ac_current(average)
+                .to_can_frame(),
+        )
+        .await;
 }
 
 pub async fn get_rpm() -> AngularVelocity {
@@ -126,10 +141,6 @@ pub async fn get_motor_temp() -> Temperature {
 pub async fn get_velocity() -> Velocity {
     let circumference_m = Length::new::<inch>(TIRE_DIAMETER_INCHES) * PI;
     circumference_m * get_rpm().await / GEAR_RATIO / 60.0
-}
-
-pub async fn get_mph() -> f32 {
-    get_velocity().await.get::<mile_per_hour>()
 }
 
 pub async fn set_rpm(rpm: AngularVelocity) {
