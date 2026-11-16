@@ -4,9 +4,11 @@ use cangen::ToCanFrame;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use uom::ConstZero;
-use uom::si::f32::{AngularVelocity, Velocity};
+use uom::si::electric_current::ampere;
+use uom::si::f32::{AngularVelocity, Torque, Velocity};
 use uom::si::f32::{ElectricCurrent, Length, ThermodynamicTemperature as Temperature};
 use uom::si::length::inch;
+use uom::si::torque::newton_meter;
 use uom::si::velocity::mile_per_hour;
 
 use crate::can;
@@ -75,10 +77,11 @@ pub static FILTER_STATE: Mutex<ThreadModeRawMutex, FilterState> = Mutex::new(Fil
 /// Shared DTI state, initialised to zero.
 pub static DTI_STATE: Mutex<ThreadModeRawMutex, DtiState> = Mutex::new(DtiState::new());
 
-pub async fn set_torque(torque: f32) {
-    let mut average = FILTER_STATE.lock().await.push_torque(torque);
+pub async fn set_torque(torque: Torque) {
+    let tq = torque.get::<newton_meter>();
+    let mut average = FILTER_STATE.lock().await.push_torque(tq);
 
-    if torque == 0.0 {
+    if tq == 0.0 {
         average = 0.0;
     }
 
@@ -92,8 +95,9 @@ pub async fn set_torque(torque: f32) {
     can::OUTGOING.send(ac.to_can_frame()).await;
 }
 
-pub async fn set_regen(regen: f32) {
-    let average = FILTER_STATE.lock().await.push_regen(regen);
+pub async fn set_regen(regen: ElectricCurrent) {
+    let rg = regen.get::<ampere>();
+    let average = FILTER_STATE.lock().await.push_regen(rg);
 
     let de =
         cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
