@@ -1,6 +1,7 @@
 use core::cell::RefCell;
 use core::f32::consts::PI;
 
+use cangen::ToCanFrame;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use uom::ConstZero;
@@ -11,6 +12,8 @@ use uom::si::f32::{ElectricCurrent, Length, ThermodynamicTemperature as Temperat
 use uom::si::length::{inch, meter};
 use uom::si::thermodynamic_temperature::degree_celsius;
 use uom::si::velocity::{meter_per_second, mile_per_hour};
+
+use crate::can;
 
 pub const SAMPLES: usize = 3;
 pub const POLE_PAIRS: u32 = 10;
@@ -78,22 +81,30 @@ pub static FILTER_STATE: Mutex<ThreadModeRawMutex, RefCell<FilterState>> =
 pub static DTI_STATE: Mutex<ThreadModeRawMutex, RefCell<DtiState>> =
     Mutex::new(RefCell::new(DtiState::new()));
 
-pub fn set_torque(torque: i16) {
-    let mut average = FILTER_STATE.lock(|t| t.borrow_mut().push_torque(torque as f32));
+pub async fn set_torque(torque: f32) {
+    let mut average = FILTER_STATE.lock(|t| t.borrow_mut().push_torque(torque));
 
-    if torque == 0 {
+    if torque == 0.0 {
         average = 0.0;
     }
 
-    let ac_current = average / KT * 1.414;
+    let ac_current = average / KT * 1.414; //1.414 is the sqrt of 2
 
-    cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
-    cangen::AcCurrentCommand::new().with_current_target_ac(ac_current);
+    let de = cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
+    let ac = cangen::AcCurrentCommand::new().with_current_target_ac(ac_current);
+
+    can::OUTGOING.send(de.to_can_frame()).await;
+    can::OUTGOING.send(ac.to_can_frame()).await;
 }
 
-pub fn set_regen(regen: f32) {
+pub async fn set_regen(regen: f32) {
     let average = FILTER_STATE.lock(|t| t.borrow_mut().push_regen(regen));
-    cangen::BrakeCurrentCommand::new().with_brake_ac_current(average as f32);
+    
+    let de = cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
+    let ac = cangen::BrakeCurrentCommand::new().with_brake_ac_current(average as f32);
+
+    can::OUTGOING.send(de.to_can_frame()).await;
+    can::OUTGOING.send(ac.to_can_frame()).await;
 }
 
 pub fn get_rpm() -> AngularVelocity {
