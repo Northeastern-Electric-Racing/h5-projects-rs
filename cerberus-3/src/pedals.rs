@@ -412,7 +412,7 @@ pub(crate) mod analog {
 
 mod drive_modes {
     use crate::dti;
-use crate::pedals::constants::{
+    use crate::pedals::constants::{
         ACCELERATION_THRESHOLD, DELTA_ACCELERATION_MAX, MAX_LIMITING_SPEED, MAX_TORQUE,
         MAX_TORQUE_RATIO, MIN_REGEN, PIT_MAX_SPEED, REGEN_THRESHOLD,
     };
@@ -480,7 +480,8 @@ use crate::pedals::constants::{
                     * 0.137609f32
                     * self.clamp_accel(accel).powf(1.43068)
                     * get_traction_control(),
-            ).await
+            )
+            .await
         }
 
         async fn accel_pedal_regen_torque(&self, accel: Ratio) {
@@ -491,7 +492,8 @@ use crate::pedals::constants::{
                 coefficient.min(Ratio::new::<ratio>(1.0)).get::<ratio>()
                     * (TORQUE_LIMIT_PERCENTAGE.load(Ordering::Relaxed) as f32 / 100.0)
                     * MAX_TORQUE,
-            ).await;
+            )
+            .await;
         }
 
         async fn accel_pedal_regen_braking(&self, accel: Ratio, regen_limit: ElectricCurrent) {
@@ -558,12 +560,14 @@ use crate::pedals::constants::{
                     self.launch_control(
                         vel,
                         (accel - Ratio::new::<ratio>(0.25)) / Ratio::new::<ratio>(0.75),
-                    ).await;
+                    )
+                    .await;
                 } else {
                     self.linear_accel_to_torque(accel).await;
                 }
             } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD {
-                self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Performance)).await;
+                self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Performance))
+                    .await;
             } else {
                 dti::set_torque(Torque::new::<newton_meter>(0.0)).await;
             }
@@ -573,7 +577,8 @@ use crate::pedals::constants::{
             if accel > ACCELERATION_THRESHOLD {
                 self.accel_pedal_regen_torque(accel).await;
             } else if vel > Velocity::new::<kilometer_per_hour>(5.0) && accel <= REGEN_THRESHOLD {
-                self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Efficiency)).await;
+                self.accel_pedal_regen_braking(accel, get_regen_limit(FuncState::Efficiency))
+                    .await;
             } else {
                 dti::set_torque(Torque::new::<newton_meter>(0.0)).await;
             }
@@ -775,11 +780,13 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
         } else {
             tc_process();
 
-            torque_lock.handle_drive_mode(
-                dti::get_velocity().await,
-                pedal_data.accel_r,
-                statemachine::get_func_state().await,
-            ).await;
+            torque_lock
+                .handle_drive_mode(
+                    dti::get_velocity().await,
+                    pedal_data.accel_r,
+                    statemachine::get_func_state().await,
+                )
+                .await;
         }
         *LOCK_MUTEX.lock().await = drive_lock;
 

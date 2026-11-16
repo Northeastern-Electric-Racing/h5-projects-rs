@@ -148,7 +148,10 @@ pub async fn can_inbox_task() -> ! {
 
             Some(Msg::FrontWheelRpm(_)) => {}
             Some(Msg::ErpmDutyInputVoltageStatus(m)) => {
-                dti::set_rpm(AngularVelocity::new::<revolution_per_minute>(m.erpm() as f32 / dti::POLE_PAIRS)).await
+                dti::set_rpm(AngularVelocity::new::<revolution_per_minute>(
+                    m.erpm() as f32 / dti::POLE_PAIRS,
+                ))
+                .await
             }
             Some(Msg::TempsFaultCodeStatus(m)) => {
                 dti::set_motor_temp(Temperature::new::<degree_celsius>(m.motor_temp())).await;
