@@ -90,7 +90,8 @@ pub async fn set_torque(torque: f32) {
 
     let ac_current = average / KT * 1.414; //1.414 is the sqrt of 2
 
-    let de = cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
+    let de =
+        cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
     let ac = cangen::AcCurrentCommand::new().with_current_target_ac(ac_current);
 
     can::OUTGOING.send(de.to_can_frame()).await;
@@ -99,9 +100,10 @@ pub async fn set_torque(torque: f32) {
 
 pub async fn set_regen(regen: f32) {
     let average = FILTER_STATE.lock(|t| t.borrow_mut().push_regen(regen));
-    
-    let de = cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
-    let ac = cangen::BrakeCurrentCommand::new().with_brake_ac_current(average as f32);
+
+    let de =
+        cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
+    let ac = cangen::BrakeCurrentCommand::new().with_brake_ac_current(average);
 
     can::OUTGOING.send(de.to_can_frame()).await;
     can::OUTGOING.send(ac.to_can_frame()).await;
