@@ -26,6 +26,7 @@ mod peripherals;
 mod rtds;
 mod shutdown;
 mod statemachine;
+mod dti;
 
 use crate::can::can_inbox_task;
 use crate::peripherals::{I2C2Resources, SPI2Resources};

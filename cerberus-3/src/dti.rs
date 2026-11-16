@@ -1,0 +1,142 @@
+use core::cell::RefCell;
+use core::f32::consts::PI;
+
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use uom::ConstZero;
+use uom::si::angular_velocity::revolution_per_minute;
+use uom::si::electric_current::ampere;
+use uom::si::f32::{AngularVelocity, ElectricCurrent, Length, MagneticFlux, Ratio, ThermodynamicTemperature as Temperature, Velocity};
+use uom::si::length::{inch, meter};
+use uom::si::magnetic_field_strength::ampere_per_meter;
+use uom::si::magnetic_flux::weber;
+use uom::si::ratio::basis_point;
+use uom::si::thermodynamic_temperature::degree_celsius;
+use uom::si::velocity::{meter_per_second, mile_per_hour};
+
+/// Number of samples used for averaging.
+pub const SAMPLES: usize = 3;
+
+/// Motor pole pairs
+pub const POLE_PAIRS: u32 = 10;
+
+// /// Tire diameter: 16 in
+// pub const TIRE_DIAMETER: Length = Length::new::<inch>(16.0);
+
+/// Gear ratio 39:13
+pub const GEAR_RATIO: f32 = 39.0 / 13.0;
+
+// /// EMRAX torque constant, N·m per A (SI)
+// pub const EMRAX_KT: MagneticFlux = MagneticFlux::new::<weber>(0.61);
+
+pub struct DtiState{
+    rpm: AngularVelocity,
+    ac_current: ElectricCurrent,
+    dc_current: ElectricCurrent,
+    controller_temp: Temperature,
+    motor_temp: Temperature
+}
+impl DtiState {
+    pub const fn new() -> Self {
+        Self {
+            rpm: AngularVelocity::ZERO,
+            ac_current: ElectricCurrent::ZERO,
+            dc_current: ElectricCurrent::ZERO,
+            controller_temp: Temperature::ZERO,
+            motor_temp: Temperature::ZERO
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FilterState {
+    pub torque_buf: [f32; SAMPLES],
+    pub torque_idx: usize,
+    pub regen_buf: [u16; SAMPLES],
+    pub regen_idx: usize,
+}
+
+impl FilterState {
+    pub const fn new() -> Self {
+        Self {
+            torque_buf: [0.0; SAMPLES],
+            torque_idx: 0,
+            regen_buf: [0; SAMPLES],
+            regen_idx: 0,
+        }
+    }
+
+    /// Store a torque sample and return the average of the buffer.
+    pub fn push_torque(&mut self, sample: f32) -> f32 {
+        self.torque_buf[self.torque_idx] = sample;
+        self.torque_idx = (self.torque_idx + 1) % SAMPLES;
+        self.torque_buf.iter().sum::<f32>() / SAMPLES as f32
+    }
+
+    /// Store a regen sample and return the average of the buffer.
+    pub fn push_regen(&mut self, sample: u16) -> u16 {
+        self.regen_buf[self.regen_idx] = sample;
+        self.regen_idx = (self.regen_idx + 1) % SAMPLES;
+        let sum: u32 = self.regen_buf.iter().map(|&v| v as u32).sum();
+        (sum / SAMPLES as u32) as u16
+    }
+}
+
+/// Shared filter state, initialised to zero.
+pub static FILTER_STATE: Mutex<ThreadModeRawMutex, RefCell<FilterState>> =
+    Mutex::new(RefCell::new(FilterState::new()));
+
+/// Shared DTI state, initialised to zero.
+pub static DTI_STATE: Mutex<ThreadModeRawMutex, RefCell<DtiState>> =
+    Mutex::new(RefCell::new(DtiState::new()));
+    
+pub fn set_torque(torque: i16) {
+    let mut average = FILTER_STATE.lock(|t| t.borrow_mut().push_torque(torque as f32));
+
+    if torque == 0 {
+        average = 0.0;
+    }
+
+    let kt = MagneticFlux::new::<weber>(0.61);
+    let ac_current = average / kt.get::<weber>() * 1.414;
+
+    cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_override") as u8);
+    cangen::AcCurrentCommand::new().with_current_target_ac(ac_current);
+}
+
+pub fn set_regen(regen: u16) {
+    let average = FILTER_STATE.lock(|t| t.borrow_mut().push_regen(regen));
+    cangen::BrakeCurrentCommand::new().with_brake_ac_current(average as f32);
+}
+
+pub fn get_rpm() -> AngularVelocity {
+    DTI_STATE.lock(|t| t.borrow().rpm)
+}
+
+pub fn get_ac_current() -> ElectricCurrent {
+    DTI_STATE.lock(|t| t.borrow().ac_current)
+}
+
+pub fn get_controller_temp() -> Temperature {
+    DTI_STATE.lock(|t| t.borrow().controller_temp)
+}
+
+pub fn get_motor_temp() -> Temperature {
+    DTI_STATE.lock(|t| t.borrow().motor_temp)
+}
+
+pub fn get_velocity() -> Velocity {
+    let tire_diameter = Length::new::<inch>(16.0);
+
+    // wheel revolutions per minute = motor rpm / gear ratio
+    let wheel_rpm = get_rpm().get::<revolution_per_minute>() / GEAR_RATIO;
+
+    // each wheel revolution travels one circumference (π × diameter)
+    let circumference_m = tire_diameter.get::<meter>() * PI;
+
+    Velocity::new::<meter_per_second>(circumference_m * wheel_rpm / 60.0)
+}
+
+pub fn get_mph() -> f32 {
+    get_velocity().get::<mile_per_hour>()
+}
