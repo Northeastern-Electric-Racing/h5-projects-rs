@@ -147,12 +147,12 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::FrontWheelRpm(_)) => {}
             Some(Msg::ErpmDutyInputVoltageStatus(m)) => dti::set_rpm_from_can(m.erpm()),
             Some(Msg::TempsFaultCodeStatus(m)) => {
-                dti::set_motor_temp(m.motor_temp());
-                dti::set_controller_temp(m.controller_temp());
+                dti::set_motor_temp_from_can(m.motor_temp());
+                dti::set_controller_temp_from_can(m.controller_temp());
             }
             Some(Msg::CurrentsStatus(m)) => {
-                dti::set_ac_current(m.ac_current());
-                dti::set_dc_current(m.dc_current())
+                dti::set_ac_current_from_can(m.ac_current());
+                dti::set_dc_current_from_can(m.dc_current())
             }
 
             Some(Msg::DashboardEfuseState(m)) => efuses::send_command(EfuseDashboard, m.state()),

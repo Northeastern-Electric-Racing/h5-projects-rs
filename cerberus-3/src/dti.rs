@@ -18,6 +18,9 @@ use uom::si::velocity::{meter_per_second, mile_per_hour};
 pub const SAMPLES: usize = 3;
 pub const POLE_PAIRS: u32 = 10;
 pub const GEAR_RATIO: f32 = 39.0 / 13.0;
+pub const KT: f32 = 0.61;
+pub const MULT: f32 = 1.414;
+pub const TIRE_DIAMETER_INCHES: f32 = 16.0;
 
 pub struct DtiState {
     rpm: AngularVelocity,
@@ -87,8 +90,7 @@ pub fn set_torque(torque: i16) {
         average = 0.0;
     }
 
-    let kt = MagneticFlux::new::<weber>(0.61);
-    let ac_current = average / kt.get::<weber>() * 1.414;
+    let ac_current = average / KT * MULT;
 
     cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
     cangen::AcCurrentCommand::new().with_current_target_ac(ac_current);
@@ -116,7 +118,7 @@ pub fn get_motor_temp() -> Temperature {
 }
 
 pub fn get_velocity() -> Velocity {
-    let tire_diameter = Length::new::<inch>(16.0);
+    let tire_diameter = Length::new::<inch>(TIRE_DIAMETER_INCHES);
 
     // wheel revolutions per minute = motor rpm / gear ratio
     let wheel_rpm = get_rpm().get::<revolution_per_minute>() / GEAR_RATIO;
