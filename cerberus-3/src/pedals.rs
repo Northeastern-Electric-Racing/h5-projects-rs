@@ -99,6 +99,7 @@ pub(crate) mod constants {
 }
 
 mod locks {
+    use crate::faults;
     use crate::pedals::constants::*;
     use crate::pedals::get_accel_pressed;
     use defmt::bitflags;
@@ -165,8 +166,12 @@ mod locks {
 
         fn queue_fault(&self, fault: Locks) {
             match fault {
-                Locks::BrakeOc => {}
-                Locks::BrakeSc => {}
+                Locks::BrakeOc => {
+                    faults::trigger_fault(faults::Fault::ONBOARD_BRAKE_OPEN_CIRCUIT_FAULT);
+                }
+                Locks::BrakeSc => {
+                    faults::trigger_fault(faults::Fault::ONBOARD_BRAKE_SHORT_CIRCUIT_FAULT);
+                }
                 Locks::AccelOc => {}
                 Locks::AccelSc => {}
                 Locks::AccelDiff => {}

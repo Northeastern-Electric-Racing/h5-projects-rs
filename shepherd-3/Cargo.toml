@@ -27,17 +27,16 @@ embassy-time.workspace = true
 embassy-futures.workspace = true
 embedded-hal-async.workspace = true
 embedded-hal-bus.workspace = true
-embedded-can.workspace = true
 heapless.workspace = true
 assign-resources.workspace = true
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "eb98e0f0072674f8d467a9b665f5081d1398ce66" }
+cangen.workspace = true
+can-handler = { workspace = true, features = ["defmt-monitor"] }
 static_cell.workspace = true
 
 function_name = { version = "0.3.0" }
-variant_count.workspace = true
-strum = { version = "0.28.0", default-features = false, features = ["derive"] }
+variant_count = { version = "1.2.1" }
+strum.workspace = true
 atomic_enum = { version = "0.3.0" }
-
 # u_TODO - probably maybe move this to the workspace Cargo.toml eventually if this is gonna be something we use
 uom = { version = "0.38.0", default-features = false, features = ["si", "f32"] }
 

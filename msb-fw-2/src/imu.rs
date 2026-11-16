@@ -20,7 +20,6 @@ use lsm6dsv16x_ner::mdps::millidegree_per_second;
 use lsm6dsv16x_ner::{NerLsm6dsv16x, milligravity};
 
 /// SPI1 plus the IMU's chip select pin
-/// if this doesn't compile, check the `Spi` type parameters for your embassy-stm32 version.
 pub type ImuSpi = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 
 /// how often to read

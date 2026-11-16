@@ -39,6 +39,7 @@ uom = {
     features = ["si", "f32", "autoconvert"]
 }
 
+strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 nereth = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
