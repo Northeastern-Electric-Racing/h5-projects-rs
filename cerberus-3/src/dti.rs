@@ -71,12 +71,10 @@ impl FilterState {
 }
 
 /// Shared filter state, initialised to zero.
-pub static FILTER_STATE: Mutex<ThreadModeRawMutex, FilterState> =
-    Mutex::new(FilterState::new());
+pub static FILTER_STATE: Mutex<ThreadModeRawMutex, FilterState> = Mutex::new(FilterState::new());
 
 /// Shared DTI state, initialised to zero.
-pub static DTI_STATE: Mutex<ThreadModeRawMutex, DtiState> =
-    Mutex::new(DtiState::new());
+pub static DTI_STATE: Mutex<ThreadModeRawMutex, DtiState> = Mutex::new(DtiState::new());
 
 pub async fn set_torque(torque: f32) {
     let mut average = FILTER_STATE.lock().await.push_torque(torque);
