@@ -27,10 +27,8 @@ static_cell = "2.1"
 #chrono = { version = "^0.4", default-features = false}
 embedded-hal-async = { version = "1" }
 embedded-can = {version = "0.4" }
-embedded-storage = "0.3.1"
 bitfield = "0.19"
 bitfield-struct = "0.13"
-crc = { version = "3.3", default-features = false }
 assign-resources = "0.5.0"
 variant_count = "1.2.1"
 uom = {

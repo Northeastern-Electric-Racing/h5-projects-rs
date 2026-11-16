@@ -12,7 +12,6 @@ tsms_overide = []
 
 [dependencies]
 boot-control.workspace = true
-embedded-can.workspace = true
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true
