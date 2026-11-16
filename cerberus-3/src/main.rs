@@ -17,6 +17,7 @@ mod bms;
 mod buttons;
 mod can;
 mod debug;
+mod dti;
 mod efuses;
 mod ethernet;
 mod faults;
@@ -26,7 +27,6 @@ mod peripherals;
 mod rtds;
 mod shutdown;
 mod statemachine;
-mod dti;
 
 use crate::can::can_inbox_task;
 use crate::peripherals::{I2C2Resources, SPI2Resources};

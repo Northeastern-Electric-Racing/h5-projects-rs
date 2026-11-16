@@ -6,7 +6,10 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use uom::ConstZero;
 use uom::si::angular_velocity::revolution_per_minute;
 use uom::si::electric_current::ampere;
-use uom::si::f32::{AngularVelocity, ElectricCurrent, Length, MagneticFlux, Ratio, ThermodynamicTemperature as Temperature, Velocity};
+use uom::si::f32::{
+    AngularVelocity, ElectricCurrent, Length, MagneticFlux, Ratio,
+    ThermodynamicTemperature as Temperature, Velocity,
+};
 use uom::si::length::{inch, meter};
 use uom::si::magnetic_field_strength::ampere_per_meter;
 use uom::si::magnetic_flux::weber;
@@ -29,12 +32,12 @@ pub const GEAR_RATIO: f32 = 39.0 / 13.0;
 // /// EMRAX torque constant, N·m per A (SI)
 // pub const EMRAX_KT: MagneticFlux = MagneticFlux::new::<weber>(0.61);
 
-pub struct DtiState{
+pub struct DtiState {
     rpm: AngularVelocity,
     ac_current: ElectricCurrent,
     dc_current: ElectricCurrent,
     controller_temp: Temperature,
-    motor_temp: Temperature
+    motor_temp: Temperature,
 }
 impl DtiState {
     pub const fn new() -> Self {
@@ -43,7 +46,7 @@ impl DtiState {
             ac_current: ElectricCurrent::ZERO,
             dc_current: ElectricCurrent::ZERO,
             controller_temp: Temperature::ZERO,
-            motor_temp: Temperature::ZERO
+            motor_temp: Temperature::ZERO,
         }
     }
 }
@@ -89,7 +92,7 @@ pub static FILTER_STATE: Mutex<ThreadModeRawMutex, RefCell<FilterState>> =
 /// Shared DTI state, initialised to zero.
 pub static DTI_STATE: Mutex<ThreadModeRawMutex, RefCell<DtiState>> =
     Mutex::new(RefCell::new(DtiState::new()));
-    
+
 pub fn set_torque(torque: i16) {
     let mut average = FILTER_STATE.lock(|t| t.borrow_mut().push_torque(torque as f32));
 
