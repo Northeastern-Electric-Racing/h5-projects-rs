@@ -6,9 +6,8 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use uom::ConstZero;
 use uom::si::angular_velocity::revolution_per_minute;
 use uom::si::electric_current::ampere;
-use uom::si::f32::{
-    AngularVelocity, ElectricCurrent, Length, ThermodynamicTemperature as Temperature, Velocity,
-};
+use uom::si::f32::{AngularVelocity, Velocity};
+use uom::si::f32::{ElectricCurrent, Length, ThermodynamicTemperature as Temperature};
 use uom::si::length::{inch, meter};
 use uom::si::thermodynamic_temperature::degree_celsius;
 use uom::si::velocity::{meter_per_second, mile_per_hour};
@@ -17,7 +16,6 @@ pub const SAMPLES: usize = 3;
 pub const POLE_PAIRS: u32 = 10;
 pub const GEAR_RATIO: f32 = 39.0 / 13.0;
 pub const KT: f32 = 0.61;
-pub const MULT: f32 = 1.414;
 pub const TIRE_DIAMETER_INCHES: f32 = 16.0;
 
 pub struct DtiState {
@@ -43,7 +41,7 @@ impl DtiState {
 pub struct FilterState {
     pub torque_buf: [f32; SAMPLES],
     pub torque_idx: usize,
-    pub regen_buf: [u16; SAMPLES],
+    pub regen_buf: [f32; SAMPLES],
     pub regen_idx: usize,
 }
 
@@ -52,7 +50,7 @@ impl FilterState {
         Self {
             torque_buf: [0.0; SAMPLES],
             torque_idx: 0,
-            regen_buf: [0; SAMPLES],
+            regen_buf: [0.0; SAMPLES],
             regen_idx: 0,
         }
     }
@@ -65,11 +63,10 @@ impl FilterState {
     }
 
     /// Store a regen sample and return the average of the buffer.
-    pub fn push_regen(&mut self, sample: u16) -> u16 {
+    pub fn push_regen(&mut self, sample: f32) -> f32 {
         self.regen_buf[self.regen_idx] = sample;
         self.regen_idx = (self.regen_idx + 1) % SAMPLES;
-        let sum: u32 = self.regen_buf.iter().map(|&v| v as u32).sum();
-        (sum / SAMPLES as u32) as u16
+        self.regen_buf.iter().sum::<f32>() / SAMPLES as f32
     }
 }
 
@@ -88,13 +85,13 @@ pub fn set_torque(torque: i16) {
         average = 0.0;
     }
 
-    let ac_current = average / KT * MULT;
+    let ac_current = average / KT * 1.414;
 
     cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
     cangen::AcCurrentCommand::new().with_current_target_ac(ac_current);
 }
 
-pub fn set_regen(regen: u16) {
+pub fn set_regen(regen: f32) {
     let average = FILTER_STATE.lock(|t| t.borrow_mut().push_regen(regen));
     cangen::BrakeCurrentCommand::new().with_brake_ac_current(average as f32);
 }
