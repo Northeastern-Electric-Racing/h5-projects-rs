@@ -1,22 +1,19 @@
-use core::cell::RefCell;
 use core::f32::consts::PI;
 
 use cangen::ToCanFrame;
-use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
 use uom::ConstZero;
 use uom::si::angular_velocity::revolution_per_minute;
-use uom::si::electric_current::ampere;
 use uom::si::f32::{AngularVelocity, Velocity};
 use uom::si::f32::{ElectricCurrent, Length, ThermodynamicTemperature as Temperature};
 use uom::si::length::{inch, meter};
-use uom::si::thermodynamic_temperature::degree_celsius;
 use uom::si::velocity::{meter_per_second, mile_per_hour};
 
 use crate::can;
 
 pub const SAMPLES: usize = 3;
-pub const POLE_PAIRS: u32 = 10;
+pub const POLE_PAIRS: f32 = 10.0;
 pub const GEAR_RATIO: f32 = 39.0 / 13.0;
 pub const KT: f32 = 0.61;
 pub const TIRE_DIAMETER_INCHES: f32 = 16.0;
@@ -74,15 +71,15 @@ impl FilterState {
 }
 
 /// Shared filter state, initialised to zero.
-pub static FILTER_STATE: Mutex<ThreadModeRawMutex, RefCell<FilterState>> =
-    Mutex::new(RefCell::new(FilterState::new()));
+pub static FILTER_STATE: Mutex<ThreadModeRawMutex, FilterState> =
+    Mutex::new(FilterState::new());
 
 /// Shared DTI state, initialised to zero.
-pub static DTI_STATE: Mutex<ThreadModeRawMutex, RefCell<DtiState>> =
-    Mutex::new(RefCell::new(DtiState::new()));
+pub static DTI_STATE: Mutex<ThreadModeRawMutex, DtiState> =
+    Mutex::new(DtiState::new());
 
 pub async fn set_torque(torque: f32) {
-    let mut average = FILTER_STATE.lock(|t| t.borrow_mut().push_torque(torque));
+    let mut average = FILTER_STATE.lock().await.push_torque(torque);
 
     if torque == 0.0 {
         average = 0.0;
@@ -99,7 +96,7 @@ pub async fn set_torque(torque: f32) {
 }
 
 pub async fn set_regen(regen: f32) {
-    let average = FILTER_STATE.lock(|t| t.borrow_mut().push_regen(regen));
+    let average = FILTER_STATE.lock().await.push_regen(regen);
 
     let de =
         cangen::DriveEnableCommand::new().with_drive_enable(!cfg!(feature = "tsms_overide") as u8);
@@ -109,27 +106,27 @@ pub async fn set_regen(regen: f32) {
     can::OUTGOING.send(ac.to_can_frame()).await;
 }
 
-pub fn get_rpm() -> AngularVelocity {
-    DTI_STATE.lock(|t| t.borrow().rpm)
+pub async fn get_rpm() -> AngularVelocity {
+    DTI_STATE.lock().await.rpm
 }
 
-pub fn get_ac_current() -> ElectricCurrent {
-    DTI_STATE.lock(|t| t.borrow().ac_current)
+pub async fn get_ac_current() -> ElectricCurrent {
+    DTI_STATE.lock().await.ac_current
 }
 
-pub fn get_controller_temp() -> Temperature {
-    DTI_STATE.lock(|t| t.borrow().controller_temp)
+pub async fn get_controller_temp() -> Temperature {
+    DTI_STATE.lock().await.controller_temp
 }
 
-pub fn get_motor_temp() -> Temperature {
-    DTI_STATE.lock(|t| t.borrow().motor_temp)
+pub async fn get_motor_temp() -> Temperature {
+    DTI_STATE.lock().await.motor_temp
 }
 
-pub fn get_velocity() -> Velocity {
+pub async fn get_velocity() -> Velocity {
     let tire_diameter = Length::new::<inch>(TIRE_DIAMETER_INCHES);
 
     // wheel revolutions per minute = motor rpm / gear ratio
-    let wheel_rpm = get_rpm().get::<revolution_per_minute>() / GEAR_RATIO;
+    let wheel_rpm = get_rpm().await.get::<revolution_per_minute>() / GEAR_RATIO;
 
     // each wheel revolution travels one circumference (π × diameter)
     let circumference_m = tire_diameter.get::<meter>() * PI;
@@ -137,51 +134,31 @@ pub fn get_velocity() -> Velocity {
     Velocity::new::<meter_per_second>(circumference_m * wheel_rpm / 60.0)
 }
 
-pub fn get_mph() -> f32 {
-    get_velocity().get::<mile_per_hour>()
+pub async fn get_mph() -> f32 {
+    get_velocity().await.get::<mile_per_hour>()
 }
 
-pub fn set_rpm(rpm: AngularVelocity) {
-    DTI_STATE.lock(|t| t.borrow_mut().rpm = rpm)
+pub async fn set_rpm(rpm: AngularVelocity) {
+    DTI_STATE.lock().await.rpm = rpm
 }
 
-pub fn set_rpm_from_can(raw: f32) {
-    let rpm = AngularVelocity::new::<revolution_per_minute>(raw);
-    DTI_STATE.lock(|t| t.borrow_mut().rpm = rpm)
+pub async fn set_rpm_from_can(raw: f32) {
+    let rpm = AngularVelocity::new::<revolution_per_minute>(raw / POLE_PAIRS);
+    set_rpm(rpm).await;
 }
 
-pub fn set_ac_current(ac_current: ElectricCurrent) {
-    DTI_STATE.lock(|t| t.borrow_mut().ac_current = ac_current)
+pub async fn set_ac_current(ac_current: ElectricCurrent) {
+    DTI_STATE.lock().await.ac_current = ac_current
 }
 
-pub fn set_ac_current_from_can(raw: f32) {
-    let ac_current = ElectricCurrent::new::<ampere>(raw);
-    set_ac_current(ac_current);
+pub async fn set_dc_current(dc_current: ElectricCurrent) {
+    DTI_STATE.lock().await.dc_current = dc_current
 }
 
-pub fn set_dc_current(dc_current: ElectricCurrent) {
-    DTI_STATE.lock(|t| t.borrow_mut().dc_current = dc_current)
+pub async fn set_controller_temp(controller_temp: Temperature) {
+    DTI_STATE.lock().await.controller_temp = controller_temp
 }
 
-pub fn set_dc_current_from_can(raw: f32) {
-    let dc_current = ElectricCurrent::new::<ampere>(raw);
-    set_dc_current(dc_current);
-}
-
-pub fn set_controller_temp(controller_temp: Temperature) {
-    DTI_STATE.lock(|t| t.borrow_mut().controller_temp = controller_temp)
-}
-
-pub fn set_controller_temp_from_can(raw: f32) {
-    let controller_temp = Temperature::new::<degree_celsius>(raw);
-    set_controller_temp(controller_temp);
-}
-
-pub fn set_motor_temp(motor_temp: Temperature) {
-    DTI_STATE.lock(|t| t.borrow_mut().motor_temp = motor_temp)
-}
-
-pub fn set_motor_temp_from_can(raw: f32) {
-    let motor_temp = Temperature::new::<degree_celsius>(raw);
-    set_motor_temp(motor_temp);
+pub async fn set_motor_temp(motor_temp: Temperature) {
+    DTI_STATE.lock().await.motor_temp = motor_temp
 }

@@ -15,8 +15,9 @@ use embassy_stm32::can::{IT0InterruptHandler, IT1InterruptHandler};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use uom::si::f32::ThermodynamicTemperature as Temperature;
+use uom::si::f32::{ElectricCurrent, ThermodynamicTemperature as Temperature};
 use uom::si::thermodynamic_temperature::degree_celsius;
+use uom::si::electric_current::ampere;
 
 bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => IT0InterruptHandler<peripherals::FDCAN2>;
@@ -145,14 +146,14 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
 
             Some(Msg::FrontWheelRpm(_)) => {}
-            Some(Msg::ErpmDutyInputVoltageStatus(m)) => dti::set_rpm_from_can(m.erpm() as f32),
+            Some(Msg::ErpmDutyInputVoltageStatus(m)) => dti::set_rpm_from_can(m.erpm() as f32).await,
             Some(Msg::TempsFaultCodeStatus(m)) => {
-                dti::set_motor_temp_from_can(m.motor_temp());
-                dti::set_controller_temp_from_can(m.controller_temp());
+                dti::set_motor_temp(Temperature::new::<degree_celsius>(m.motor_temp())).await;
+                dti::set_controller_temp(Temperature::new::<degree_celsius>(m.controller_temp())).await;
             }
             Some(Msg::CurrentsStatus(m)) => {
-                dti::set_ac_current_from_can(m.ac_current());
-                dti::set_dc_current_from_can(m.dc_current())
+                dti::set_ac_current(ElectricCurrent::new::<ampere>(m.ac_current())).await;
+                dti::set_dc_current(ElectricCurrent::new::<ampere>(m.dc_current())).await;
             }
 
             Some(Msg::DashboardEfuseState(m)) => efuses::send_command(EfuseDashboard, m.state()),
