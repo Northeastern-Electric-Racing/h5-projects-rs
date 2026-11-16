@@ -245,6 +245,17 @@ pub mod types {
         }
     }
 
+    pub struct FanDutyCyclePercentage {
+        /// Final fan duty, 0-100.
+        pub duty_cycle_percentage: u8,
+    }
+    impl FanDutyCyclePercentage {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::FanDutyCyclePercentage::new().with_fan_duty_cycle(self.duty_cycle_percentage);
+            frame.to_can_frame()
+        }
+    }
+
     pub struct BmsChargeMessageSend {
         pub charge_volts: f32,
         pub charge_current: f32,
