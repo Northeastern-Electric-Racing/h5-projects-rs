@@ -117,7 +117,7 @@ fn shock_pot_frames(readings: &[ShockPotReading; NUM_SHOCK_POTS]) -> [Frame; 2] 
     ]
 }
 
-/// `Front MSB Strain One Two` (0x605): strain gauges 1 and 2.
+/// `Front MSB Strain` (0x605): strain gauges 1 and 2.
 ///
 /// The fields are unscaled `u32`s and the gauges aren't calibrated yet, so this sends the raw ADC
 /// counts. TODO: switch to calibrated values once the gauges and the definition's units are set.
