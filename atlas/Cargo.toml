@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-can-bootloader-core.workspace = true
+can-bootloader-core = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 can-handler.workspace = true
 cortex-m-rt.workspace = true
 cortex-m.workspace = true

@@ -117,14 +117,14 @@ fn shock_pot_frames(readings: &[ShockPotReading; NUM_SHOCK_POTS]) -> [Frame; 2] 
     ]
 }
 
-/// `Front MSB Strain` (0x605): strain gauges 1 and 2.
+/// `Front MSB Strain One Two` (0x605): strain gauges 1 and 2.
 ///
 /// The fields are unscaled `u32`s and the gauges aren't calibrated yet, so this sends the raw ADC
 /// counts. TODO: switch to calibrated values once the gauges and the definition's units are set.
 fn strain_gauge_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Frame {
     let strain1 = u32::from(readings[StrainGauge::Sg1 as usize].raw);
     let strain2 = u32::from(readings[StrainGauge::Sg2 as usize].raw);
-    cangen::FrontMsbStrain::new()
+    cangen::FrontMsbStrainOneTwo::new()
         .with_strain1(strain1)
         .with_strain2(strain2)
         .to_can_frame()
