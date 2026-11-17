@@ -1481,7 +1481,7 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 [[package]]
 name = "nereth"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=eth%2Fno-panik#908e56341c6414bc258f2bf747ccca288acfc564"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
