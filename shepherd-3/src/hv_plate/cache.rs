@@ -124,7 +124,7 @@ pub mod current_voltage {
     /// The raw readings with the board's shunt resistance and divider applied.
     #[derive(Copy, Clone)]
     pub struct NiceData {
-        /// Current through the shunt. Positive is into the pack.
+        /// Current through the shunt. Positive is discharge, out of the pack.
         pub pack_current: Current,
         /// BATT-side voltage, after the 3.6 MOhm / 9.1 kOhm divider.
         pub batt_voltage: Voltage,
@@ -238,6 +238,7 @@ pub mod accumulated {
     use super::{RegisterCache, RegisterCacheData, StartupCell, AccumulatedCurrentAndBatteryVoltage, UpdateError, RegisterCacheReadHandle};
     use super::alias;
     use crate::helpers::startup_cell::UnwriteableStartupCell;
+    use crate::hv_plate::board;
 
     /// The accumulator registers, as raw sums.
     ///
@@ -246,7 +247,7 @@ pub mod accumulated {
     /// integrate.
     #[derive(Copy, Clone)]
     pub struct NiceData {
-        /// Summed shunt voltage, in microvolts.
+        /// Summed shunt voltage, in microvolts. Positive is discharge, out of the pack.
         pub current_sum_microvolts: i32,
         /// Summed BATT-tap voltage, in microvolts.
         pub batt_sum_microvolts: i32,
@@ -322,11 +323,16 @@ pub mod accumulated {
         /// Converts register readings into NiceData.
         fn nice(ivb1acc: RegisterCacheData<AccumulatedCurrentAndBatteryVoltage>) -> Nice {
             let data = NiceData {
-                current_sum_microvolts: ivb1acc.data().i1acc().as_microvolts(),
+                current_sum_microvolts: board::summed_shunt_microvolts(ivb1acc.data().i1acc().as_microvolts()),
                 batt_sum_microvolts: ivb1acc.data().vb1acc().as_microvolts(),
             };
 
-            Nice { data, oldest_read: ivb1acc.last_successful_read() }
+            #[cfg(feature = "hil")]
+            let oldest_read = crate::hv_plate::hil::sim_time::now();
+            #[cfg(not(feature = "hil"))]
+            let oldest_read = ivb1acc.last_successful_read();
+
+            Nice { data, oldest_read }
         }
     }
 
@@ -335,7 +341,6 @@ pub mod accumulated {
         ///
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
-        #[cfg_attr(feature = "hil", allow(dead_code))]
         async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             let nice = self.raw.update(api).await?;
             self.nice.set(nice);
@@ -345,7 +350,6 @@ pub mod accumulated {
 
     impl super::CacheData {
         /// Updates the accumulators.
-        #[cfg(not(feature = "hil"))]
         pub(in crate::hv_plate) async fn update_accumulated(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             self.accumulated.update(api).await
         }

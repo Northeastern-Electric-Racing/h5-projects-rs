@@ -49,12 +49,20 @@ impl HilDevice {
 impl ErrorType for HilDevice {
     type Error = HilError;
 }
+
+fn without_cs_timing<'a, 'b>(operations: &'a mut [Operation<'b, u8>]) -> &'a mut [Operation<'b, u8>] {
+    let is_delay = |op: &Operation<'_, u8>| matches!(op, Operation::DelayNs(_));
+    let start = operations.iter().position(|op| !is_delay(op)).unwrap_or(operations.len());
+    let end = operations.iter().rposition(|op| !is_delay(op)).map_or(start, |index| index + 1);
+    &mut operations[start..end]
+}
+
 impl SpiDevice for HilDevice {
     async fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), HilError> {
         let (tx, rx) = self.0.as_mut().ok_or(HilError::DisabledLine)?;
-        match operations {
-            // Chip-select wakeup pulses have no UART equivalent.
-            [] | [Operation::DelayNs(_)] => Ok(()),
+        match without_cs_timing(operations) {
+            // Chip-select wakeup pulses have no UART equivalent, and trim to nothing.
+            [] => Ok(()),
             // Send command + PEC, then receive the fixed-size reply.
             [Operation::Write(command), Operation::Read(data)] if command.len() == 4 => {
                 // Retry read timeouts; report only the final failure.
@@ -72,7 +80,12 @@ impl SpiDevice for HilDevice {
                     .await;
 
                     match result {
-                        Ok(result) => return result.map_err(HilError::Uart),
+                        Ok(Err(err)) => return Err(HilError::Uart(err)),
+                        Ok(Ok(())) => {
+                            // Fetch the model's clock while it still describes this reading.
+                            sim_time::refresh_after(command, tx, rx).await;
+                            return Ok(());
+                        },
                         Err(_) if attempt < READ_RETRIES => continue,
                         Err(_) => return Err(HilError::Timeout),
                     }
@@ -119,5 +132,66 @@ async fn drain_rx(rx: &mut UartRx<'static, Async>) {
     }
     if dropped > 0 {
         defmt::warn!("HIL: dropped {} stale RX bytes", dropped);
+    }
+}
+
+/// The simulink model's own clock, read over UART.
+pub mod sim_time {
+    use super::{Async, READ_TIMEOUT, UartRx, UartTx, with_timeout};
+    use adbms2950::chip::{
+        pec::{CommandPec, DataPecRx},
+        registers::{ReadableGroup, results::AccumulatedCurrentAndBatteryVoltage},
+    };
+    use core::cell::Cell;
+    use embassy_sync::blocking_mutex::ThreadModeMutex;
+
+    const RDHILTIME: u16 = 0b111_1111_1111;
+    /// Last simulation time the rig reported, in microseconds. Zero until the first answer.
+    static MICROS: ThreadModeMutex<Cell<u64>> = ThreadModeMutex::new(Cell::new(0));
+
+    /// The wire frame for [`RDHILTIME`]: opcode then command PEC, same as any other command.
+    const fn query() -> [u8; 4] {
+        let command = [(RDHILTIME >> 8_i32) as u8, RDHILTIME as u8];
+        let pec = CommandPec::new(&command);
+
+        [command[0], command[1], pec.pec0(), pec.pec1()]
+    }
+
+    /// The model's clock as of its last answer, on the model's own timebase.
+    pub fn now() -> embassy_time::Instant {
+        embassy_time::Instant::from_micros(MICROS.lock(|micros| micros.get()))
+    }
+
+    /// Reads the rig's clock, but only after the one read whose timestamp is load bearing.
+    pub(super) async fn refresh_after(command: &[u8], tx: &mut UartTx<'static, Async>, rx: &mut UartRx<'static, Async>) {
+        if command != AccumulatedCurrentAndBatteryVoltage::READ_COMMAND.to_bytes().as_slice() {
+            return;
+        }
+
+        let mut reply = [0_u8; 8];
+        let fetched = with_timeout(READ_TIMEOUT, async {
+            tx.write(&query()).await?;
+            tx.flush().await?;
+            rx.read(&mut reply).await
+        })
+        .await;
+
+        if !matches!(fetched, Ok(Ok(()))) {
+            defmt::warn!("HvPlate: hil: the rig did not answer RDHILTIME; the next SOC window is measured against a stale simulation time.");
+            return;
+        }
+
+        if !DataPecRx::from_bytes([reply[6], reply[7]]).verify(&reply[..6]) {
+            defmt::warn!("HvPlate: hil: RDHILTIME failed its PEC; the next SOC window is measured against a stale simulation time.");
+            return;
+        }
+
+        // Six bytes of microseconds, little endian. 48 bits is about nine years of simulated time.
+        let mut micros: u64 = 0;
+        for (index, byte) in reply[..6].iter().enumerate() {
+            micros |= u64::from(*byte) << (index * 8);
+        }
+
+        MICROS.lock(|stamp| stamp.set(micros));
     }
 }
