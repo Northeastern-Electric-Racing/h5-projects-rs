@@ -170,8 +170,6 @@ mod locks {
                 Locks::BspdPref => {}
                 Locks::BmsNotPrechargedYet => {}
             }
-            // todo: call the appropriate fault
-            defmt::error!("Fault queued: {:?}", fault);
         }
 
         pub(super) fn unset_lock(&mut self, fault: Locks) {
@@ -776,7 +774,6 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
 
         if drive_lock.any_locked() {
             dti::set_torque(Torque::new::<newton_meter>(0.0)).await;
-            debug!("Drive locked due to faults: {:?}", drive_lock.drive_locks);
         } else {
             tc_process();
 
