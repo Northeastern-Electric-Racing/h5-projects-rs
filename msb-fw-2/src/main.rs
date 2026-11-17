@@ -21,7 +21,7 @@ use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexer_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
 use msb_fw_2::{
-    imu, load_cell, magnetometer, shock_pot, steering_angle, strain_guage, thermocouple,
+    imu, load_cell, magnetometer, shock_pot, steering_angle, strain_gauge, thermocouple,
 }; //,hdc2021,magnetometer, , imu}; 
 
 use {defmt_rtt as _, panic_probe as _};
@@ -111,8 +111,8 @@ async fn main(spawner: Spawner) -> ! {
             .expect("Failed to spawn steering_angle::steering_angle_task()."),
     );
     spawner.spawn(
-        strain_guage::strain_gauge_task()
-            .expect("Failed to spawn strain_guage::strain_gauge_task()."),
+        strain_gauge::strain_gauge_task()
+            .expect("Failed to spawn strain_gauge::strain_gauge_task()."),
     );
     spawner
         .spawn(load_cell::load_cell_task().expect("Failed to spawn load_cell::load_cell_task()."));

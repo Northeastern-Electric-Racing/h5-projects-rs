@@ -9,6 +9,6 @@ pub mod magnetometer;
 pub mod multiplexer_handler;
 pub mod shock_pot;
 pub mod steering_angle;
-pub mod strain_guage;
+pub mod strain_gauge;
 pub mod thermocouple;
 pub mod wheel_speed;
