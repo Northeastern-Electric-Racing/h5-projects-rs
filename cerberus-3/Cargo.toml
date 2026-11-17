@@ -28,7 +28,7 @@ strum.workspace = true
 
 cangen.workspace = true
 can-handler.workspace = true
-nereth.workspace = true
+nereth = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "eth/no-panik"}
 
 lsm6dsv16x-ner.workspace = true
 
