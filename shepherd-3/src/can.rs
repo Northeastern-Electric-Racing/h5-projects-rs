@@ -79,6 +79,9 @@ pub async fn can_inbox_task() -> ! {
                 pack::analyzer::store_can_ts_voltage(Voltage::new::<volt>(m.voltage()));
                 defmt_monitor::monitor!("RxDebug/received", desc = "", "{}", "ChargerBoxStatus");
                 defmt_monitor::monitor!("ChargerBoxStatus/current", desc = "Requested current from charger box POV.", "{=f32}", m.current());
+
+                let raw = frame.data();
+                defmt_monitor::monitor!("ChargerBoxStatus/rawbytes", desc = "", "{=u8}, {=u8}, {=u8}, {=u8}, {=u8}, {=u8}, {=u8}, {=u8}", raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7]);
             },
             Some(Msg::CurrentsStatus(_)) => {
                 if let Some(current) = decode_dti_current(frame.data()) {

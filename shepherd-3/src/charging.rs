@@ -54,6 +54,9 @@ mod state {
         }
     }
 
+    /// If ShortChargeUp at minimum current hits MAX_CHARGE_VOLT within this long of entering, the cells basically can't take more charge at that current. 
+    /// So we can transition to done state!
+    const SATURATION_WINDOW: Duration = Duration::from_secs(10);
     /// How long the `ShortCharge` should run before checking if it should step down voltage again.
     const SHORT_CHARGE_CHECK_DURATION: Duration = Duration::from_secs(5);
     /// The starting current for `ShortChargeUp`.
@@ -67,6 +70,8 @@ mod state {
         /// RUNTIME FIELD. How much current we should request from the charger while in `ShortChargeUp`.
         /// This varies at runtime. It steps down depending on how filled the cells are.
         current: Current,
+        /// RUNTIME FIELD. When this `ShortChargeUp` was entered.
+        entered_at: Instant,
 
         /// CONSTANT FIELD. The step at which we step down `current`.
         current_step: Current,
@@ -77,6 +82,7 @@ mod state {
                 deadline: Deadline::expire_at_beginning_of_time(),
                 current: SHORT_CHARGE_START_CURRENT,
                 current_step: SHORT_CHARGE_CURRENT_STEP,
+                entered_at: Instant::now(),
             }
         }
         fn with_current(current: Current) -> Self {
@@ -84,6 +90,7 @@ mod state {
                 deadline: Deadline::expire_at_beginning_of_time(),
                 current,
                 current_step: SHORT_CHARGE_CURRENT_STEP,
+                entered_at: Instant::now(),
             }
         }
 
@@ -286,16 +293,28 @@ mod state {
 
         /// RUNTIME FIELD. If this `Settle` was entered from `Balancing`.
         were_balancing: bool,
+        /// RUNTIME FIELD. If this `Settle` was entered from a saturated/late-stage `ShortChargeUp`.
+        charger_saturated: bool,
     }
     impl Settle {
         /// Creates a new `Settle`.
         fn new() -> Self {
-            Self { deadline: Deadline::expire_in(SETTLE_DURATION), were_balancing: false }
+            Self { deadline: Deadline::expire_in(SETTLE_DURATION), were_balancing: false, charger_saturated: false }
         }
 
         /// Creates a new `Settle` with `were_balancing` = true.
         fn new_from_balancing() -> Self {
-            Self { deadline: Deadline::expire_in(SETTLE_DURATION), were_balancing: true }
+            Self { deadline: Deadline::expire_in(SETTLE_DURATION), were_balancing: true, charger_saturated: false }
+        }
+
+        /// Creates a new `Settle` from a `ShortChargeUp`.
+        fn new_after_short_charge_up(short_charge_up: ShortChargeUp) -> Self {
+            // Checks if the time elapsed since we entered the `ShortChargeUp` is less than or equal to `SATURATION_WINDOW`.
+            // If it is, we consider the charge stage "saturated", in that we have very quickly reached the threshold after starting and should therefore consider ourselves
+            // done with charging (since there is no more room to collect more voltage).
+            let saturated = short_charge_up.entered_at.elapsed() <= SATURATION_WINDOW;
+
+            Self { deadline: Deadline::expire_in(SETTLE_DURATION), were_balancing: false, charger_saturated: saturated }
         }
     }
 
@@ -450,7 +469,7 @@ mod state {
 
                 Self::ShortChargeUp(mut h) => {
                     if inputs.exceeded_fault_voltages()                                                                                                                { Self::Fault }
-                    else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && (h.current <= SHORT_CHARGE_CURRENT_STEP) && h.deadline.past()                                   { Self::Settle(Settle::new()) }
+                    else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && (h.current <= SHORT_CHARGE_CURRENT_STEP) && h.deadline.past()                                   { Self::Settle(Settle::new_after_short_charge_up(h)) }
                     else if inputs.should_we_start_balancing() && inputs.is_balancing_allowed() && let Some(stage) = inputs.appropriate_balancing_phase() { stage /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
                     else if (inputs.max_voltage >= MAX_CHARGE_VOLT) && h.deadline.past()                                                                               { h.reschedule_with_step_down(); Self::ShortChargeUp(h) }
                     else                                                                                                                                               { self }
@@ -471,7 +490,7 @@ mod state {
                     if inputs.exceeded_fault_voltages()                                                                                                { Self::Fault }
                     else if h.deadline.past() {
                         if inputs.is_balancing_allowed() && wants_balancing && let Some(stage) = inputs.appropriate_balancing_phase_ocv() { stage /* Self::BalanceAndChargeUp or Self::BalanceOnly */ }
-                        else if inputs.max_ocv >= MAX_CHARGE_VOLT                                                                                      { Self::Done }
+                        else if inputs.max_ocv >= MAX_CHARGE_VOLT || h.charger_saturated                                                               { Self::Done }
                         else                                                                                                                           { Self::from_charge_restore_cache(inputs.charge_restore_cache) /* Self::LongChargeUp or Self::ShortChargeUp */ }
                     }
                     else                                                                                                                               { self }
