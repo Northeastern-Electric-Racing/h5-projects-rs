@@ -12,10 +12,10 @@ use adbms2950::chip::registers::{
 };
 use adbms2950::line::Error;
 use crate::helpers::startup_cell::{StartupCell, UnwriteableStartupCell};
-use crate::time::PlantTime;
+use crate::helpers::time::PlantTime;
 use embassy_time::Instant;
 
-use super::core::alias;
+use super::alias;
 
 /// Cache to hold read data.
 pub static CACHE: CacheData = CacheData::new();
@@ -48,23 +48,12 @@ pub trait Decode: Copy {
     /// Applies the board's networks and the driver's scaling.
     fn decode(registers: &Self::Registers) -> Self;
 
-    /// Taken *before* the first SPI read, so it bounds every register in the group. Contrast
-    /// [`Self::plant_at`], which is sampled after.
-    ///
-    /// Always the MCU's clock: this is what freshness and liveness are judged on, and those have
-    /// to keep working when a rig's model stops. For how much time the *plant* experienced, see
-    /// [`Self::plant_at`].
+    /// Taken *before* the first SPI read, so it bounds every register in the group.
     fn read_at() -> Instant {
         Instant::now()
     }
 
-    /// The same moment on the plant's clock, for a group something integrates over or dwells on.
-    ///
-    /// `None` by default, and that is not a failure: most groups are read for what they say, not
-    /// for how much time the pack experienced between two reads, so they have no use for a second
-    /// timestamp. A group that does need one overrides this. See [`crate::time`].
-    ///
-    /// Sampled *after* the registers are read, unlike [`Self::read_at`] -- see `Group::update`.
+    /// The same moment on the plant's clock. `None` unless a group that integrates over time overrides it.
     fn plant_at() -> Option<PlantTime> {
         None
     }
@@ -101,15 +90,12 @@ impl<N: Decode> Reading<N> {
         self.nice
     }
 
-    /// Nothing in this reading predates this, on the MCU's clock. This is the stamp freshness and
-    /// liveness are judged against; it keeps advancing whatever a rig's model is doing.
+    /// Nothing in this reading predates this. What freshness and liveness are judged against.
     pub const fn read_at(&self) -> Instant {
         self.read_at
     }
 
-    /// The same moment on the plant's clock, for the groups that declare one -- see
-    /// [`Decode::plant_at`]. `None` both for a group that has no use for it and for a rig whose
-    /// clock could not be read, which is why the one consumer treats it as a precondition.
+    /// The same moment on the plant's clock, for the groups that declare one.
     pub const fn plant_at(&self) -> Option<PlantTime> {
         self.plant_at
     }
@@ -135,9 +121,7 @@ impl<N: Decode> Group<N> {
     pub async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
         let read_at = N::read_at();
         let registers = N::read_registers(api).await?;
-        // After the read, not before. On a rig the plant clock only moves when the HIL shim asks
-        // the model for it, and it does that on the back of this very read -- so sampling it here
-        // gets the reading's own timestamp, where sampling it above would get the previous pass's.
+        // After the read: the HIL shim only advances the plant clock on the back of this very read.
         let plant_at = N::plant_at();
 
         self.inner.set(Reading { nice: N::decode(&registers), registers, read_at, plant_at });
@@ -255,10 +239,9 @@ pub mod accumulated {
             }
         }
 
-        /// The one group that is integrated over rather than simply read, so it is the one that
-        /// needs the interval the pack actually lived through. On a rig that is the model's clock.
-        fn plant_at() -> Option<crate::time::PlantTime> {
-            crate::time::plant_now()
+        /// The one group integrated over rather than simply read, so it needs the plant's interval.
+        fn plant_at() -> Option<crate::helpers::time::PlantTime> {
+            crate::helpers::time::plant_now()
         }
     }
 }

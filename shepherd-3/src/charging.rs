@@ -25,7 +25,7 @@ pub mod connected {
 use embassy_time::{Duration, Instant};
 use crate::units::{Voltage, Current};
 use crate::helpers::deadline::Deadline;
-use crate::time::PlantTime;
+use crate::helpers::time::PlantTime;
 use crate::pack::analyzer;
 use crate::helpers::snapshot_cell::{SnapshotCell, LazySnapshotCell};
 use crate::segments::IndexByChip;
@@ -41,7 +41,7 @@ mod state {
     #[derive(Copy, Clone, defmt::Format)]
     pub struct LongChargeUp {
         /// RUNTIME FIELD. When this `LongChargeUp` session should expire (based on LONG_CHARGE_DURATION).
-        deadline: Deadline<PlantTime>,
+        deadline: Deadline,
 
         /// CONSTANT FIELD. How much current we should request from the charger while in `LongChargeUp`.
         current: Current,
@@ -54,8 +54,7 @@ mod state {
             }
         }
 
-        /// A placeholder for before the plant clock has ever been read. `Charger::tick` replaces it
-        /// on the first pass that has one, so it is never consulted.
+        /// A placeholder for before the plant clock has ever been read, replaced on the first pass that has one.
         fn unset() -> Self {
             Self { deadline: Deadline::never(), current: LONG_CHARGE_CURRENT }
         }
@@ -70,7 +69,7 @@ mod state {
     #[derive(Copy, Clone, defmt::Format)]
     pub struct ShortChargeUp {
         /// RUNTIME FIELD. When this `ShortChargeUp` should check to step down the voltage next.
-        deadline: Deadline<PlantTime>,
+        deadline: Deadline,
         /// RUNTIME FIELD. How much current we should request from the charger while in `ShortChargeUp`.
         /// This varies at runtime. It steps down depending on how filled the cells are.
         current: Current,
@@ -140,9 +139,9 @@ mod state {
 
     enum BalancingDeadline {
         /// We are actively in the "active" stage of balancing, so this is our deadline for that ending.
-        Active(Deadline<PlantTime>),
+        Active(Deadline),
         /// We are actively in the "cooldown" stage of balancing, so this is our deadline for that ending.
-        Cooldown(Deadline<PlantTime>),
+        Cooldown(Deadline),
     }
     impl BalancingDeadline {
         fn active(now: PlantTime) -> Self {
@@ -153,7 +152,7 @@ mod state {
         }
 
         /// Executes `f` if this is currently `Active`.
-        fn is_active_and(self, f: impl FnOnce(Deadline<PlantTime>) -> bool) -> bool {
+        fn is_active_and(self, f: impl FnOnce(Deadline) -> bool) -> bool {
             match self {
                 Self::Active(d) => f(d),
                 _ => false,
@@ -161,7 +160,7 @@ mod state {
         }
 
         /// Executes `f` if this is currently `Cooldown`.
-        fn is_cooldown_and(self, f: impl FnOnce(Deadline<PlantTime>) -> bool) -> bool {
+        fn is_cooldown_and(self, f: impl FnOnce(Deadline) -> bool) -> bool {
             match self {
                 Self::Cooldown(d) => f(d),
                 _ => false,
@@ -289,7 +288,7 @@ mod state {
     #[derive(Copy, Clone, defmt::Format)]
     pub struct Settle {
         /// RUNTIME FIELD. When this `Settle` should expire.
-        deadline: Deadline<PlantTime>,
+        deadline: Deadline,
 
         /// RUNTIME FIELD. If this `Settle` was entered from `Balancing`.
         were_balancing: bool,
@@ -507,8 +506,7 @@ mod state {
         /// Current that we should be requesting from the charger right now. If this is `None`, we shouldn't be requesting any current from the charger.
         current: Option<Current>,
 
-        /// Whether `stage` has been built against a real plant reading yet. Until it has, its
-        /// deadline is a placeholder and must not be consulted.
+        /// Whether `stage` has been built against a real plant reading yet; until it has, its deadline is a placeholder.
         started: bool,
     }
     impl Default for Charger {
@@ -536,14 +534,9 @@ mod state {
             *self = Charger::default()
         }
 
-        /// Advances one cycle.
-        ///
-        /// Every stage duration here is plant time, so this only runs when that clock can be read.
-        /// The caller holds the stage where it is otherwise -- on a rig, a model that has stopped
-        /// answering also stops the charge advancing, which is the safe way round.
+        /// Advances one cycle. Only runs with a readable plant clock; the caller holds the stage where it is otherwise.
         pub fn tick(&mut self, now: PlantTime) {
-            // The stage `default` built carries a placeholder deadline, because `default` has no
-            // plant reading to build a real one from. Give it one before anything reads it.
+            // `default` had no plant reading to build a real deadline from, so give it one before anything reads it.
             if !self.started {
                 self.stage = ChargeStage::LongChargeUp(LongChargeUp::new(now));
                 self.started = true;
@@ -739,9 +732,8 @@ pub async fn charger_task() -> ! {
 
         CHARGER_CONNECTED.partial_set(|h| *h = h.tick());
 
-        // Every charge-stage duration is plant time, so the stage machine only advances while that
-        // clock can be read. The current request below keeps being sent either way.
-        let plant = crate::time::plant_now();
+        // The stage machine only advances while the plant clock can be read; the current request below is sent either way.
+        let plant = crate::helpers::time::plant_now();
 
         // Only advance the charging stage statemachine if the overall BMS state is `Charging`.
         if state_machine::state().is_charging() && !faults::are_critical_faults_active() {

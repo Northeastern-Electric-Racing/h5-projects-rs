@@ -12,8 +12,7 @@ pub struct UnwriteableWatch<M: RawMutex, T: Clone, const N: usize> {
 impl<M: RawMutex, T: Clone, const N: usize> UnwriteableWatch<M, T, N> {
     /// Narrows a [`Watch`] to its reading half, withholding `sender`.
     pub const fn of(watch: &Watch<M, T, N>) -> &Self {
-        // SAFETY: `UnwriteableWatch` is `#[repr(transparent)]` over `Watch`, so the two have an
-        // identical layout. Same pattern as `StartupCell::to_unwriteable`.
+        // SAFETY: `#[repr(transparent)]` over `Watch`, so identical layout. Same pattern as `StartupCell::to_unwriteable`.
         unsafe { &*(watch as *const Watch<M, T, N> as *const Self) }
     }
 

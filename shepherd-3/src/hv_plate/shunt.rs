@@ -11,7 +11,7 @@ const ACCN: u16 = hv_plate::core::ACCUMULATOR_DEPTH.samples();
 mod accumulator {
     use adbms2950::chip::registers::flag::Flag;
     use adbms2950::line::conversion_times;
-    use crate::time::PlantTime;
+    use crate::helpers::time::PlantTime;
     use embassy_time::Duration;
     use super::{ACCN, NANOS_PER_MICRO, hv_plate};
 
@@ -42,9 +42,7 @@ mod accumulator {
     }
 
     impl Registers {
-        /// `None` when the plant clock could not be read, which on a rig means the model has not
-        /// answered yet. Everything below measures an interval the pack actually lived through, so
-        /// there is nothing to compute without it.
+        /// `None` when the plant clock could not be read -- everything below measures an interval, so there is nothing to compute without it.
         pub fn read(flag: &hv_plate::cache::flag::Reading, accumulated: &hv_plate::cache::accumulated::Reading) -> Option<Self> {
             Some(Self {
                 i1cnt: flag.registers().i1cnt(),
@@ -238,8 +236,10 @@ mod calibration {
     const NOMINAL_NANOOHMS: i64 = hv_plate::board::SHUNT_MICROOHMS * 1_000;
     const SUM_NANOVOLTS_PER_AMP: i64 = ACCN as i64 * NOMINAL_NANOOHMS;
 
-    /// Table 2, conversion noise at a ACC32 conversion time: 0.283 uV RMS.
-    const WINDOW_NOISE_SUM_MICROVOLTS: i32 = 9;
+    /// Table 2, conversion noise at the ACC32 conversion time: 0.283 uV RMS. u_TODO: datasheet figure, belongs in the 2950 driver.
+    const CONVERSION_NOISE_NANOVOLTS: i32 = 283;
+    /// Worst case, taking the per-conversion noise as fully correlated across the window.
+    const WINDOW_NOISE_SUM_MICROVOLTS: i32 = CONVERSION_NOISE_NANOVOLTS * ACCN as i32 / 1_000;
     /// A run's samples spread ~4 sigma, so 9 sigmas covers that in both directions.
     const CALIBRATION_MAX_SPREAD_SUM_MICROVOLTS: i32 = 9 * WINDOW_NOISE_SUM_MICROVOLTS;
 
@@ -415,7 +415,7 @@ pub mod published {
     static WINDOW: Watch<ThreadModeRawMutex, Stamped<Measurement>, WINDOW_RECEIVERS> = Watch::new();
     static INSTANT: SnapshotCell<Option<Stamped<Current>>> = SnapshotCell::new(None);
 
-    pub fn window() -> &'static UnwriteableWindowWatch {
+    pub const fn window() -> &'static UnwriteableWindowWatch {
         UnwriteableWatch::of(&WINDOW)
     }
 
@@ -471,7 +471,7 @@ mod task {
         let mut latest_window: Option<accumulator::Window> = None;
         let mut latest_measurement: Option<Measurement> = None;
 
-        let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
+        let mut diagnostic_deadline = Deadline::expired();
         loop {
             // Wait for a closed accumulator window
             let acc_window_status = acc_data_recv.changed().await;
@@ -491,8 +491,7 @@ mod task {
             {
                 calibrator.observe(&window, can_calibrate, shunt_temp);
                 let measurement = calibrator.correct(&window);
-                // The host stamp, not the plant one: `Stamped` ages against the MCU's clock, and
-                // mixing the two would make every freshness check downstream meaningless.
+                // The host stamp, not the plant one: `Stamped` ages against the MCU's clock.
                 published::publish_window(Stamped::new(measurement, accumulated.get().read_at()));
 
                 latest_window = Some(window);
@@ -509,7 +508,7 @@ mod task {
                 defmt_monitor::monitor!("HvPlate/Shunt/MissedWindows", desc = "Accumulator windows overwritten before the task read them. Should stay at zero; non-zero means the 25 ms budget is blown.", "{=u32}", reader.missed_windows());
                 defmt_monitor::monitor!("HvPlate/Shunt/Desyncs", desc = "Observations rejected because I1CNT could have lapped (a gap over ~2 s).", "{=u32}", reader.desyncs());
                 #[cfg(feature = "hil")]
-                defmt_monitor::monitor!("HvPlate/Shunt/HilSimClockUs", desc = "Simulation time the rig last reported over RDHILTIME, in us. NaN means the model has never answered and nothing measured in plant time is running at all.", "{=f32}", hv_plate::hil::sim_time::now().map_or(f32::NAN, |now| now.as_micros() as f32));
+                defmt_monitor::monitor!("HvPlate/Shunt/HilSimClockUs", desc = "Simulation time the rig last reported over RDHILTIME, in us. NaN means the model has never answered and nothing measured in plant time is running at all.", "{=f32}", crate::helpers::time::plant_now().map_or(f32::NAN, |now| now.as_micros() as f32));
                 defmt_monitor::monitor!("HvPlate/Shunt/Offset", desc = "Calibrated zero-current offset on the summed window, in microvolts. Datasheet bound is +/-32 uV across ACCN=32.", "{=i32}", calibrator.offset_sum_microvolts());
                 defmt_monitor::monitor!("HvPlate/Shunt/OffsetTemp", desc = "Shunt temperature when the offset was taken, in celsius. NaN until a calibration run is accepted.", "{=f32}", calibrator.offset_taken_at().map_or(f32::NAN, |temp| temp.get::<degree_celsius>()));
                 defmt_monitor::monitor!("HvPlate/Shunt/CanCalibrate", desc = "Whether windows are currently being collected for a shunt offset. Needs the relay read back open from CFGA and the accumulator shutdown sense low; always false under HIL, where the rig drives neither.", "{=bool}", can_calibrate);

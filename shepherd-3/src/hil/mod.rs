@@ -1,4 +1,8 @@
-//! HIL support for segments.
+//! The UART that stands in for isoSPI on a HIL rig.
+//!
+//! There is no chip and no isoSPI on a rig: a Simulink model answers the same command frames over a
+//! UART, one per line. The transport below is shared; what differs per line is the peripheral and
+//! whether it carries the model's clock, and that lives in [`hv_plate`] and [`segments`].
 
 use embassy_stm32::{
     mode::Async,
@@ -7,26 +11,17 @@ use embassy_stm32::{
 use embassy_time::{with_timeout, Duration};
 use embedded_hal_async::spi::{ErrorType, Operation, SpiDevice};
 
+pub mod hv_plate;
+pub mod segments;
+mod sim_time;
+
+const BAUDRATE: u32 = 115_200;
 const READ_TIMEOUT: Duration = Duration::from_secs(1);
 const READ_RETRIES: usize = 2;
 // About two byte times at 115200 baud: once the line is quiet this long, RX is drained.
 const DRAIN_IDLE: Duration = Duration::from_micros(200);
 // Bounds the drain so a stream of noise or errors can't stall the transaction.
 const DRAIN_MAX_BYTES: usize = 64;
-
-embassy_stm32::bind_interrupts!(struct Irqs {
-    UART9 => usart::InterruptHandler<embassy_stm32::peripherals::UART9>;
-
-    GPDMA1_CHANNEL4 =>
-        embassy_stm32::dma::InterruptHandler<
-            embassy_stm32::peripherals::GPDMA1_CH4
-        >;
-
-    GPDMA1_CHANNEL5 =>
-        embassy_stm32::dma::InterruptHandler<
-            embassy_stm32::peripherals::GPDMA1_CH5
-        >;
-});
 
 #[derive(Clone, Copy, Debug, defmt::Format)]
 pub enum HilError {
@@ -35,31 +30,33 @@ pub enum HilError {
     DisabledLine,
     UnsupportedTransaction,
 }
-
 impl embedded_hal_async::spi::Error for HilError {
     fn kind(&self) -> embedded_hal_async::spi::ErrorKind {
         embedded_hal_async::spi::ErrorKind::Other
     }
 }
 
-/// `None` disables the unused line B.
-pub struct HilDevice(Option<(UartTx<'static, Async>, UartRx<'static, Async>)>);
-
+pub struct HilDevice {
+    /// `None` disables a line the rig does not wire up.
+    uart: Option<(UartTx<'static, Async>, UartRx<'static, Async>)>,
+    serves_sim_time: bool,
+}
 impl HilDevice {
-    pub fn new(r: crate::SegmentIsoSpiLineAResources) -> Self {
-        let mut config = usart::Config::default();
-        config.baudrate = 115_200;
-
-        let uart = Uart::new(r.uart, r.tx, r.rx, r.tx_dma, r.rx_dma, Irqs, config).expect("Invalid HIL UART9 configuration");
-
-        Self(Some(uart.split()))
+    /// The plate's line, which also carries the model's clock: RDHILTIME rides on the back of its accumulator read.
+    fn serving_sim_time(uart: Uart<'static, Async>) -> Self {
+        Self { uart: Some(uart.split()), serves_sim_time: true }
     }
 
+    /// A line that only moves frames.
+    fn frames_only(uart: Uart<'static, Async>) -> Self {
+        Self { uart: Some(uart.split()), serves_sim_time: false }
+    }
+
+    /// Keeps a line-B argument honest without reserving hardware for it; every transaction fails with [`HilError::DisabledLine`].
     pub const fn disabled() -> Self {
-        Self(None)
+        Self { uart: None, serves_sim_time: false }
     }
 }
-
 impl ErrorType for HilDevice {
     type Error = HilError;
 }
@@ -73,12 +70,11 @@ fn without_cs_timing<'a, 'b>(operations: &'a mut [Operation<'b, u8>]) -> &'a mut
 
 impl SpiDevice for HilDevice {
     async fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), HilError> {
-        let (tx, rx) = self.0.as_mut().ok_or(HilError::DisabledLine)?;
-
+        let serves_sim_time = self.serves_sim_time;
+        let (tx, rx) = self.uart.as_mut().ok_or(HilError::DisabledLine)?;
         match without_cs_timing(operations) {
             // Chip-select wakeup pulses have no UART equivalent, and trim to nothing.
             [] => Ok(()),
-
             // Send command + PEC, then receive the fixed-size reply.
             [Operation::Write(command), Operation::Read(data)] if command.len() == 4 => {
                 // Retry read timeouts; report only the final failure.
@@ -96,7 +92,14 @@ impl SpiDevice for HilDevice {
                     .await;
 
                     match result {
-                        Ok(result) => return result.map_err(HilError::Uart),
+                        Ok(Err(err)) => return Err(HilError::Uart(err)),
+                        Ok(Ok(())) => {
+                            if serves_sim_time {
+                                // SNAP does not freeze RDHILTIME, so this is the model's clock a fraction of a frame after the registers above were sent.
+                                sim_time::refresh_after(command, tx, rx).await;
+                            }
+                            return Ok(());
+                        },
                         Err(_) if attempt < READ_RETRIES => continue,
                         Err(_) => return Err(HilError::Timeout),
                     }
@@ -104,7 +107,6 @@ impl SpiDevice for HilDevice {
 
                 unreachable!()
             },
-
             // Do not retry writes: they may already have taken effect.
             [Operation::Write(command)] => with_timeout(Duration::from_millis(100), async {
                 tx.write(command).await?;
@@ -128,8 +130,7 @@ impl SpiDevice for HilDevice {
     }
 }
 
-/// Discards bytes waiting in the RX FIFO. `UartRx::read` puts already-received bytes at the front of
-/// its buffer, so anything left over would shift the next reply.
+/// Discards bytes waiting in the RX FIFO, which `UartRx::read` would otherwise put at the front of the next reply.
 async fn drain_rx(rx: &mut UartRx<'static, Async>) {
     let mut byte = [0u8; 1];
     let mut dropped = 0usize;

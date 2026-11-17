@@ -1,10 +1,9 @@
 //! Open-circuit voltage: when the pack is at rest, and what the cells read at that moment.
 //!
-//! The snapshot is latched here rather than in the analyzer because what it waits for is a
-//! current-threshold condition, which is judged at the shunt's cadence rather than the segments'.
+//! Latched here rather than in the analyzer because it waits on a current threshold, judged at the shunt's cadence rather than the segments'.
 #![cfg_attr(not(defmt_monitor), allow(dead_code))]
 
-use crate::time::PlantTime;
+use crate::helpers::time::PlantTime;
 use embassy_time::{Duration, Instant};
 
 use crate::helpers::deadline::Deadline;
@@ -17,14 +16,10 @@ use crate::units::{Current, Voltage, volt};
 /// Below this the pack counts as unloaded.
 const OCV_CURR_THRESH: Current = Current::from_amps(0.5_f32);
 
-/// How long the pack has to stay unloaded before its cell voltages count as open-circuit.
-///
-/// Plant time: it is the cells' relaxation that this is waiting out, so on a rig it has to be
-/// simulated milliseconds. Timing it on the MCU would snapshot a model that had barely moved.
+/// How long the pack has to stay unloaded before its cell voltages count as open-circuit. Plant time: it is the cells' relaxation being waited out.
 const OCV_TIMER_DURATION: Duration = Duration::from_millis(1500);
 
-/// The snapshot's statistics, apart from the per-cell array so that a reader after one number
-/// does not copy the whole array to get it.
+/// The snapshot's statistics, kept apart from the per-cell array so a reader after one number does not copy the whole thing.
 #[derive(Copy, Clone)]
 pub struct OcvStats {
     pub max: CriticalCellValue<Voltage>,
@@ -80,7 +75,7 @@ struct Tracker {
     /// Whether the last look found the pack unloaded. Reported, not acted on.
     rest_allowed: bool,
     /// Deadline after which the pack has been unloaded long enough to snapshot.
-    rest_timer: Option<Deadline<PlantTime>>,
+    rest_timer: Option<Deadline>,
     /// Whether we are still waiting for the first plausible cell voltage to seed the snapshot.
     is_first_reading: bool,
 }
@@ -96,16 +91,11 @@ impl Tracker {
         }
     }
 
-    /// Judges whether the pack is at rest and, if it is, latches a snapshot and publishes it.
-    ///
-    /// `now` is plant time, and `None` holds the rest timer cleared: without a plant clock there
-    /// is no way to say the pack has been unloaded for [`OCV_TIMER_DURATION`]. The first-reading
-    /// seed does not go through the timer, so it still works.
+    /// Judges whether the pack is at rest and, if it is, latches a snapshot and publishes it. `None` holds the rest timer cleared; the first-reading seed bypasses it.
     fn observe(&mut self, now: Option<PlantTime>) {
         use crate::pack::analyzer;
 
-        // Whichever instrument is currently believed: the plate's offset-corrected shunt if it is
-        // fresh, else a CAN-reported claim. A reporter measures its own branch, not the pack.
+        // Whichever instrument is currently believed. A CAN reporter measures its own branch, not the pack.
         let Some(sourced) = crate::pack::pack_current() else {
             return;
         };
@@ -153,9 +143,7 @@ impl Tracker {
         self.open_cell_voltage = corrected;
         self.recalculate();
 
-        // The pack is settled as of now, so the snapshot and its stamp are taken together. The
-        // stamp is the MCU's clock: it is read back through `Stamped`, whose age is host-based,
-        // and it answers "is this snapshot still being published", not "how long has the pack sat".
+        // Snapshot and stamp taken together. The MCU's clock: this answers "is this still being published", not "how long has the pack sat".
         store(OcvData { open_cell_voltage: self.open_cell_voltage, stats: self.stats }, Instant::now());
     }
 
@@ -212,7 +200,6 @@ impl Tracker {
             faults::queue(FaultCommand::CellVoltageTooLow(PassFailAction::NotifyOkay)).await;
         }
 
-        // Update cell voltage too high fault
         // u_TODO - (note: the separate CellChargeVoltageTooHigh fault from TSECU-Shepherd is combined with CellVoltageTooHigh now, they just check different values depending on state)
         let max = if crate::state_machine::state().is_charging() { Voltage::from_volts(4.2) } else { Voltage::from_volts(4.2) };
         if self.stats.max.value() > max {
@@ -350,7 +337,7 @@ mod task {
         loop {
             match select(rest_check.next(), segments_freshdata_subscription.wait()).await {
                 // Plant time: it is the cells relaxing that the rest timer waits out.
-                Either::First(()) => tracker.observe(crate::time::plant_now()),
+                Either::First(()) => tracker.observe(crate::helpers::time::plant_now()),
                 Either::Second(()) => {
                     tracker.report_faults().await;
                     report().await;
@@ -364,8 +351,8 @@ mod task {
                 defmt_monitor::monitor!("AnalyzerDebug/calc_open_cell_voltage()/ocv_timer", desc = "", "{}", tracker.rest_timer);
                 defmt_monitor::monitor!("AnalyzerDebug/Ocv/is_first_reading", desc = "Whether we are still waiting for the first plausible cell voltage to seed the OCV snapshot.", "{=bool}", tracker.is_first_reading);
                 defmt_monitor::monitor!("AnalyzerDebug/Ocv/rest_timer_running", desc = "Whether the pack is quiet enough (low current, charger off, not balancing) for the OCV rest timer to be counting.", "{=bool}", tracker.rest_timer.is_some());
-                defmt_monitor::monitor!("AnalyzerDebug/Ocv/rest_timer_expired", desc = "Whether the rest timer has run out, so the OCV snapshot is being refreshed every cycle.", "{=bool}", crate::time::plant_now().is_some_and(|now| tracker.rest_timer.is_some_and(|deadline| deadline.past_at(now))));
-                defmt_monitor::monitor!("AnalyzerDebug/Ocv/plant_clock", desc = "Whether the plant clock can be read. False on a rig whose model has not answered RDHILTIME, and while it is false the rest timer is held cleared so no OCV snapshot is taken.", "{=bool}", crate::time::plant_now().is_some());
+                defmt_monitor::monitor!("AnalyzerDebug/Ocv/rest_timer_expired", desc = "Whether the rest timer has run out, so the OCV snapshot is being refreshed every cycle.", "{=bool}", crate::helpers::time::plant_now().is_some_and(|now| tracker.rest_timer.is_some_and(|deadline| deadline.past_at(now))));
+                defmt_monitor::monitor!("AnalyzerDebug/Ocv/plant_clock", desc = "Whether the plant clock can be read. False on a rig whose model has not answered RDHILTIME, and while it is false the rest timer is held cleared so no OCV snapshot is taken.", "{=bool}", crate::helpers::time::plant_now().is_some());
                 defmt_monitor::monitor!("AnalyzerDebug/Ocv/secs_since_settled", desc = "Seconds since the last OCV snapshot was taken. NaN if none has been taken yet.", "{=f32}", ocv().try_partial_get(|snapshot| snapshot.age().as_millis() as f32 / 1000.0).unwrap_or(f32::NAN));
                 defmt_monitor::monitor!("AnalyzerDebug/Ocv/rest_current_source", desc = "Which instrument the current that judged rest came from. None until one has a fresh reading.", "{}", crate::pack::pack_current().map(|current| current.source()));
             }

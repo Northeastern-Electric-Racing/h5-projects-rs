@@ -14,11 +14,7 @@ pub fn circuit_closed() -> bool {
     CIRCUIT_CLOSED.load(Ordering::Relaxed)
 }
 
-/// `true` when the accumulator shutdown sense has read high for 200ms straight.
-///
-/// The segment of the loop inside the accumulator, on its own. While it is low the AIRs
-/// cannot be energized whatever else is going on, which is what makes it the half of the
-/// shunt calibration gate that does not depend on the relay having been written.
+/// `true` when the accumulator shutdown sense has read high for 200ms straight. Low means the AIRs cannot be energized whatever else is going on.
 /// One atomic read, safe to call from an interrupt.
 pub fn acc_sense_closed() -> bool {
     ACC_SENSE_CLOSED.load(Ordering::Relaxed)

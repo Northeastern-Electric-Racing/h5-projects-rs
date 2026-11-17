@@ -4,6 +4,7 @@ use adbms2950::chip::commands;
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use static_cell::StaticCell;
 
+use super::alias;
 use super::cache::{self, UpdateError};
 use super::isospi_recovery;
 use crate::broadcast::Broadcast;
@@ -23,37 +24,6 @@ embassy_stm32::bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL6 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH6>;
     GPDMA1_CHANNEL7 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH7>;
 });
-
-pub mod alias {
-    #[cfg(not(feature = "hil"))]
-    use embassy_stm32::{
-        gpio::Output,
-        mode::Async,
-        spi::{Spi, mode::Master},
-    };
-    #[cfg(not(feature = "hil"))]
-    use embassy_time::Delay;
-    #[cfg(not(feature = "hil"))]
-    use embedded_hal_bus::spi::ExclusiveDevice;
-
-    /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
-    ///
-    /// Must be built with `ExclusiveDevice::new`, not `new_no_delay`: the driver's wake-up pulse
-    /// is a delay-only transaction and panics without delay support.
-    #[cfg(feature = "hil")]
-    pub type SpiDevice = crate::hv_plate::hil::HilDevice;
-    #[cfg(not(feature = "hil"))]
-    pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
-
-    /// The error type our `SpiDevice` produces.
-    pub type SpiError = <SpiDevice as embedded_hal_async::spi::ErrorType>::Error;
-
-    /// Type alias representing one isoSPI line to our ADBMS2950B.
-    pub type Line = adbms2950::line::Line<SpiDevice>;
-
-    /// Type alias for the stateful API over both lines.
-    pub type Api = adbms2950::api::Api<SpiDevice>;
-}
 
 /// What left the chip's configuration no longer trustworthy.
 #[derive(Copy, Clone, defmt::Format)]
@@ -108,7 +78,7 @@ impl HvPlate {
             (line_a, line_b)
         };
         #[cfg(feature = "hil")]
-        let (line_a, line_b) = (alias::Line::new(super::hil::HilDevice::new(r)), alias::Line::new(super::hil::HilDevice::disabled()));
+        let (line_a, line_b) = (alias::Line::new(crate::hil::hv_plate::device(r)), alias::Line::new(crate::hil::HilDevice::disabled()));
 
         static API: StaticCell<alias::Api> = StaticCell::new();
         let api: &'static mut alias::Api = API.init(alias::Api::new(line_a, line_b));
@@ -233,10 +203,7 @@ impl HvPlate {
         Ok(())
     }
 
-    /// Drives the HV control relay on GPO4. Active low, open drain: pulled low energizes the coil.
-    ///
-    /// `Ok(())` only means the transaction went out; a write the chip drops on PEC also returns
-    /// `Ok`. [`Self::read_relay_state`] is what confirms it took.
+    /// Drives the HV control relay on GPO4, active low. `Ok` only means the write went out -- [`Self::read_relay_state`] is what confirms it took.
     async fn set_hv_relay(&mut self, energized: bool) -> Result<(), Error<alias::SpiError>> {
         use adbms2950::chip::registers::config_a::types::GpoOutputState;
 
@@ -245,15 +212,11 @@ impl HvPlate {
         self.api.modify_configa(|cfg| cfg.with_gpo4c(wanted)).await
     }
 
-    /// What GPO4 is actually set to, read back from CFGA.
-    ///
-    /// The only check on the driver's cached configuration: `suspected_reset` fires on a counter
-    /// of 0, and a write dropped on PEC leaves it one behind, which nothing acts on.
+    /// What GPO4 is actually set to, read back from CFGA. The only check on the driver's cached configuration.
     async fn read_relay_state(&mut self) -> Result<relay::RelayState, Error<alias::SpiError>> {
         use adbms2950::chip::registers::config_a::{ConfigA, types::GpoOutputState};
 
-        // GPO4 only: `REFUP` and `SNAPST` are read-only bits in this writable group, so a
-        // whole-register read-back never matches what was written.
+        // GPO4 only: `REFUP` and `SNAPST` are read-only bits here, so a whole-register read-back never matches what was written.
         Ok(match self.api.read::<ConfigA>().await?.gpo4c() {
             GpoOutputState::PulledLow => relay::RelayState::Closed,
             GpoOutputState::Driven => relay::RelayState::Open,
@@ -311,8 +274,7 @@ pub mod relay {
         STATE.store(state, Ordering::Relaxed);
     }
 
-    /// What CFGA last reported about GPO4. [`RelayState::Unknown`] means it is genuinely
-    /// unknown: nothing written yet, or the last write or read-back failed.
+    /// What CFGA last reported about GPO4. [`RelayState::Unknown`] means nothing written yet, or the last write or read-back failed.
     pub fn state() -> RelayState {
         STATE.load(Ordering::Relaxed)
     }
@@ -338,10 +300,7 @@ mod jobs {
     const CONVERSION_TIMEOUT: Duration = Duration::from_millis(100);
 
     impl HvPlate {
-        /// Reads pack current, the accumulators, and FLAG inside one SNAP window.
-        ///
-        /// One window because FLAG's `i1cnt` counts the conversions the accumulator sums; read
-        /// at different instants the coulomb count drifts.
+        /// Reads pack current, the accumulators, and FLAG inside one SNAP window: FLAG's `i1cnt` counts the conversions the accumulator sums, so split reads drift the coulomb count.
         pub async fn job_update_snap_registers(&mut self) -> Result<(), UpdateError> {
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
             let run = DIAGNOSTICS.start();
@@ -366,9 +325,7 @@ mod jobs {
             Ok(())
         }
 
-        /// Converts the voltage channels and reads TS voltage (V2) and the shunt thermistor (V7).
-        ///
-        /// One round-robin sweep covers both channels, so it is one conversion and two reads.
+        /// Converts the voltage channels and reads TS voltage (V2) and the shunt thermistor (V7) -- one round-robin sweep covers both.
         pub async fn job_update_voltage_registers(&mut self) -> Result<(), UpdateError> {
             static DIAGNOSTICS: JobDiagnosticsContainer = JobDiagnosticsContainer::new();
             let run = DIAGNOSTICS.start();
@@ -451,8 +408,7 @@ pub mod task {
 
     #[embassy_executor::task]
     pub async fn hv_plate_task(r: crate::HvPlateResources) {
-        /// Must beat the accumulator window -- `ACCN` conversions of `IXADC_CONVERSION_MS`, shortened
-        /// by the oscillator's worst-case fast tolerance -- with headroom for jitter on top.
+        /// Must beat the accumulator window (`ACCN` conversions of `IXADC_CONVERSION_MS`, at the oscillator's worst-case fast tolerance) with headroom for jitter.
         const PERIOD: Duration = Duration::from_millis(25);
         const DIAGNOSTIC_PERIOD: Duration = Duration::from_secs(1);
         const DIAGNOSTIC_TICKS: u32 = (DIAGNOSTIC_PERIOD.as_ticks() / PERIOD.as_ticks()) as u32;
@@ -465,7 +421,7 @@ pub mod task {
         let mut ticker = Ticker::every(PERIOD);
         let mut tick_count: u32 = 0;
         // Expired, so the first pass confirms rather than trusting a cache nothing has written yet.
-        let mut relay_confirm_deadline = Deadline::expire_at_beginning_of_time();
+        let mut relay_confirm_deadline = Deadline::expired();
 
         loop {
             let tick_start = Instant::now();

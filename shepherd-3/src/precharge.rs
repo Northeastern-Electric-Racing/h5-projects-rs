@@ -1,7 +1,7 @@
 use crate::helpers::moving_average::MovingAverage;
 use crate::helpers::debouncer::Debouncer;
 use crate::segments::NUM_CELLS_TOTAL;
-use crate::time::PlantTime;
+use crate::helpers::time::PlantTime;
 use crate::units::{Voltage, volt};
 use embassy_time::Duration;
 
@@ -30,8 +30,7 @@ struct Inputs {
 const TRIGGER_RATIO: f32 = 0.90;
 /// Depth of the averaging window on both bus voltages.
 const NUM_SAMPLES: usize = 5;
-/// Minimum dwell between relay transitions, in either direction. Plant time: it is the bus that
-/// has to hold, so a rig running at half speed gets half as much wall clock to hold it for.
+/// Minimum dwell between relay transitions, in either direction. Plant time: it is the bus that has to hold.
 const TOGGLE_TIME: Duration = Duration::from_millis(200);
 
 use crate::hv_plate::RelayRequest;
@@ -54,9 +53,6 @@ impl Precharge {
     }
 
     /// Ticks the precharge logic and commands the plate with the result.
-    ///
-    /// `now` is plant time: [`TOGGLE_TIME`] is a dwell on the bus, not on the link. See
-    /// [`crate::time`].
     fn tick(&mut self, now: PlantTime, inputs: Option<Inputs>, hv_permitted: bool) -> RelayRequest {
         // Unpack and evaluate ts and batt voltage readings
         let state_from_ts_batt_volts = match inputs {
@@ -69,9 +65,7 @@ impl Precharge {
                 if pack_present(batt_avg) && ts_avg >= batt_avg * TRIGGER_RATIO { RelayRequest::Closed } else { RelayRequest::Open }
             },
 
-            // The pack is measurable but the bus is not, so it cannot be shown to be charged.
-            // Still average BATT: it is the reference the ratio is taken against,
-            // and the diagnostics below are the only way to see which input is missing.
+            // The bus cannot be shown to be charged. BATT is still averaged: it is the reference the ratio is taken against.
             Some(Inputs { ts: None, batt }) => {
                 self.batt.push(batt.get::<volt>());
                 RelayRequest::Open
@@ -103,10 +97,7 @@ impl Precharge {
         self.requested_state
     }
 
-    /// What to request with no plant clock to time [`TOGGLE_TIME`] on.
-    ///
-    /// Nothing can be shown to have been held, so the dwell is cleared and the relay is left where
-    /// it is: open, or latched closed until an unpermitted loop reopens it.
+    /// What to request with no plant clock to time [`TOGGLE_TIME`] on: clear the dwell and leave the relay where it is.
     fn hold(&mut self, hv_permitted: bool) -> RelayRequest {
         self.to_closed.reset();
         if !hv_permitted {
@@ -145,8 +136,7 @@ impl Precharge {
 mod weld {
     use super::*;
 
-    /// How long the bus gets to bleed down before a live TS counts as welded contacts. Plant time:
-    /// the bleed-down is the model's, so it is simulated seconds that have to pass.
+    /// How long the bus gets to bleed down before a live TS counts as welded contacts.
     const SETTLE: Duration = Duration::from_secs(5);
     /// TS as a fraction of pack, above which the bus counts as still connected.
     const RATIO: f32 = 0.85;
@@ -168,10 +158,7 @@ mod weld {
             Self { still_contacting: Debouncer::new() }
         }
 
-        /// `now` is plant time: [`SETTLE`] is how long the bus takes to bleed down, which is the
-        /// plant's doing.
-        /// No plant clock, so the bleed window cannot be timed. That is not the same as the
-        /// contacts being fine, which is why it reports [`WeldState::Unknown`] rather than Clear.
+        /// With no plant clock the bleed window cannot be timed, which is not the same as the contacts being fine -- hence [`WeldState::Unknown`], not Clear.
         pub fn hold(&mut self) -> WeldState {
             self.still_contacting.reset();
             WeldState::Unknown
@@ -220,7 +207,7 @@ mod task {
         let mut precharge = Precharge::new();
         let mut weld_detector = Detector::new();
         let mut ticker = Ticker::every(PERIOD);
-        let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
+        let mut diagnostic_deadline = Deadline::expired();
 
         // Only queued on a change, so a welded bus does not spam the fault queue at 50 Hz.
         let mut weld_state = WeldState::Unknown;
@@ -229,18 +216,20 @@ mod task {
             ticker.next().await;
 
             // `None` until the plate has read BATT at least once.
-            let inputs = crate::pack::batt_voltage().map(|batt| Inputs { ts: crate::pack::ts_voltage(), batt: batt.get() });
+            let selected_batt = crate::pack::batt_voltage();
+            let inputs = selected_batt.map(|batt| Inputs { ts: crate::pack::ts_voltage(), batt: batt.get() });
 
             let shutdown_closed = shutdown::circuit_closed();
             let relay_detected_state = hv_plate::relay_state();
             let relay_open = !shutdown_closed || matches!(relay_detected_state, hv_plate::RelayState::Open);
 
-            // The bus charging and the contacts bleeding down are both the plant's doing, so both
-            // dwells below are measured on its clock. Without one, neither machine has evidence
-            // that anything has been held, and both hold where they are.
-            let plant = crate::time::plant_now();
-            let (requested, detected_weld_state) = match plant {
+            // Without a plant clock neither machine has evidence that anything has been held, so both hold where they are.
+            let plant_time = crate::helpers::time::plant_now();
+            let (requested, detected_weld_state) = match plant_time {
+                // Tick both machines
                 Some(now) => (precharge.tick(now, inputs, shutdown_closed), weld_detector.tick(now, inputs, relay_open)),
+
+                // Handle HIL not responding with time (just hold our state)
                 None => (precharge.hold(shutdown_closed), weld_detector.hold()),
             };
 
@@ -266,8 +255,7 @@ mod task {
                 diagnostic_deadline = Deadline::expire_in(DIAGNOSTIC_PERIOD);
                 defmt::trace!("HvPlate: precharge: {}", precharge.requested_state());
 
-                // The AIRs may close on a reported TS, so which instrument supplied it is a
-                // safety-relevant fact rather than a curiosity.
+                // The AIRs may close on a reported TS, so which instrument supplied it is safety-relevant.
                 defmt_monitor::monitor!("HvPlate/Precharge/TsSource", desc = "Which instrument supplied the TS voltage the AIRs are decided on. Anything but Plate means the bus is being judged from across the contactor; None means no source has one.", "{}", inputs.and_then(|reading| reading.ts).map(|ts| ts.source()));
 
                 let (ts, batt) = (precharge.ts_average(), precharge.batt_average());
@@ -284,9 +272,9 @@ mod task {
                     "HvPlate/Precharge/PlateAgeMs",
                     desc = "Age of the plate's BATT reading when precharge looked, in ms. This is what PLATE_MAX_AGE is judged against: once it reaches that, the reading is dropped and precharge loses the input entirely. Compare the two to see how much headroom the rig actually leaves. NaN before the plate has read once.",
                     "{=f32}",
-                    crate::hv_plate::instant_batt_voltage().map_or(f32::NAN, |reading| reading.age().as_millis() as f32)
+                    selected_batt.map_or(f32::NAN, |batt| batt.age().as_millis() as f32)
                 );
-                defmt_monitor::monitor!("HvPlate/Precharge/PlantClock", desc = "Whether the plant clock can be read. False on a rig whose model has not answered RDHILTIME, and while it is false the relay cannot close however charged the bus looks.", "{=bool}", plant.is_some());
+                defmt_monitor::monitor!("HvPlate/Precharge/PlantClock", desc = "Whether the plant clock can be read. False on a rig whose model has not answered RDHILTIME, and while it is false the relay cannot close however charged the bus looks.", "{=bool}", plant_time.is_some());
                 defmt_monitor::monitor!("HvPlate/Precharge/RelayState", desc = "What the 2950 last acknowledged about GPO4, which is not necessarily what the contacts are doing.", "{}", relay_detected_state);
             }
         }

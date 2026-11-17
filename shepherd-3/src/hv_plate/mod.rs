@@ -7,17 +7,14 @@
 //!
 //! The chip also drives the HV control relay from GPO4, via `HvPlate::set_hv_relay`.
 //!
-//! Much of what this module computes is read only by the `#[cfg(defmt_monitor)]` blocks inside
-//! it, so with monitors compiled out those accessors and locals really are dead. One allow here
-//! covers every file in the module; monitor-on builds, which is the default, still lint normally.
+//! Much of what this module computes is read only by its `#[cfg(defmt_monitor)]` blocks, so the allow below covers every file for monitors-off builds.
 #![cfg_attr(not(defmt_monitor), allow(dead_code, unused_mut, unused_variables, unused_assignments))]
 
+mod alias;
 mod board;
 mod cache;
 mod core;
 mod debug;
-#[cfg(feature = "hil")]
-pub(crate) mod hil;
 mod isospi_recovery;
 mod shunt;
 
@@ -52,7 +49,7 @@ pub(crate) fn instant_current() -> Option<Stamped<Current>> {
 }
 
 /// The last accumulator window to close
-pub(crate) fn shunt_window() -> &'static shunt::published::UnwriteableWindowWatch {
+pub(crate) const fn shunt_window() -> &'static shunt::published::UnwriteableWindowWatch {
     shunt::published::window()
 }
 

@@ -19,6 +19,8 @@ pub mod faults;
 pub mod gpios;
 pub mod hardfault;
 pub mod helpers;
+#[cfg(feature = "hil")]
+pub mod hil;
 pub mod hv_plate;
 pub mod job_diagnostics;
 pub mod ocv;
@@ -28,7 +30,6 @@ pub mod segments;
 pub mod shutdown;
 pub mod soc;
 pub mod state_machine;
-pub mod time;
 pub mod units;
 
 use assign_resources::assign_resources;

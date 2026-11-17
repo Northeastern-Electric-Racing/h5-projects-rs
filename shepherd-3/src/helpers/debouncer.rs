@@ -1,15 +1,10 @@
-use embassy_time::Duration;
-
-use crate::time::PlantTime;
+use embassy_time::{Duration, Instant};
 
 /// Level-triggered, not edge-triggered: once held for `period` it reports true on every subsequent call.
-///
-/// Runs on the plant's clock, because both things this debounces -- the bus charging and the
-/// contacts bleeding down -- are the plant's doing. See [`crate::time`]. (`shutdown` debounces
-/// real GPIO pins against the MCU's clock, and has its own.)
+/// Times against whichever clock the caller passes in -- `shutdown` counts raw samples instead and has its own.
 #[derive(Default)]
 pub struct Debouncer {
-    armed_at: Option<PlantTime>,
+    armed_at: Option<Instant>,
 }
 
 impl Debouncer {
@@ -22,17 +17,17 @@ impl Debouncer {
         self.armed_at = None;
     }
 
-    pub fn calculate(&mut self, input: bool, period: Duration, now: PlantTime) -> bool {
+    pub fn calculate(&mut self, input: bool, period: Duration, now: impl Into<Instant>) -> bool {
         match (input, self.armed_at) {
             (false, _) => {
                 self.armed_at = None;
                 false
             },
             (true, None) => {
-                self.armed_at = Some(now);
+                self.armed_at = Some(now.into());
                 false
             },
-            (true, Some(start)) => now.saturating_duration_since(start) >= period,
+            (true, Some(start)) => now.into().saturating_duration_since(start) >= period,
         }
     }
 }

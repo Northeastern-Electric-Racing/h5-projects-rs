@@ -1,7 +1,7 @@
 //! State-of-charge estimation from the shunt's accumulated windows.
 #![cfg_attr(not(defmt_monitor), allow(dead_code))]
 
-use crate::time::PlantTime;
+use crate::helpers::time::PlantTime;
 use embassy_time::{Duration, Instant};
 use crate::helpers::snapshot_cell::SnapshotCell;
 use crate::helpers::stamped::Stamped;
@@ -11,13 +11,10 @@ use crate::units::{Current, Ratio, Voltage};
 /// 3p of 5 Ah cells, in microcoulombs
 const CAPACITY_MICROCOULOMBS: i64 = 5 * 3 * 3600 * 1_000_000;
 
-/// Shortest gap between two references. Plant time, to match the charge the count integrates over
-/// between them: on a rig running slower than real time, ten wall seconds are not ten seconds of
-/// pack.
+/// Shortest gap between two references, in plant time to match the charge the count integrates between them.
 const SEED_MIN_INTERVAL: Duration = Duration::from_secs(10);
 
-/// How stale a snapshot may be and still be referenced off. Host time: this asks whether the OCV
-/// tracker is still publishing, not how long the pack has sat.
+/// How stale a snapshot may be and still be referenced off. Asks whether the OCV tracker is still publishing, not how long the pack has sat.
 const SEED_MAX_AGE: Duration = Duration::from_secs(1);
 
 fn soc_from_ocv(ocv: Voltage) -> Option<f32> {
@@ -54,8 +51,7 @@ struct Counter {
     state_of_charge: Option<f32>,
     drift: f32,
     seeded_from: Option<Instant>,
-    /// When the last reference was taken, on the plant's clock, which [`SEED_MIN_INTERVAL`] is
-    /// measured from.
+    /// When the last reference was taken, which [`SEED_MIN_INTERVAL`] is measured from.
     last_seed_at: Option<PlantTime>,
 }
 
@@ -78,14 +74,9 @@ impl Counter {
         }
     }
 
-    /// Latches a [`Reference`] at the current total, at most once per [`SEED_MIN_INTERVAL`].
-    ///
-    /// `now` is plant time, to match the charge the count integrates between two references. The
-    /// caller skips the seed entirely when that clock cannot be read: an unenforced minimum would
-    /// let a single noisy snapshot be referenced off repeatedly.
+    /// Latches a [`Reference`] at the current total, at most once per [`SEED_MIN_INTERVAL`]. The caller skips the seed entirely with no plant clock, since an unenforced minimum would let one noisy snapshot be referenced off repeatedly.
     fn seed(&mut self, now: PlantTime, reading: Stamped<Voltage>) {
-        // Already referenced off this snapshot. Also stops a stale one being re-used once the
-        // pack leaves rest and the stamp stops advancing.
+        // Already referenced off this snapshot, which also stops a stale one being re-used once the stamp stops advancing.
         if self.seeded_from == Some(reading.at()) {
             return;
         }
@@ -134,8 +125,7 @@ impl Counter {
         self.drift
     }
 
-    /// Seconds of plant time since the last reference, or `None` if the count has never been
-    /// seeded or the plant clock cannot be read.
+    /// Seconds since the last reference, or `None` if never seeded or the plant clock cannot be read.
     fn secs_since_seed(&self, now: Option<PlantTime>) -> Option<f32> {
         let (at, now) = (self.last_seed_at?, now?);
         Some(now.saturating_duration_since(at).as_millis() as f32 / 1000.0)
@@ -171,8 +161,7 @@ pub fn soc_data() -> Option<SocDataHolder> {
 
 /// Publishes what the estimator currently knows. Called only by [`task`].
 fn store(data: SocData) {
-    // The MCU's clock: this stamp answers "is the estimator still running", which has to keep
-    // working when a rig's model stops.
+    // The MCU's clock: this stamp answers "is the estimator still running".
     SOC_DATA.set(Some(SocDataHolder { data, last_updated: Instant::now() }));
 }
 
@@ -192,9 +181,7 @@ mod task {
 
             // Get latest OCV value
             let ocv_seed = ocv::ocv().try_partial_get(|snapshot| Stamped::new(snapshot.get().stats.min.value(), snapshot.at()));
-            // Plant time: the gap between two references has to match the charge the count
-            // integrated across it.
-            let plant = crate::time::plant_now();
+            let plant = crate::helpers::time::plant_now();
 
             if measurement.calibrated {
                 counter.accumulate(&measurement);

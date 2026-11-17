@@ -21,7 +21,7 @@ pub mod analyzer {
     // u_TODO - Should this be another file somehwere?
     /// Which measurement to believe, where more than one instrument measures the same thing.
     pub mod selected {
-        use embassy_time::Duration;
+        use embassy_time::{Duration, Instant};
         use crate::helpers::stamped::Stamped;
 
         use crate::can::reported::{self, Reporter};
@@ -31,6 +31,7 @@ pub mod analyzer {
         /// Several passes of the plate loop. Past this the link is not merely slow.
         #[cfg(not(feature = "hil"))]
         const PLATE_MAX_AGE: Duration = Duration::from_millis(250);
+        // The Simulink model responds slower than the chip
         #[cfg(feature = "hil")]
         const PLATE_MAX_AGE: Duration = Duration::from_millis(1_000);
 
@@ -51,28 +52,46 @@ pub mod analyzer {
         /// A reading, when it was measured, and which instrument measured it.
         #[derive(Copy, Clone)]
         pub struct Sourced<T> {
-            value: T,
+            value: Stamped<T>,
             source: Source,
         }
 
         impl<T: Copy> Sourced<T> {
-            /// The value. Already bounded by the selector's per-source staleness limit.
+            /// The value. Already bounded by the selector's per-source staleness limit, which is the
+            /// loosest any caller should accept -- tighten it with [`Self::fresh`].
             pub const fn get(&self) -> T {
-                self.value
+                self.value.get()
             }
 
             /// Which instrument measured it.
             pub const fn source(&self) -> Source {
                 self.source
             }
+
+            /// When it was measured, for anything differencing two readings or integrating between them.
+            /// A plate reading is stamped at the SPI read; a reported one at the frame's arrival, which
+            /// lags the sender's own measurement by however long its pipeline is.
+            pub const fn at(&self) -> Instant {
+                self.value.at()
+            }
+
+            /// How old it is now. What the selector's own bound is judged against.
+            pub fn age(&self) -> Duration {
+                self.value.age()
+            }
+
+            /// The value, but only if it is newer than `within`. For a caller stricter than the selector.
+            pub fn fresh(&self, within: Duration) -> Option<T> {
+                self.value.fresh(within)
+            }
         }
 
         fn plate<T: Copy>(reading: Stamped<T>) -> Sourced<T> {
-            Sourced { value: reading.get(), source: Source::Plate }
+            Sourced { value: reading, source: Source::Plate }
         }
 
         fn claimed<T: Copy>(claim: reported::Claim<T>, within: Duration) -> Option<Sourced<T>> {
-            claim.value.fresh(within).map(|value| Sourced { value, source: Source::Reported(claim.from) })
+            claim.value.is_fresh(within).then_some(Sourced { value: claim.value, source: Source::Reported(claim.from) })
         }
 
         /// Pack current, discharge positive.
@@ -105,9 +124,7 @@ pub mod analyzer {
     /// The most recently published analyzer data.
     static ANALYZER: StartupCell<AnalyzerHolder> = StartupCell::new();
 
-    /// Gets a handle to the most recently published analyzer data.
-    ///
-    /// The cell stays empty until the analyzer task publishes for the first time.
+    /// Gets a handle to the most recently published analyzer data, empty until the analyzer task first publishes.
     pub fn analyzer() -> &'static UnwriteableStartupCell<AnalyzerHolder> {
         ANALYZER.to_unwriteable()
     }
@@ -605,16 +622,13 @@ pub mod analyzer {
             let die_temps: IndexByChip<Temperature> = IndexByChip::from_fn(|chip| status_a.get().data()[chip].itmp);
 
             let soc_data = crate::soc::soc_data();
-            // Three sources, in descending order of how much the number has been cross-checked:
-            // what another node reports over CAN, the shunt current the SOC estimator has calibrated, and the raw IVB1/V1A reading off our own 2950.
             // u_TODO - just use the 2950 (swap for 27)
             analyzer.pack_current = selected::pack_current();
             // u_TODO - switch to use 2950 sense for 27A.
             analyzer.ts_voltage = selected::ts_voltage();
             analyzer.soc = soc_data.and_then(|soc| soc.data.state_of_charge);
 
-            // this whole section is supposed to look pretty similar to the C code just so
-            // we make sure we bring everything over correctly.
+            // This section mirrors the C code so we can check everything came over correctly.
             analyzer.sanitize_temps(&cell_temps, &die_temps);
             analyzer.calc_cell_voltages(&cell_voltages);
             analyzer.calc_pack_voltage_stats().await;
@@ -700,8 +714,7 @@ pub mod analyzer {
                 }
             }
 
-            // Both signals are scaled 16-bit ints on the wire, so "no estimate" cannot be sent
-            // as NaN the way the monitors below report it.
+            // Both signals are scaled 16-bit ints on the wire, so "no estimate" cannot be sent as NaN the way the monitors do.
             let pack_soc = analyzer.soc.map_or(0.0_f32, |soc| soc.get::<ratio>());
             let pack_soc_drift = soc_data.map_or(0.0_f32, |soc| soc.data.drift);
             can::send(PackSocStatus { pack_soc, pack_soc_drift }.as_frame()).await;

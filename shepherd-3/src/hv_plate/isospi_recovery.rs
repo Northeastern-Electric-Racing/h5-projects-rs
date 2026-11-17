@@ -1,7 +1,7 @@
 use adbms2950::api::LineId;
 use embassy_time::{Duration, Instant};
 
-use crate::hv_plate::core::alias;
+use crate::hv_plate::alias;
 
 /// PEC failures in a closed window that declare the active line broken.
 const BREAK_THRESHOLD: u32 = 16;
@@ -41,11 +41,9 @@ pub enum Action {
 /// Watches the PEC tally for a broken line, and spends the one spare line when it finds one.
 pub struct Service {
     state: State,
-    /// Lifetime PEC-failure count at the last re-baseline. The driver never clears its tally, so
-    /// re-baselining moves this mark rather than zeroing anything.
+    /// Lifetime PEC-failure count at the last re-baseline; the driver never clears its own tally.
     pec_baseline: u32,
-    /// Set when a failure opens a window. A break is declared only if the window closes over
-    /// [`BREAK_THRESHOLD`], so a single spike does not cost the spare line.
+    /// Set when a failure opens a window. A break needs the window to close over [`BREAK_THRESHOLD`], so one spike does not cost the spare line.
     window_closes_at: Option<Instant>,
     settle_until: Instant,
     verify_ticks: u32,

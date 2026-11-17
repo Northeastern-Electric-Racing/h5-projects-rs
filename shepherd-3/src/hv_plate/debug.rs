@@ -23,8 +23,7 @@ pub async fn hv_plate_debug() {
         // Run one loop of this task every time new HV plate data arrives.
         subscription.wait().await;
 
-        // The accumulator, FLAG and STATUS readings are only consumed by the monitor block, so
-        // they are annotated for the `DEFMT_MONITOR=off` build.
+        // Only consumed by the monitor block, so annotated for the `DEFMT_MONITOR=off` build.
         let current_voltage = current_voltage_ready.get().nice();
         let voltages = voltages_ready.get().nice();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
@@ -75,8 +74,7 @@ pub async fn hv_plate_debug() {
             defmt_monitor::monitor!("HvPlate/Aux/SecondaryTemperature", desc = "The chip's second on-chip temperature sensor (TMP2), in celsius.", "{=f32}", aux.secondary_temperature.get::<degree_celsius>());
             defmt_monitor::monitor!("HvPlate/Aux/OscCount", desc = "Oscillator counter. Outside 0x34..=0x47 the chip asserts OSCFLT.", "{=u8}", aux.osccnt);
 
-            // Chip status. The OCxR codes stay raw: scaling them needs the OCxGC gain bits from
-            // CFGB, which only the Api caches (see Api::overcurrent_microvolts).
+            // The OCxR codes stay raw: scaling them needs CFGB's OCxGC gain bits, which only the Api caches.
             defmt_monitor::monitor!("HvPlate/Status/I1CalComplete", desc = "Whether the I1ADC has finished initializing.", "{}", status.status.i1cal());
             defmt_monitor::monitor!("HvPlate/Status/I2CalComplete", desc = "Whether the I2ADC has finished initializing.", "{}", status.status.i2cal());
             defmt_monitor::monitor!("HvPlate/Status/RevId", desc = "Device revision identifier, raw four-bit code.", "{=u8}", status.status.revid());

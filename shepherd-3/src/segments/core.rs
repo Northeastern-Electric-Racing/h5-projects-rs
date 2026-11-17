@@ -28,7 +28,7 @@ pub mod alias {
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     /// This is just a single SPI controller with a CS pin.
     #[cfg(feature = "hil")]
-    pub type SpiDevice = super::super::hil::HilDevice;
+    pub type SpiDevice = crate::hil::HilDevice;
     #[cfg(not(feature = "hil"))]
     pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 
@@ -90,7 +90,7 @@ impl Segments {
         #[cfg(feature = "hil")]
         let (line_a, line_b) = {
             let _ = r_lineb;
-            (alias::Line::new(super::hil::HilDevice::new(r_linea)), alias::Line::new(super::hil::HilDevice::disabled()))
+            (alias::Line::new(crate::hil::segments::device(r_linea)), alias::Line::new(crate::hil::HilDevice::disabled()))
         };
 
         static SERVICE: StaticCell<alias::Service> = StaticCell::new();

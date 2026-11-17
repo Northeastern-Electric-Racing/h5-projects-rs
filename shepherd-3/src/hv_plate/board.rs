@@ -15,10 +15,7 @@ const TS_DIVIDER_R1_OHMS: f32 = 3_600_000.0_f32;
 /// Bottom resistor of the TS voltage divider, in ohms.
 const TS_DIVIDER_R2_OHMS: f32 = 4_530.0_f32;
 
-/// The chip's 1.25 V reference, in volts.
-///
-/// Excites the shunt thermistor divider, and is the negative reference for the TS channel
-/// (`VS2 = VREF1P25` in CFGA).
+/// The chip's 1.25 V reference, in volts. Excites the thermistor divider and is the TS channel's negative reference (`VS2 = VREF1P25` in CFGA).
 const VREF1P25_VOLTS: f32 = 1.25_f32;
 
 /// Series resistor feeding the shunt thermistor from VREF1P25, in ohms.
@@ -42,11 +39,7 @@ const fn discharge_positive(raw_shunt_microvolts: i32) -> i32 {
     -raw_shunt_microvolts
 }
 
-/// Summed shunt voltage, in microvolts, from the accumulator's reading
-/// (`AccumulatedCurrent1::as_microvolts()`).
-///
-/// Stays an integer sum over `ACCN` conversions rather than becoming a [`Current`]: the
-/// calibrator subtracts its offset from it exactly and integrates it into microcoulombs.
+/// Summed shunt voltage, in microvolts, from `AccumulatedCurrent1::as_microvolts()`. Stays an integer sum so the calibrator can subtract its offset exactly.
 pub const fn summed_shunt_microvolts(raw_sum_microvolts: i32) -> i32 {
     discharge_positive(raw_sum_microvolts)
 }
@@ -68,10 +61,7 @@ pub fn batt_voltage(tap_microvolts: i32) -> Voltage {
     Voltage::new::<volt>(batt_volts)
 }
 
-/// Tractive-system voltage, from `Voltages1A::v2a` -- channel V2 on the V1ADC.
-///
-/// The divider's bottom sits on VREF1P25, not ground, so the reference is added back.
-///
+/// Tractive-system voltage, from `Voltages1A::v2a` -- channel V2 on the V1ADC. The divider's bottom sits on VREF1P25, not ground, so the reference is added back.
 /// Not `Voltages2A::v2b`: that is the same pin on the V2ADC at -85 uV per code.
 pub fn ts_voltage(tap_microvolts: i32) -> Voltage {
     use uom::si::electric_potential::volt;
@@ -81,10 +71,7 @@ pub fn ts_voltage(tap_microvolts: i32) -> Voltage {
     Voltage::new::<volt>(ts_volts)
 }
 
-/// Resistance of the shunt thermistor, from the V1ADC reading at the divider tap.
-///
-/// The network is VREF1P25 through [`THERMISTOR_DIVIDER_OHMS`] into the thermistor to ground,
-/// with the channel measuring the midpoint against SGND (`VS7 = SGND` in CFGA).
+/// Resistance of the shunt thermistor: VREF1P25 through [`THERMISTOR_DIVIDER_OHMS`] into the thermistor to ground, measured at the midpoint against SGND (`VS7 = SGND`).
 fn shunt_thermistor_resistance(tap_microvolts: i32) -> Resistance {
     use uom::si::electrical_resistance::ohm;
 
@@ -92,9 +79,7 @@ fn shunt_thermistor_resistance(tap_microvolts: i32) -> Resistance {
     Resistance::new::<ohm>((THERMISTOR_DIVIDER_OHMS * tap_volts) / (VREF1P25_VOLTS - tap_volts))
 }
 
-/// Shunt temperature, from `Voltages1C::v7a` -- channel V7 on the V1ADC.
-///
-/// Beta equation: `T = (T0 * B) / (T0 * ln(R / R0) + B)`, in kelvin, converted to celsius.
+/// Shunt temperature, from `Voltages1C::v7a` -- channel V7 on the V1ADC. Beta equation: `T = (T0 * B) / (T0 * ln(R / R0) + B)`.
 pub fn shunt_temperature(tap_microvolts: i32) -> Temperature {
     use uom::si::electrical_resistance::ohm;
     use uom::si::thermodynamic_temperature::degree_celsius;
