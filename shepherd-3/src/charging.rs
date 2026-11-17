@@ -1,28 +1,6 @@
 //! Stub until it is not
 
-pub mod connected {
-    use core::sync::atomic::{AtomicBool, Ordering};
-
-    /// Latched by the first charger frame, cleared only by `init_boot`.
-    static CHARGER_CONNECTED: AtomicBool = AtomicBool::new(false);
-
-    /// Reports that a charger box frame arrived. Called from CAN Task when charger message is recieved.
-    pub fn charger_frame_received() {
-        CHARGER_CONNECTED.store(true, Ordering::Relaxed);
-    }
-
-    /// Whether a charger has announced itself since the last pass through `Boot`.
-    pub fn is_charger_connected() -> bool {
-        CHARGER_CONNECTED.load(Ordering::Relaxed)
-    }
-
-    /// Drops the charger latch. Called only by `init_boot`.
-    pub fn clear_charger_connected() {
-        CHARGER_CONNECTED.store(false, Ordering::Relaxed);
-    }
-}
-
-use embassy_time::{Duration, Instant};
+use embassy_time::Duration;
 use crate::units::{Voltage, Current};
 use crate::helpers::deadline::Deadline;
 use crate::helpers::time::PlantTime;
@@ -562,42 +540,6 @@ mod state {
 }
 pub use state::*;
 
-#[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
-pub enum ChargerConnected {
-    /// We have not received a ping from the charger in a bit, so we consider it disconnected.
-    Disconnected,
-    /// We have received a ping from the charger somewhat recently, so we consider it
-    /// connected. The inner `Instant` indicates the time at which that ping was received.
-    Connected(Instant),
-}
-impl ChargerConnected {
-    /// Check if charger connected heartbeat has expired.
-    fn tick(self) -> Self {
-        /// If we don't recieve the charger message within this timeout we assume it is disconnected.
-        const CHARGER_SILENCE_TIMEOUT: Duration = Duration::from_secs(5);
-
-        match self {
-            ChargerConnected::Disconnected => self,
-            ChargerConnected::Connected(last_ping) => {
-                if Instant::now().saturating_duration_since(last_ping) >= CHARGER_SILENCE_TIMEOUT {
-                    ChargerConnected::Disconnected
-                } else {
-                    self
-                }
-            },
-        }
-    }
-
-    /// To be called when a charger message comes in.
-    fn alert_ping() -> Self {
-        ChargerConnected::Connected(Instant::now())
-    }
-
-    const fn is_connected(&self) -> bool {
-        matches!(*self, ChargerConnected::Connected(..))
-    }
-}
-
 use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
 use cangen::ShepherdBmsPwmPercent;
 
@@ -657,7 +599,6 @@ impl AreWeActivelyBalancing {
 }
 
 static PWM_DUTY_CYCLE_CONFIG: SnapshotCell<RequestedPwm> = SnapshotCell::new(RequestedPwm::default());
-static CHARGER_CONNECTED: SnapshotCell<ChargerConnected> = SnapshotCell::new(ChargerConnected::Disconnected);
 static CHARGE_STATE: LazySnapshotCell<Charger> = LazySnapshotCell::new(Charger::default);
 
 /// Returns true if we are not actively requesting any current.
@@ -671,14 +612,6 @@ pub fn get_pwm_duty_cycle() -> PwmDutyCycleConfig {
 /// To be called when we recieve a PWM config from Calypso.
 pub fn update_pwm_duty_cycle(frame: &ShepherdBmsPwmPercent) {
     PWM_DUTY_CYCLE_CONFIG.set(RequestedPwm::from_frame(frame))
-}
-/// Indicates if the charger is connected or not.
-pub fn is_charger_connected() -> bool {
-    CHARGER_CONNECTED.read().is_connected()
-}
-/// To be called when a charger message comes in.
-pub fn alert_charger_received() {
-    CHARGER_CONNECTED.set(ChargerConnected::alert_ping());
 }
 /// Resets the charge state. To be called by the state machine when charging is entered.
 pub fn reset_charge_state() {
@@ -729,8 +662,6 @@ pub async fn charger_task() -> ! {
     loop {
         /// Voltage to request from the charger.
         const VOLTAGE_TO_REQUEST: Voltage = state::MAX_CHARGE_VOLT.scale(NUM_CELLS_TOTAL as f32);
-
-        CHARGER_CONNECTED.partial_set(|h| *h = h.tick());
 
         // The stage machine only advances while the plant clock can be read; the current request below is sent either way.
         let plant = crate::helpers::time::plant_now();
@@ -797,8 +728,7 @@ pub async fn charger_task() -> ! {
             defmt_monitor::monitor!("Charging/ChargeStage", desc = "Current ChargeStage", "{}", charger.stage());
             defmt_monitor::monitor!("Charging/Current", desc = "Current that we should be requesting from the charger right now.", "{}", charger.current());
             defmt_monitor::monitor!("Charging/PwmDutyCycle", desc = "PWM Duty Cycle that is currently stored (based on Calypso command).", "{}", get_pwm_duty_cycle());
-            defmt_monitor::monitor!("Charging/ChargerConnected/CHARGER_CONNECTED", desc = "Current state of CHARGER_CONNECTED static.", "{}", CHARGER_CONNECTED.read());
-            defmt_monitor::monitor!("Charging/ChargerConnected/is_charger_connected()", desc = "Current reading of is_charger_conntected(). Literally just CHARGER_CONNECTED but in bool form.", "{}", is_charger_connected());
+            defmt_monitor::monitor!("Charging/ChargerPresent", desc = "Whether a charger box frame has arrived recently enough to count as plugged in. Judged at the read off the last frame's stamp, so nothing ticks it.", "{=bool}", crate::validated::charger_present());
             defmt_monitor::monitor!("Charging/AreWeActivelyBalancing", desc = "Are we actively balancing?", "{}", are_we_actively_balancing());
             defmt_monitor::monitor!("Charging/ChargingMessageSentCount", desc = "Times we have sent the message to request current from the charger (or not request current).", "{}", charging_message_sent_count);
             defmt_monitor::monitor!("Charging/charger_output_disabled()", desc = "", "{}", &charger_output_disabled());

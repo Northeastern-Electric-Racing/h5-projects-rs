@@ -22,7 +22,7 @@ fn pack_present(batt: Voltage) -> bool {
 #[derive(Copy, Clone)]
 struct Inputs {
     /// `None` when nothing is currently reporting TS voltage.
-    ts: Option<crate::pack::Sourced<Voltage>>,
+    ts: Option<crate::validated::Sourced<Voltage>>,
     batt: Voltage,
 }
 
@@ -216,8 +216,8 @@ mod task {
             ticker.next().await;
 
             // `None` until the plate has read BATT at least once.
-            let selected_batt = crate::pack::batt_voltage();
-            let inputs = selected_batt.map(|batt| Inputs { ts: crate::pack::ts_voltage(), batt: batt.get() });
+            let batt_voltage_op = crate::validated::batt_voltage();
+            let inputs = batt_voltage_op.map(|batt_voltage| Inputs { ts: crate::validated::ts_voltage(), batt: batt_voltage.get() });
 
             let shutdown_closed = shutdown::circuit_closed();
             let relay_detected_state = hv_plate::relay_state();
@@ -272,7 +272,7 @@ mod task {
                     "HvPlate/Precharge/PlateAgeMs",
                     desc = "Age of the plate's BATT reading when precharge looked, in ms. This is what PLATE_MAX_AGE is judged against: once it reaches that, the reading is dropped and precharge loses the input entirely. Compare the two to see how much headroom the rig actually leaves. NaN before the plate has read once.",
                     "{=f32}",
-                    selected_batt.map_or(f32::NAN, |batt| batt.age().as_millis() as f32)
+                    batt_voltage_op.map_or(f32::NAN, |batt| batt.age().as_millis() as f32)
                 );
                 defmt_monitor::monitor!("HvPlate/Precharge/PlantClock", desc = "Whether the plant clock can be read. False on a rig whose model has not answered RDHILTIME, and while it is false the relay cannot close however charged the bus looks.", "{=bool}", plant_time.is_some());
                 defmt_monitor::monitor!("HvPlate/Precharge/RelayState", desc = "What the 2950 last acknowledged about GPO4, which is not necessarily what the contacts are doing.", "{}", relay_detected_state);

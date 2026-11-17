@@ -18,99 +18,7 @@ pub mod analyzer {
     use crate::faults;
     use crate::faults::{FaultCommand, PassFailAction};
 
-    // u_TODO - Should this be another file somehwere?
-    /// Which measurement to believe, where more than one instrument measures the same thing.
-    pub mod selected {
-        use embassy_time::{Duration, Instant};
-        use crate::helpers::stamped::Stamped;
-
-        use crate::can::reported::{self, Reporter};
-        use crate::units::{Current, Voltage};
-        use crate::hv_plate;
-
-        /// Several passes of the plate loop. Past this the link is not merely slow.
-        #[cfg(not(feature = "hil"))]
-        const PLATE_MAX_AGE: Duration = Duration::from_millis(250);
-        // The Simulink model responds slower than the chip
-        #[cfg(feature = "hil")]
-        const PLATE_MAX_AGE: Duration = Duration::from_millis(1_000);
-
-        /// Generous next to any sender's frame rate, so a single dropped frame does not flap the source.
-        const REPORTED_MAX_AGE: Duration = Duration::from_millis(1_000);
-
-        /// Where a reading came from.
-        // u_TODO: bring in segments as source here
-        #[derive(Copy, Clone, PartialEq, Eq)]
-        #[derive(defmt::Format)]
-        pub enum Source {
-            /// The 2950's own measurement.
-            Plate,
-            /// Reported over CAN by another node.
-            Reported(Reporter),
-        }
-
-        /// A reading, when it was measured, and which instrument measured it.
-        #[derive(Copy, Clone)]
-        pub struct Sourced<T> {
-            value: Stamped<T>,
-            source: Source,
-        }
-
-        impl<T: Copy> Sourced<T> {
-            /// The value. Already bounded by the selector's per-source staleness limit, which is the
-            /// loosest any caller should accept -- tighten it with [`Self::fresh`].
-            pub const fn get(&self) -> T {
-                self.value.get()
-            }
-
-            /// Which instrument measured it.
-            pub const fn source(&self) -> Source {
-                self.source
-            }
-
-            /// When it was measured, for anything differencing two readings or integrating between them.
-            /// A plate reading is stamped at the SPI read; a reported one at the frame's arrival, which
-            /// lags the sender's own measurement by however long its pipeline is.
-            pub const fn at(&self) -> Instant {
-                self.value.at()
-            }
-
-            /// How old it is now. What the selector's own bound is judged against.
-            pub fn age(&self) -> Duration {
-                self.value.age()
-            }
-
-            /// The value, but only if it is newer than `within`. For a caller stricter than the selector.
-            pub fn fresh(&self, within: Duration) -> Option<T> {
-                self.value.fresh(within)
-            }
-        }
-
-        fn plate<T: Copy>(reading: Stamped<T>) -> Sourced<T> {
-            Sourced { value: reading, source: Source::Plate }
-        }
-
-        fn claimed<T: Copy>(claim: reported::Claim<T>, within: Duration) -> Option<Sourced<T>> {
-            claim.value.is_fresh(within).then_some(Sourced { value: claim.value, source: Source::Reported(claim.from) })
-        }
-
-        /// Pack current, discharge positive.
-        pub fn pack_current() -> Option<Sourced<Current>> {
-            hv_plate::instant_current().filter(|reading| reading.is_fresh(PLATE_MAX_AGE)).map(plate).or_else(|| reported::pack_current().and_then(|claim| claimed(claim, REPORTED_MAX_AGE)))
-        }
-
-        /// BATT-side voltage. The plate's own divider, failing over to a reported claim.
-        pub fn batt_voltage() -> Option<Sourced<Voltage>> {
-            hv_plate::instant_batt_voltage().filter(|reading| reading.is_fresh(PLATE_MAX_AGE)).map(plate)
-        }
-
-        /// Tractive-system voltage, off the 2950's divider behind GPO2 or whoever else is talking.
-        pub fn ts_voltage() -> Option<Sourced<Voltage>> {
-            hv_plate::ts_voltage().filter(|reading| reading.is_fresh(PLATE_MAX_AGE)).map(plate).or_else(|| reported::ts_voltage().and_then(|claim| claimed(claim, REPORTED_MAX_AGE)))
-        }
-    }
-
-    pub use selected::{Source, Sourced};
+    use crate::validated::Sourced;
 
     /// Holds analyzer data, plus some hopefully useful metadata for readers.
     #[derive(Copy, Clone)]
@@ -623,9 +531,9 @@ pub mod analyzer {
 
             let soc_data = crate::soc::soc_data();
             // u_TODO - just use the 2950 (swap for 27)
-            analyzer.pack_current = selected::pack_current();
+            analyzer.pack_current = crate::validated::pack_current();
             // u_TODO - switch to use 2950 sense for 27A.
-            analyzer.ts_voltage = selected::ts_voltage();
+            analyzer.ts_voltage = crate::validated::ts_voltage();
             analyzer.soc = soc_data.and_then(|soc| soc.data.state_of_charge);
 
             // This section mirrors the C code so we can check everything came over correctly.
@@ -783,8 +691,8 @@ pub mod analyzer {
                 // What the DTI or charger reported, before selection. Nothing clears these, so a
                 // node that has gone quiet leaves its last value here -- a steady number is not
                 // proof that anything is still sending.
-                defmt_monitor::monitor!("AnalyzerDebug/Reported/pack_current", desc = "Pack current as last reported over CAN by the DTI or the charger, in amps. NaN until a frame has arrived.", "{=f32}", crate::can::reported::pack_current().map_or(f32::NAN, |claim| claim.value.get().as_amps()));
-                defmt_monitor::monitor!("AnalyzerDebug/Reported/ts_voltage", desc = "TS voltage as last reported over CAN by the DTI or the charger, in volts. NaN until a frame has arrived.", "{=f32}", crate::can::reported::ts_voltage().map_or(f32::NAN, |claim| claim.value.get().get::<volt>()));
+                defmt_monitor::monitor!("AnalyzerDebug/Reported/pack_current", desc = "Pack current as last reported over CAN by the DTI or the charger, in amps. NaN until a frame has arrived.", "{=f32}", crate::validated::reported::pack_current().map_or(f32::NAN, |claim| claim.value.get().as_amps()));
+                defmt_monitor::monitor!("AnalyzerDebug/Reported/ts_voltage", desc = "TS voltage as last reported over CAN by the DTI or the charger, in volts. NaN until a frame has arrived.", "{=f32}", crate::validated::reported::ts_voltage().map_or(f32::NAN, |claim| claim.value.get().get::<volt>()));
 
                 // The 2950's own readings, for cross-checking the reported ones against the plate.
                 defmt_monitor::monitor!("AnalyzerDebug/Plate/ts_voltage", desc = "TS voltage off the 2950's own divider behind GPO2, in volts. NaN until the voltages group has been read.", "{=f32}", crate::hv_plate::ts_voltage().map_or(f32::NAN, |ts| ts.get().get::<volt>()));
@@ -799,7 +707,3 @@ pub mod analyzer {
         }
     }
 }
-
-/// The validated values, each at its own source's cadence.
-pub use analyzer::selected::{batt_voltage, pack_current, ts_voltage};
-pub use analyzer::{Source, Sourced};

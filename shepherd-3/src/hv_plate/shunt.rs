@@ -408,11 +408,21 @@ pub mod published {
     use crate::units::Current;
 
     /// Slots for tasks that `await` each window; `try_get` and `anon_receiver` take none.
+    ///
+    /// The one slot belongs to `soc`'s coulomb counter. Hand out more receivers than there are
+    /// slots and [`UnwriteableWatch::receiver`] returns `None`, which every caller so far turns
+    /// into a panic at startup -- so a second task that wants the stream has to raise this first.
     pub const WINDOW_RECEIVERS: usize = 1;
 
+    /// The reader side of the window stream, as [`window`] hands it out.
     pub type UnwriteableWindowWatch = UnwriteableWatch<ThreadModeRawMutex, Stamped<Measurement>, WINDOW_RECEIVERS>;
 
+    /// A stream rather than a cell: `soc` integrates charge off it, so a window it never sees is
+    /// coulombs lost. [`INSTANT`] is the opposite case -- latest-value, where a missed one costs
+    /// nothing -- which is why the two are stored differently.
     static WINDOW: Watch<ThreadModeRawMutex, Stamped<Measurement>, WINDOW_RECEIVERS> = Watch::new();
+
+    /// The newest single conversion. Readers only ever want the latest, so nothing queues here.
     static INSTANT: SnapshotCell<Option<Stamped<Current>>> = SnapshotCell::new(None);
 
     pub const fn window() -> &'static UnwriteableWindowWatch {
@@ -423,7 +433,6 @@ pub mod published {
         INSTANT.read()
     }
 
-    /// A `Watch` rather than a cell beside a signal: it is already both.
     pub(super) fn publish_window(window: Stamped<Measurement>) {
         WINDOW.sender().send(window);
     }

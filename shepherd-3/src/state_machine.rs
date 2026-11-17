@@ -1,6 +1,6 @@
 use strum::FromRepr;
 use crate::{
-    charging, faults,
+    charging, faults, validated,
     faults::{FaultPin},
     shutdown,
 };
@@ -34,21 +34,21 @@ impl BmsState {
             BmsState::Boot => {
                 if faults::are_critical_faults_active()  { BmsState::Faulted }
                 else if !shutdown::circuit_closed()      { BmsState::ShutdownOpen }
-                else if charging::is_charger_connected() { BmsState::Charging }
+                else if validated::charger_present()     { BmsState::Charging }
                 else                                     { BmsState::Ready }
             },
 
             BmsState::Ready => {
                 if faults::are_critical_faults_active()  { BmsState::Faulted }
                 else if !shutdown::circuit_closed()      { BmsState::ShutdownOpen }
-                else if charging::is_charger_connected() { BmsState::Charging }
+                else if validated::charger_present()     { BmsState::Charging }
                 else                                     { BmsState::Ready }
             },
 
             BmsState::Charging => {
                 if faults::are_critical_faults_active()  { BmsState::Faulted }
                 else if !shutdown::circuit_closed()      { BmsState::ShutdownOpen }
-                else if charging::is_charger_connected() { BmsState::Charging }
+                else if validated::charger_present()     { BmsState::Charging }
                 else                                     { BmsState::Charging } // we shouldn't go back to READY after in charging even if the charger isn't connected
             },
 

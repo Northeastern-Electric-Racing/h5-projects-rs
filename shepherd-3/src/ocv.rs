@@ -96,7 +96,7 @@ impl Tracker {
         use crate::pack::analyzer;
 
         // Whichever instrument is currently believed. A CAN reporter measures its own branch, not the pack.
-        let Some(sourced) = crate::pack::pack_current() else {
+        let Some(sourced) = crate::validated::pack_current() else {
             return;
         };
         let mut pack_current = sourced.get();
@@ -137,14 +137,13 @@ impl Tracker {
             return;
         }
 
-        let Some(corrected) = analyzer::analyzer().try_partial_get(|holder| holder.data.corrected_cell_voltages) else {
+        let Some((corrected, measured_at)) = analyzer::analyzer().try_partial_get(|holder| (holder.data.corrected_cell_voltages, holder.last_updated)) else {
             return;
         };
         self.open_cell_voltage = corrected;
         self.recalculate();
 
-        // Snapshot and stamp taken together. The MCU's clock: this answers "is this still being published", not "how long has the pack sat".
-        store(OcvData { open_cell_voltage: self.open_cell_voltage, stats: self.stats }, Instant::now());
+        store(OcvData { open_cell_voltage: self.open_cell_voltage, stats: self.stats }, measured_at);
     }
 
     /// Recomputes every statistic from the snapshot just latched.
@@ -354,7 +353,7 @@ mod task {
                 defmt_monitor::monitor!("AnalyzerDebug/Ocv/rest_timer_expired", desc = "Whether the rest timer has run out, so the OCV snapshot is being refreshed every cycle.", "{=bool}", crate::helpers::time::plant_now().is_some_and(|now| tracker.rest_timer.is_some_and(|deadline| deadline.past_at(now))));
                 defmt_monitor::monitor!("AnalyzerDebug/Ocv/plant_clock", desc = "Whether the plant clock can be read. False on a rig whose model has not answered RDHILTIME, and while it is false the rest timer is held cleared so no OCV snapshot is taken.", "{=bool}", crate::helpers::time::plant_now().is_some());
                 defmt_monitor::monitor!("AnalyzerDebug/Ocv/secs_since_settled", desc = "Seconds since the last OCV snapshot was taken. NaN if none has been taken yet.", "{=f32}", ocv().try_partial_get(|snapshot| snapshot.age().as_millis() as f32 / 1000.0).unwrap_or(f32::NAN));
-                defmt_monitor::monitor!("AnalyzerDebug/Ocv/rest_current_source", desc = "Which instrument the current that judged rest came from. None until one has a fresh reading.", "{}", crate::pack::pack_current().map(|current| current.source()));
+                defmt_monitor::monitor!("AnalyzerDebug/Ocv/rest_current_source", desc = "Which instrument the current that judged rest came from. None until one has a fresh reading.", "{}", crate::validated::pack_current().map(|current| current.source()));
             }
         }
     }

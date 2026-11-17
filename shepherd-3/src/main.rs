@@ -31,6 +31,7 @@ pub mod shutdown;
 pub mod soc;
 pub mod state_machine;
 pub mod units;
+pub mod validated;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
