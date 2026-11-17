@@ -34,7 +34,7 @@ mod state {
     use super::*;
 
     // How long a `LongChargeUp` session should last before expiring.
-    const LONG_CHARGE_DURATION: Duration = Duration::from_secs(15 * 60);
+    const LONG_CHARGE_DURATION: Duration = Duration::from_secs(10 * 60); // u_TODO revert this
     /// How much current we should request from the charger while in `LongChargeUp`.
     const LONG_CHARGE_CURRENT: Current = Current::from_amps(10.0); // u_TODO reduce this when not HIL
     #[derive(Copy, Clone, defmt::Format)]

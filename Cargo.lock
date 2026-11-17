@@ -1870,6 +1870,7 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
+ "embedded-can",
  "embedded-hal-async",
  "embedded-hal-bus",
  "function_name",
