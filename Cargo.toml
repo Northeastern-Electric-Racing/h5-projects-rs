@@ -36,7 +36,7 @@ uom = {
 }
 
 can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
+cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", rev = "83de0ca83c4741ce02a5ec0ef392b8904c18d20d" } 
 nereth = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 
 lsm6dsv16x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop"}
