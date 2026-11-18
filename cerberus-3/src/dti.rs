@@ -130,6 +130,10 @@ pub async fn get_ac_current() -> ElectricCurrent {
     DTI_STATE.lock().await.ac_current
 }
 
+pub async fn get_dc_current() -> ElectricCurrent {
+    DTI_STATE.lock().await.dc_current
+}
+
 pub async fn get_controller_temp() -> Temperature {
     DTI_STATE.lock().await.controller_temp
 }
