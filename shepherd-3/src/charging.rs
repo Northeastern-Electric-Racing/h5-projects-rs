@@ -312,7 +312,7 @@ mod state {
             // Checks if the time elapsed since we entered the `ShortChargeUp` is less than or equal to `SATURATION_WINDOW`.
             // If it is, we consider the charge stage "saturated", in that we have very quickly reached the threshold after starting and should therefore consider ourselves
             // done with charging (since there is no more room to collect more voltage).
-            let saturated = short_charge_up.entered_at.elapsed() <= SATURATION_WINDOW;
+            let saturated = (short_charge_up.entered_at.elapsed() <= SATURATION_WINDOW) && (short_charge_up.current <= SHORT_CHARGE_CURRENT_STEP);
 
             Self { deadline: Deadline::expire_in(SETTLE_DURATION), were_balancing: false, charger_saturated: saturated }
         }
