@@ -3,7 +3,8 @@
 //! determines how to handle the torque and regen
 //! values based on the current drive mode.
 
-use crate::{bms, can};
+use crate::bms;
+use crate::can;
 use crate::dti;
 use crate::statemachine;
 use crate::statemachine::FuncState;
