@@ -1,4 +1,4 @@
-//! Handles sending and receiving data from the motor controller over CAN. 
+//! Handles sending and receiving data from the motor controller over CAN.
 //! Also holds the buffer to smooth out acceleration and regen commands.
 
 use core::f32::consts::PI;
