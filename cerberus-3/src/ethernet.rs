@@ -1,3 +1,5 @@
+//! Initializes the ethernet peripheral and handles outgoing packets.
+
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::{Peri, peripherals};

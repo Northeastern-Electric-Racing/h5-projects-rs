@@ -1,3 +1,7 @@
+//! Keeps track of faults and handles fault reporting.
+//! Faults are reported over CAN and can be triggered by any task using the `trigger_fault` function.
+//! The fault task will handle the rest.
+
 use defmt::warn;
 use embassy_futures::select::{Either3, select3};
 use embassy_stm32::{can::Frame, gpio::Output};
