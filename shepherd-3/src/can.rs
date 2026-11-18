@@ -39,13 +39,18 @@ pub fn init(r: crate::CanResources) -> (CanTx<'static>, CanRx<'static>) {
         id1: cangen::ShepherdBmsPwmPercent::ID,
         id2: None,
     };
+    const SLOT_2: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_2,
+        id1: cangen::BmsBootRequest::ID,
+        id2: None,
+    };
     const SLOT_0E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_0,
         id1: cangen::ChargerBoxStatus::ID,
         id2: None,
     };
 
-    let (tx, rx, _props) = NerCan::init(configurator).with_standard_filters(&[SLOT_0, SLOT_1]).with_extended_filters(&[SLOT_0E]).start();
+    let (tx, rx, _props) = NerCan::init(configurator).with_standard_filters(&[SLOT_0, SLOT_1, SLOT_2]).with_extended_filters(&[SLOT_0E]).start();
     interrupts::enable_extra();
 
     (tx, rx)
@@ -53,7 +58,7 @@ pub fn init(r: crate::CanResources) -> (CanTx<'static>, CanRx<'static>) {
 
 /// Reads incoming CAN frames from the software queue and dispatches them.
 #[embassy_executor::task]
-pub async fn can_inbox_task() -> ! {
+pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -> ! {
     use crate::units::{Current, Voltage};
     use crate::{charging, pack};
     use cangen::Msg;
@@ -64,6 +69,14 @@ pub async fn can_inbox_task() -> ! {
         let frame = INCOMING.receive().await;
 
         match Msg::decode(&frame) {
+            Some(Msg::BmsBootRequest(_)) => {
+                if !frame.header().rtr() && boot_control::is_valid_request(frame.data()) {
+                    // Begin cleanup before reset: add application-specific shutdown here.
+
+                    // End cleanup before reset.
+                    bootloader.enter_bootloader();
+                }
+            },
             Some(Msg::ChargerBoxStatus(m)) => {
                 charging::alert_charger_received();
                 pack::analyzer::store_can_pack_current(Current::new::<ampere>(m.current()));
@@ -228,6 +241,19 @@ pub mod types {
     impl SegmentTemperatures {
         pub fn as_frame(&self) -> Frame {
             let frame = cangen::SegmentTemperatures::new().with_seg1(self.seg1).with_seg2(self.seg2).with_seg3(self.seg3).with_seg4(self.seg4).with_seg5(self.seg5);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct EnergyMeterTemperatureMsg {
+        pub max_temp: u16,
+        pub min_temp: u16,
+        pub avg_temp: u16,
+    }
+    impl EnergyMeterTemperatureMsg {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::EnergyMeterTemperatureMessage::new().with_max_cell_temp(self.max_temp).with_min_cell_temp(self.min_temp).with_avg_cell_temp(self.avg_temp);
 
             frame.to_can_frame()
         }

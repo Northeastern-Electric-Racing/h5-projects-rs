@@ -150,14 +150,18 @@ async fn main(spawner: Spawner) {
     let last_crash = hardfault::report_last_reset();
     hardfault::set_watchdog_debug_freeze();
 
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     let r = split_resources!(p);
 
     gpios::init(r.gpios);
 
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
+    bootloader.confirm_boot().expect("Failed to confirm application startup");
     let (can_tx, can_rx) = can::init(r.can);
     spawner.spawn(can_handler::can_tx(can_tx, can::OUTGOING.dyn_receiver(), can::OUTGOING.dyn_sender()).expect("Failed to spawn can_handler::can_tx()."));
     spawner.spawn(can_handler::can_rx(can_rx, can::INCOMING.dyn_sender()).expect("Failed to spawn can_handler::can_rx()."));
-    spawner.spawn(can::can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
+    spawner.spawn(can::can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
     #[cfg(defmt_monitor)]
     {
         spawner.spawn(can_handler::can_props(embassy_stm32::pac::FDCAN2).expect("Failed to spawn can_handler::can_props()."));

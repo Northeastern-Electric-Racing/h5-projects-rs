@@ -4,6 +4,7 @@ name = "msb-fw-2"
 version = "0.1.0"
 
 [dependencies]
+boot-control.workspace = true
 can-handler.workspace = true
 cangen.workspace = true
 cortex-m.workspace = true

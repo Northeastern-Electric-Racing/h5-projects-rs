@@ -17,6 +17,7 @@ pub mod analyzer {
     use embassy_time::Instant;
     use embassy_sync::blocking_mutex::ThreadModeMutex;
     use core::cell::Cell;
+    use crate::can::types::EnergyMeterTemperatureMsg;
     use crate::helpers::startup_cell::{StartupCell, UnwriteableStartupCell};
     use crate::faults;
     use crate::faults::{FaultCommand, PassFailAction};
@@ -877,6 +878,23 @@ pub mod analyzer {
             '_defmt_monitor: {
                 defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc", desc = "Pack state of charge, 0.0 to 1.0. NaN until an open-circuit voltage has seeded the count, so a gap in the trace means no estimate rather than an empty pack.", "{=f32}", analyzer.soc.map_or(f32::NAN, |soc| soc.get::<ratio>()));
                 defmt_monitor::monitor!("AnalyzerDebug/PackSocStatus/pack_soc_drift", desc = "Gap the last OCV seed found against the coulomb count, in state of charge. Positive means the OCV read higher.", "{=f32}", soc_data.drift);
+            }
+
+            can::send(
+                EnergyMeterTemperatureMsg {
+                    max_temp: (analyzer.max_temp.value.get::<degree_celsius>() * 10.0) as u16,
+                    min_temp: (analyzer.min_temp.value.get::<degree_celsius>() * 10.0) as u16,
+                    avg_temp: (analyzer.avg_temp.get::<degree_celsius>() * 10.0) as u16,
+                }
+                .as_frame(),
+            )
+            .await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                defmt_monitor::monitor!("AnalyzerDebug/EnergyMeter/max_temp", desc = "Maximum cell temperature sent to energy meter as 10 * C in u16.", "{=u16}", (analyzer.max_temp.value.get::<degree_celsius>() * 10.0) as u16);
+                defmt_monitor::monitor!("AnalyzerDebug/EnergyMeter/min_temp", desc = "Minimum cell temperature sent to energy meter as 10 * C in u16.", "{=u16}", (analyzer.min_temp.value.get::<degree_celsius>() * 10.0) as u16);
+                defmt_monitor::monitor!("AnalyzerDebug/EnergyMeter/avg_temp", desc = "Average cell temperature sent to energy meter as 10 * C in u16.", "{=u16}", (analyzer.avg_temp.get::<degree_celsius>() * 10.0) as u16);
             }
 
             #[cfg(defmt_monitor)]
