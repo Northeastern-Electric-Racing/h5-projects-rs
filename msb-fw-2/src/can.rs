@@ -4,8 +4,7 @@
 //! FDCAN2 with the team's standard config (classic CAN, 500 kbit/s, reject-all filter), and
 //! [`can_handler::can_tx`] drains [`OUTGOING`] onto the bus. This module adds the tasks that encode
 //! and queue each sensor's message as soon as that sensor publishes new readings, so CAN updates at
-//! each sensor's own rate. [`telemetry_task`] handles the shock pots and strain gauges 1-2; every
-//! other sensor has its own small task.
+//! each sensor's own rate. Every sensor has its own small task.
 //!
 //! Message layouts and IDs come from the team's Odyssey-Definitions (`msb.json`) through `cangen`,
 //! at the `cangen` rev pinned in the workspace `Cargo.toml`. There is one MSB on the car, so it uses
@@ -34,14 +33,13 @@ use crate::imu::{IMU_DATA, ImuReading};
 use crate::load_cell::{LOAD_CELL_DATA, LoadCell, LoadCellReading, NUM_LOAD_CELLS};
 use crate::magnetometer::MAG_DATA;
 use crate::shock_pot::{NUM_SHOCK_POTS, SHOCK_POT_DATA, ShockPot, ShockPotReading};
-use crate::strain_guage::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
+use crate::strain_gauge::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
 use crate::thermocouple::{NUM_THERMOCOUPLES, THERMOCOUPLE_DATA, ThermocoupleReading};
 use crate::wheel_speed::{NUM_WHEELS, WHEEL_SPEED_DATA, Wheel, WheelSpeedReading};
+use crate::steering_angle::{NUM_STEERING_ANGLES, STEERING_ANGLE_DATA, SteeringAngle, SteeringAngleReading};
 use can_handler::NerCan;
 use cangen::ToCanFrame;
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either, select};
-use embassy_futures::select::{Either, select};
 use embassy_stm32::Peri;
 use embassy_stm32::can::{CanConfigurator, Frame};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
@@ -73,14 +71,10 @@ pub fn start(spawner: Spawner, r: CanResources) {
         can_handler::can_tx(tx, OUTGOING.dyn_receiver(), OUTGOING.dyn_sender())
             .expect("Failed to spawn can_handler::can_tx()."),
     );
-    spawner.spawn(telemetry_task().expect("Failed to spawn can::telemetry_task()."));
-    spawner.spawn(
-        strain_three_four_can_task().expect("Failed to spawn can::strain_three_four_can_task()."),
-    );
+    spawner.spawn(shockpot_can_task().expect("Failed to spawn can::shockpot_can_task()."));
+    spawner.spawn(strain_gauge_can_task().expect("Failed to spawn can::strain_gauge_can_task()."));
     spawner.spawn(wheel_speed_can_task().expect("Failed to spawn can::wheel_speed_can_task()."));
-    spawner.spawn(
-        steering_angle_can_task().expect("Failed to spawn can::steering_angle_can_task()."),
-    );
+    spawner.spawn(steering_angle_can_task().expect("Failed to spawn can::steering_angle_can_task()."));
     spawner.spawn(load_cell_can_task().expect("Failed to spawn can::load_cell_can_task()."));
     spawner.spawn(thermocouple_can_task().expect("Failed to spawn can::thermocouple_can_task()."));
     spawner.spawn(imu_can_task().expect("Failed to spawn can::imu_can_task()."));
@@ -93,44 +87,35 @@ pub async fn send(frame: Frame) {
     can_handler::send(OUTGOING.dyn_sender(), frame).await
 }
 
-/// Sends the shock pot and strain gauge 1-2 messages as soon as either sensor publishes.
-#[embassy_executor::task]
-async fn telemetry_task() {
-    let mut shock_pot_rx = SHOCK_POT_DATA
-        .receiver()
-        .expect("Too many SHOCK_POT_DATA receivers.");
-    let mut strain_gauge_rx = STRAIN_GAUGE_DATA
-        .receiver()
-        .expect("Too many STRAIN_GAUGE_DATA receivers.");
 
-    loop {
-        // Whichever sensor published first; the other is picked up on the next pass.
-        match select(shock_pot_rx.changed(), strain_gauge_rx.changed()).await {
-            Either::First(readings) => {
-        // Whichever sensor published first; the other is picked up on the next pass.
-        match select(shock_pot_rx.changed(), strain_gauge_rx.changed()).await {
-            Either::First(readings) => {
-                for frame in shock_pot_frames(&readings) {
-                    send(frame).await;
-                }
-            }
-            Either::Second(readings) => send(strain_gauge_frame(&readings)).await,
-        }
-    }
-}
-
-/// Strain gauges 3-4. This is `STRAIN_GAUGE_DATA`'s second receiver (after [`telemetry_task`]),
-/// which fits its limit of 2.
+/// All strain gauges, replacing telemetry_task by putting strain gauges 1-2 within the same function as 3-4
+/// This is `STRAIN_GAUGE_DATA`'s sole receiver which fits its limit of 2. (leaves one open)
 #[embassy_executor::task]
-async fn strain_three_four_can_task() {
+async fn strain_gauge_can_task() {
     let mut rx = STRAIN_GAUGE_DATA
         .receiver()
         .expect("Too many STRAIN_GAUGE_DATA receivers.");
     loop {
         let readings = rx.changed().await;
-        send(strain_three_four_frame(&readings)).await;
+         send(strain_one_two_frame(&readings)).await;
+         send(strain_three_four_frame(&readings)).await;
     }
 }
+
+// Shockpot can task, replacing telemetry_task by separating shockpots from strain gauges 1-2
+#[embassy_executor::task]
+async fn shockpot_can_task() {
+    let mut rx = SHOCK_POT_DATA
+        .receiver()
+        .expect("Too many SHOCK_POT_DATA receivers.");
+    loop {
+        let readings = rx.changed().await;
+        for frame in shock_pot_frames(&readings) {
+            send(frame).await;
+        }
+    }
+}
+
 
 #[embassy_executor::task]
 async fn wheel_speed_can_task() {
@@ -164,6 +149,7 @@ async fn load_cell_can_task() {
         send(load_cell_frame(&readings)).await;
     }
 }
+
 
 #[embassy_executor::task]
 async fn thermocouple_can_task() {
@@ -229,7 +215,7 @@ fn shock_pot_frames(readings: &[ShockPotReading; NUM_SHOCK_POTS]) -> [Frame; 2] 
 ///
 /// The fields are unscaled `u32`s and the gauges aren't calibrated yet, so this sends the raw ADC
 /// counts. TODO: switch to calibrated values once the gauges and the definition's units are set.
-fn strain_gauge_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Frame {
+fn strain_one_two_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Frame {
     let strain1 = u32::from(readings[StrainGauge::Sg1 as usize].raw);
     let strain2 = u32::from(readings[StrainGauge::Sg2 as usize].raw);
     cangen::FrontMsbStrainOneTwo::new()
