@@ -4,7 +4,7 @@
 //! other devices on the vehicle.
 
 use crate::bms::{PrechargeState, set_precharge_state};
-use crate::{bms, buttons, efuses, lightning, rtds, shutdown};
+use crate::{bms, buttons, dti, efuses, lightning, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -15,7 +15,9 @@ use embassy_stm32::can::{IT0InterruptHandler, IT1InterruptHandler};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use uom::si::f32::ThermodynamicTemperature as Temperature;
+use uom::si::angular_velocity::revolution_per_minute;
+use uom::si::electric_current::ampere;
+use uom::si::f32::{AngularVelocity, ElectricCurrent, ThermodynamicTemperature as Temperature};
 use uom::si::thermodynamic_temperature::degree_celsius;
 
 bind_interrupts!(struct Irqs {
@@ -159,9 +161,21 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
             Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
 
             Some(Msg::FrontWheelRpm(_)) => {}
-            Some(Msg::TempsFaultCodeStatus(_)) => {}
-            Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
-            Some(Msg::CurrentsStatus(_)) => {}
+            Some(Msg::ErpmDutyInputVoltageStatus(m)) => {
+                dti::set_rpm(AngularVelocity::new::<revolution_per_minute>(
+                    m.erpm() as f32 / dti::POLE_PAIRS,
+                ))
+                .await
+            }
+            Some(Msg::TempsFaultCodeStatus(m)) => {
+                dti::set_motor_temp(Temperature::new::<degree_celsius>(m.motor_temp())).await;
+                dti::set_controller_temp(Temperature::new::<degree_celsius>(m.controller_temp()))
+                    .await;
+            }
+            Some(Msg::CurrentsStatus(m)) => {
+                dti::set_ac_current(ElectricCurrent::new::<ampere>(m.ac_current())).await;
+                dti::set_dc_current(ElectricCurrent::new::<ampere>(m.dc_current())).await;
+            }
 
             Some(Msg::DashboardEfuseState(m)) => efuses::send_command(EfuseDashboard, m.state()),
             Some(Msg::BrakeEfuseState(m)) => efuses::send_command(EfuseBrake, m.state()),

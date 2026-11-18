@@ -17,6 +17,7 @@ mod bms;
 mod buttons;
 mod can;
 mod debug;
+mod dti;
 mod efuses;
 mod ethernet;
 mod faults;
