@@ -3,7 +3,7 @@
 //! determines how to handle the torque and regen
 //! values based on the current drive mode.
 
-use crate::can;
+use crate::{bms, can};
 use crate::dti;
 use crate::statemachine;
 use crate::statemachine::FuncState;
@@ -25,10 +25,6 @@ use uom::si::torque::newton_meter;
 
 fn get_traction_control() -> f32 {
     0.0
-}
-
-fn is_not_precharge() -> bool {
-    false
 }
 
 fn tc_process() {}
@@ -766,7 +762,7 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
             ElectricCurrent::new::<ampere>(0.0),
         );
 
-        if is_not_precharge() {
+        if !bms::get_precharge_state() {
             drive_lock.set_lock(locks::Locks::BmsNotPrechargedYet);
         } else {
             drive_lock.unset_lock(locks::Locks::BmsNotPrechargedYet);
