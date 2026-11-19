@@ -23,7 +23,7 @@
 
 use crate::bind_interrupts::Irqs;
 use crate::shock_pot::{NUM_SHOCK_POTS, SHOCK_POT_DATA, ShockPot, ShockPotReading};
-use crate::strain_guage::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
+use crate::strain_gauge::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
 use can_handler::{NerCan, StdFilter};
 use cangen::{CanMessage, Msg, ToCanFrame};
 use embassy_executor::Spawner;
