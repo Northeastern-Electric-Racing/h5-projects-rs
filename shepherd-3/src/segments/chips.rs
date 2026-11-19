@@ -492,6 +492,10 @@ pub mod segments {
             self.iter_mut()
         }
     }
+
+    impl<T> From<[T; NUM_SEGMENTS]> for IndexBySegment<T> {
+        fn from(arr: [T; NUM_SEGMENTS]) -> Self { Self { data: arr } }
+    }
 }
 
 /// Small wrapper around an array of responses for each chip.
