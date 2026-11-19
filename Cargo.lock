@@ -89,6 +89,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "as3935-ner"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=a3935-sensor-SPI-driver#f8e680716ad533c3aed62bfb4474649d8c91edde"
+dependencies = [
+ "defmt 1.2.0",
+ "embedded-hal-async",
+]
+
+[[package]]
 name = "assign-resources"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1193,6 +1202,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 name = "lightning"
 version = "0.1.0"
 dependencies = [
+ "as3935-ner",
  "boot-control",
  "can-handler",
  "cangen",
@@ -1207,6 +1217,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embedded-can",
+ "embedded-hal-bus",
  "heapless 0.9.3",
  "panic-probe",
 ]
