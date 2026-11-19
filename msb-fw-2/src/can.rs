@@ -230,7 +230,6 @@ fn strain_one_two_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> F
     let strain1 = u32::from(readings[StrainGauge::Sg1 as usize].raw);
     let strain2 = u32::from(readings[StrainGauge::Sg2 as usize].raw);
     cangen::FrontMsbStrainOneTwo::new()
-    cangen::FrontMsbStrainOneTwo::new()
         .with_strain1(strain1)
         .with_strain2(strain2)
         .to_can_frame()
@@ -319,4 +318,22 @@ fn magnetometer_frame(f: &MagneticField) -> Frame {
         .with_y_mgauss(f.y_mgauss)
         .with_z_mgauss(f.z_mgauss)
         .to_can_frame()
+}
+
+#[embassy_executor::task]
+async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -> ! {
+    loop {
+        let frame = INCOMING.receive().await;
+        match Msg::decode(&frame) {
+            Some(Msg::MsbFrontBootRequest(_)) => {
+                if boot_control::is_valid_request(frame.data()) {
+                    // Begin cleanup before reset: add application-specific shutdown here.
+
+                    // End cleanup before reset.
+                    bootloader.enter_bootloader();
+                }
+            }
+            _ => {}
+        }
+    }
 }
