@@ -95,6 +95,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "840ad5d907de7448d88a3f22b4a7b5d326c6eb3deeb9f94cfaaec7354a80b305"
 
 [[package]]
+name = "atlas"
+version = "0.1.0"
+dependencies = [
+ "can-bootloader-config",
+ "can-bootloader-core",
+ "can-handler",
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.2.0",
+ "defmt-rtt",
+ "embassy-boot-stm32",
+ "embassy-executor",
+ "embassy-stm32",
+ "embassy-sync",
+ "embassy-time",
+ "embedded-can",
+ "panic-probe",
+]
+
+[[package]]
 name = "atomic_enum"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -194,6 +214,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "boot-control"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#f170715b8bd3fd0431fa79bc8d4867535984ca7b"
+dependencies = [
+ "cortex-m",
+ "embassy-boot",
+ "embassy-stm32",
+ "embassy-sync",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -206,11 +237,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "can-bootloader-config"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#f170715b8bd3fd0431fa79bc8d4867535984ca7b"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "can-bootloader-core"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#f170715b8bd3fd0431fa79bc8d4867535984ca7b"
+dependencies = [
+ "crc",
+ "defmt 1.2.0",
+ "embassy-boot",
+ "embassy-time",
+ "embedded-can",
+ "embedded-storage",
+]
+
+[[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
 dependencies = [
  "defmt 1.2.0",
+ "defmt-monitor",
  "embassy-executor",
  "embassy-futures",
  "embassy-stm32",
@@ -226,18 +279,8 @@ version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
 dependencies = [
  "bitfield-struct 0.13.0",
- "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "cangen-macro",
  "defmt 1.2.0",
- "embedded-can",
-]
-
-[[package]]
-name = "cangen"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
-dependencies = [
- "bitfield-struct 0.13.0",
- "cangen-macro 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31)",
  "embedded-can",
 ]
 
@@ -246,20 +289,7 @@ name = "cangen-macro"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
 dependencies = [
- "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
- "heck",
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "cangen-macro"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
-dependencies = [
- "definition-rs 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31)",
+ "definition-rs",
  "heck",
  "proc-macro2",
  "quote",
@@ -269,9 +299,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.11.1"
+version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ff2a8126fff0f8c839080d619675a585e61720bb12d2baceae45769fd66f155"
+checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -281,8 +311,9 @@ dependencies = [
 name = "cerberus-3"
 version = "0.1.0"
 dependencies = [
+ "boot-control",
  "can-handler",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
@@ -299,6 +330,7 @@ dependencies = [
  "nereth",
  "num-traits",
  "panic-probe",
+ "strum",
  "uom",
  "variant_count",
 ]
@@ -427,17 +459,6 @@ dependencies = [
 name = "definition-rs"
 version = "0.1.0"
 source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
-dependencies = [
- "proc-macro2",
- "quote",
- "schemars",
- "serde",
-]
-
-[[package]]
-name = "definition-rs"
-version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31#26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -602,6 +623,31 @@ name = "elain"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ba39bdf557eef05f2c1c2e986cbab6b85329b922e7606e5b63ee4c5037ba77a"
+
+[[package]]
+name = "embassy-boot"
+version = "0.7.0"
+source = "git+https://github.com/embassy-rs/embassy?rev=8935e71155895245a52f888a3d43b83d8ccdd973#8935e71155895245a52f888a3d43b83d8ccdd973"
+dependencies = [
+ "defmt 1.2.0",
+ "document-features",
+ "embassy-crypto",
+ "embassy-embedded-hal",
+ "embassy-sync",
+ "embedded-storage",
+ "embedded-storage-async",
+]
+
+[[package]]
+name = "embassy-boot-stm32"
+version = "0.8.0"
+source = "git+https://github.com/embassy-rs/embassy?rev=8935e71155895245a52f888a3d43b83d8ccdd973#8935e71155895245a52f888a3d43b83d8ccdd973"
+dependencies = [
+ "cortex-m",
+ "defmt 1.2.0",
+ "embassy-boot",
+ "embedded-storage",
+]
 
 [[package]]
 name = "embassy-crypto"
@@ -1147,8 +1193,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 name = "lightning"
 version = "0.1.0"
 dependencies = [
+ "boot-control",
  "can-handler",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
@@ -1255,7 +1302,7 @@ dependencies = [
 [[package]]
 name = "lsm6dsv16x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
 dependencies = [
  "defmt 1.2.0",
  "embassy-time",
@@ -1393,8 +1440,9 @@ dependencies = [
 name = "msb-fw-2"
 version = "0.1.0"
 dependencies = [
+ "boot-control",
  "can-handler",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop)",
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
@@ -1412,6 +1460,7 @@ dependencies = [
  "lsm6dsv16x-ner",
  "panic-probe",
  "static_cell",
+ "vqf-rs",
 ]
 
 [[package]]
@@ -1432,7 +1481,7 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 [[package]]
 name = "nereth"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#69150c8175b3969f0de03c6dc2da69136ea0f4a8"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
@@ -1528,9 +1577,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9f016da56b311cff4659f5e7335c4d5fda5ca86cae4f48b8ce1cf3335246a7d"
+checksum = "3ef0b569d1d907ab3a28596aee62cf1f61dacb0529a4bedcd8e7460e2d5228b4"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -1538,9 +1587,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9a367f131d93b3395fc6207c11e67098493ab040def4ce3085adbf186687f7e"
+checksum = "1ad9c5423459fa2f729b8d9235fab810aa29628b171467744fc86d21460ad70d"
 dependencies = [
  "anyhow",
  "itertools",
@@ -1563,9 +1612,9 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96e89651c132da91958fd6092a2f7262c2c36c08df4f68af0bb3591caacbbb45"
+checksum = "f29a7c4c7a84cef41a53d338a2d10d4f1b043ea5c3dde26db22ee2c9c1b1c75b"
 dependencies = [
  "prost",
 ]
@@ -1888,7 +1937,9 @@ dependencies = [
  "adbms6830b",
  "assign-resources",
  "atomic_enum",
- "cangen 0.1.0 (git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?rev=26979bef0c8b10d0af1e24fcf2d9d65b8fa75f31)",
+ "boot-control",
+ "can-handler",
+ "cangen",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.2.0",
@@ -1900,13 +1951,11 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
- "embedded-can",
  "embedded-hal-async",
  "embedded-hal-bus",
  "function_name",
  "heapless 0.9.3",
  "libm",
- "panic-probe",
  "static_cell",
  "strum",
  "uom",
@@ -2317,6 +2366,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de437e2a6208b014ab52972a27e59b33fa2920d3e00fe05026167a1c509d19cc"
 dependencies = [
  "vcell",
+]
+
+[[package]]
+name = "vqf-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6bee49d5fd327532ec2dae66b261f858a8055ba45c24677ce8cacf9206a192a"
+dependencies = [
+ "libm",
 ]
 
 [[package]]

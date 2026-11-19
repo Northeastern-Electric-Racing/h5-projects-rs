@@ -37,10 +37,11 @@ use crate::strain_gauge::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, Str
 use crate::thermocouple::{NUM_THERMOCOUPLES, THERMOCOUPLE_DATA, ThermocoupleReading};
 use crate::wheel_speed::{NUM_WHEELS, WHEEL_SPEED_DATA, Wheel, WheelSpeedReading};
 use crate::steering_angle::{NUM_STEERING_ANGLES, STEERING_ANGLE_DATA, SteeringAngle, SteeringAngleReading};
-use can_handler::NerCan;
-use cangen::ToCanFrame;
+use can_handler::{NerCan, StdFilter};
+use cangen::{CanMessage, Msg, ToCanFrame};
 use embassy_executor::Spawner;
 use embassy_stm32::Peri;
+use embassy_stm32::can::filter::StandardFilterSlot;
 use embassy_stm32::can::{CanConfigurator, Frame};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -50,6 +51,8 @@ use lis2mdl_ner::MagneticField;
 
 /// Frames waiting for a free FDCAN TX buffer.
 const OUTGOING_CAPACITY: usize = 32;
+
+static INCOMING: Channel<ThreadModeRawMutex, Frame, 32> = Channel::new();
 
 static OUTGOING: Channel<ThreadModeRawMutex, Frame, OUTGOING_CAPACITY> = Channel::new();
 
@@ -61,11 +64,19 @@ pub struct CanResources {
 }
 
 /// Starts FDCAN2 through [`NerCan`] and spawns the CAN tasks.
-pub fn start(spawner: Spawner, r: CanResources) {
-    let (tx, rx, _properties) = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs)).start();
-    // Nothing is received (reject-all filter), but the RX half must stay alive: dropping both
-    // halves shuts the peripheral down.
-    core::mem::forget(rx);
+pub fn start(spawner: Spawner, r: CanResources, bootloader: boot_control::Bootloader<'static>) {
+    const SLOT_0: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_0,
+        id1: cangen::MsbFrontBootRequest::ID,
+        id2: None,
+    };
+    let (tx, rx, _properties) = NerCan::init(CanConfigurator::new(r.can, r.rx, r.tx, Irqs))
+        .with_standard_filters(&[SLOT_0])
+        .start();
+    spawner.spawn(
+        can_handler::can_rx(rx, INCOMING.dyn_sender()).expect("Failed to spawn CAN receiver"),
+    );
+    spawner.spawn(can_inbox_task(bootloader).expect("Failed to spawn CAN processor"));
 
     spawner.spawn(
         can_handler::can_tx(tx, OUTGOING.dyn_receiver(), OUTGOING.dyn_sender())
@@ -218,6 +229,7 @@ fn shock_pot_frames(readings: &[ShockPotReading; NUM_SHOCK_POTS]) -> [Frame; 2] 
 fn strain_one_two_frame(readings: &[StrainGaugeReading; NUM_STRAIN_GAUGES]) -> Frame {
     let strain1 = u32::from(readings[StrainGauge::Sg1 as usize].raw);
     let strain2 = u32::from(readings[StrainGauge::Sg2 as usize].raw);
+    cangen::FrontMsbStrainOneTwo::new()
     cangen::FrontMsbStrainOneTwo::new()
         .with_strain1(strain1)
         .with_strain2(strain2)

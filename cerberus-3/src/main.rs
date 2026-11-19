@@ -7,9 +7,6 @@ use defmt::debug;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::gpio::Level;
-use embassy_stm32::gpio::Output;
-use embassy_stm32::gpio::Speed;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_time::Timer;
@@ -20,8 +17,10 @@ mod bms;
 mod buttons;
 mod can;
 mod debug;
+mod dti;
 mod efuses;
 mod ethernet;
+mod faults;
 mod lightning;
 mod pedals;
 mod peripherals;
@@ -95,6 +94,7 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     });
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     spawner.spawn(
         can_handler::can_tx(
             can_tx_half,
@@ -107,7 +107,12 @@ async fn main(spawner: Spawner) -> ! {
         can_handler::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
-    spawner.spawn(can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
+    spawner.spawn(can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
 
     // Ethernet
     spawner.spawn(
@@ -202,9 +207,10 @@ async fn main(spawner: Spawner) -> ! {
 
     // Statemachine
     spawner.spawn(
-        statemachine::statemachine_task()
+        statemachine::statemachine_task(p.PG15)
             .expect("Failed to spawn statemachine::statemachine_task()."),
     );
+    spawner.spawn(faults::fault_task().expect("failed to spawn faults::fault_task()"));
 
     // Buttons
     spawner.spawn(buttons::button_task().expect("Failed to spawn buttons::button_task()."));
@@ -272,8 +278,6 @@ async fn main(spawner: Spawner) -> ! {
     // Watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
     watchdog.unleash();
-
-    let _can_fault = Output::new(p.PG15, Level::High, Speed::Low);
 
     loop {
         debug!("Status: Alive");
