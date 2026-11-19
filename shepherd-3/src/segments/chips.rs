@@ -181,7 +181,9 @@ pub mod cells {
     }
 
     impl<T> From<[T; NUM_CELLS_PER_CHIP]> for IndexByCell<T> {
-        fn from(arr: [T; NUM_CELLS_PER_CHIP]) -> Self { Self { data: arr } }
+        fn from(arr: [T; NUM_CELLS_PER_CHIP]) -> Self {
+            Self { data: arr }
+        }
     }
 }
 
@@ -498,7 +500,9 @@ pub mod segments {
     }
 
     impl<T> From<[T; NUM_SEGMENTS]> for IndexBySegment<T> {
-        fn from(arr: [T; NUM_SEGMENTS]) -> Self { Self { data: arr } }
+        fn from(arr: [T; NUM_SEGMENTS]) -> Self {
+            Self { data: arr }
+        }
     }
 }
 
@@ -561,7 +565,9 @@ impl<T> IndexByChip<T> {
     }
 }
 impl<T> From<[T; ADBMS6830B_NUM_CHIPS]> for IndexByChip<T> {
-    fn from(arr: [T; ADBMS6830B_NUM_CHIPS]) -> Self { Self { data: arr } }
+    fn from(arr: [T; ADBMS6830B_NUM_CHIPS]) -> Self {
+        Self { data: arr }
+    }
 }
 
 impl<T: Copy> IndexByChip<T> {
@@ -857,7 +863,9 @@ pub mod gpios {
         }
 
         impl<T> From<[T; OnboardThermIndex::COUNT]> for IndexByOnboardTherm<T> {
-            fn from(arr: [T; OnboardThermIndex::COUNT]) -> Self { Self { data: arr } }
+            fn from(arr: [T; OnboardThermIndex::COUNT]) -> Self {
+                Self { data: arr }
+            }
         }
     }
     use onboard_therms::*;
@@ -1002,6 +1010,8 @@ pub mod gpios {
     }
 
     impl<T> From<[T; ADBMS6830B_NUM_GPIOS_PER_CHIP]> for IndexByGpio<T> {
-        fn from(arr: [T; ADBMS6830B_NUM_GPIOS_PER_CHIP]) -> Self { Self { data: arr } }
+        fn from(arr: [T; ADBMS6830B_NUM_GPIOS_PER_CHIP]) -> Self {
+            Self { data: arr }
+        }
     }
 }
