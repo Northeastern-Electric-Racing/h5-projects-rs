@@ -552,6 +552,9 @@ impl<T> IndexByChip<T> {
         self.data
     }
 }
+impl<T> From<[T; ADBMS6830B_NUM_CHIPS]> for IndexByChip<T> {
+    fn from(arr: [T; ADBMS6830B_NUM_CHIPS]) -> Self { Self { data: arr } }
+}
 
 impl<T: Copy> IndexByChip<T> {
     /// Creates a new `IndexByChip` by initializing every element to `value`.
