@@ -28,7 +28,7 @@
 //! The MSB only transmits: the global filter rejects every incoming frame.
 
 use crate::bind_interrupts::Irqs;
-use crate::hdc2021::HDC2021_DATA;
+//use crate::hdc2021::HDC2021_DATA;
 use crate::imu::{IMU_DATA, ImuReading};
 use crate::load_cell::{LOAD_CELL_DATA, LoadCell, LoadCellReading, NUM_LOAD_CELLS};
 use crate::magnetometer::MAG_DATA;
@@ -89,7 +89,7 @@ pub fn start(spawner: Spawner, r: CanResources, bootloader: boot_control::Bootlo
     spawner.spawn(load_cell_can_task().expect("Failed to spawn can::load_cell_can_task()."));
     spawner.spawn(thermocouple_can_task().expect("Failed to spawn can::thermocouple_can_task()."));
     spawner.spawn(imu_can_task().expect("Failed to spawn can::imu_can_task()."));
-    spawner.spawn(hdc2021_can_task().expect("Failed to spawn can::hdc2021_can_task()."));
+    //spawner.spawn(hdc2021_can_task().expect("Failed to spawn can::hdc2021_can_task()."));
     spawner.spawn(magnetometer_can_task().expect("Failed to spawn can::magnetometer_can_task()."));
 }
 
@@ -184,16 +184,17 @@ async fn imu_can_task() {
     }
 }
 
-#[embassy_executor::task]
-async fn hdc2021_can_task() {
-    let mut rx = HDC2021_DATA
-        .receiver()
-        .expect("Too many HDC2021_DATA receivers.");
-    loop {
-        let measurement = rx.changed().await;
-        send(hdc2021_frame(&measurement)).await;
-    }
-}
+//HDC commented out for time being
+//#[embassy_executor::task]
+//async fn hdc2021_can_task() {
+//  let mut rx = HDC2021_DATA
+//        .receiver()
+//      .expect("Too many HDC2021_DATA receivers.");
+//    loop {
+//        let measurement = rx.changed().await;
+//        send(hdc2021_frame(&measurement)).await;
+//    }
+//}
 
 #[embassy_executor::task]
 async fn magnetometer_can_task() {
@@ -303,12 +304,12 @@ fn imu_frames(r: &ImuReading) -> [Frame; 2] {
 
 /// `Front MSB Env` (0x602): temperature (°C) and relative humidity (%), each scaled x10 into an
 /// unsigned 16-bit field, so temperatures below 0 °C go out as 0.
-fn hdc2021_frame(m: &Measurement) -> Frame {
-    cangen::FrontMsbEnv::new()
-        .with_temp(m.temperature)
-        .with_humidity(m.humidity)
-        .to_can_frame()
-}
+//fn hdc2021_frame(m: &Measurement) -> Frame {
+//    cangen::FrontMsbEnv::new()
+//        .with_temp(m.temperature)
+//        .with_humidity(m.humidity)
+//        .to_can_frame()
+//}
 
 /// `Front MSB Mag` (0x611): magnetic field on each axis in milligauss, as unscaled signed 16-bit
 /// fields. `cangen` saturates anything outside ±32767 mG; Earth's field is roughly 250-650 mG.
