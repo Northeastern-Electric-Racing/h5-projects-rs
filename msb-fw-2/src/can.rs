@@ -33,10 +33,10 @@ use crate::imu::{IMU_DATA, ImuReading};
 use crate::load_cell::{LOAD_CELL_DATA, LoadCell, LoadCellReading, NUM_LOAD_CELLS};
 use crate::magnetometer::MAG_DATA;
 use crate::shock_pot::{NUM_SHOCK_POTS, SHOCK_POT_DATA, ShockPot, ShockPotReading};
+use crate::steering_angle::{NUM_STEERING_ANGLES, STEERING_ANGLE_DATA, SteeringAngleReading};
 use crate::strain_gauge::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
 use crate::thermocouple::{NUM_THERMOCOUPLES, THERMOCOUPLE_DATA, ThermocoupleReading};
 use crate::wheel_speed::{NUM_WHEELS, WHEEL_SPEED_DATA, Wheel, WheelSpeedReading};
-use crate::steering_angle::{NUM_STEERING_ANGLES, STEERING_ANGLE_DATA, SteeringAngleReading};
 use can_handler::{NerCan, StdFilter};
 use cangen::{CanMessage, Msg, ToCanFrame};
 use embassy_executor::Spawner;
@@ -85,7 +85,8 @@ pub fn start(spawner: Spawner, r: CanResources, bootloader: boot_control::Bootlo
     spawner.spawn(shockpot_can_task().expect("Failed to spawn can::shockpot_can_task()."));
     spawner.spawn(strain_gauge_can_task().expect("Failed to spawn can::strain_gauge_can_task()."));
     spawner.spawn(wheel_speed_can_task().expect("Failed to spawn can::wheel_speed_can_task()."));
-    spawner.spawn(steering_angle_can_task().expect("Failed to spawn can::steering_angle_can_task()."));
+    spawner
+        .spawn(steering_angle_can_task().expect("Failed to spawn can::steering_angle_can_task()."));
     spawner.spawn(load_cell_can_task().expect("Failed to spawn can::load_cell_can_task()."));
     spawner.spawn(thermocouple_can_task().expect("Failed to spawn can::thermocouple_can_task()."));
     spawner.spawn(imu_can_task().expect("Failed to spawn can::imu_can_task()."));
@@ -98,7 +99,6 @@ pub async fn send(frame: Frame) {
     can_handler::send(OUTGOING.dyn_sender(), frame).await
 }
 
-
 /// All strain gauges, replacing telemetry_task by putting strain gauges 1-2 within the same function as 3-4
 /// This is `STRAIN_GAUGE_DATA`'s sole receiver which fits its limit of 2. (leaves one open)
 #[embassy_executor::task]
@@ -108,8 +108,8 @@ async fn strain_gauge_can_task() {
         .expect("Too many STRAIN_GAUGE_DATA receivers.");
     loop {
         let readings = rx.changed().await;
-         send(strain_one_two_frame(&readings)).await;
-         send(strain_three_four_frame(&readings)).await;
+        send(strain_one_two_frame(&readings)).await;
+        send(strain_three_four_frame(&readings)).await;
     }
 }
 
@@ -126,7 +126,6 @@ async fn shockpot_can_task() {
         }
     }
 }
-
 
 #[embassy_executor::task]
 async fn wheel_speed_can_task() {
@@ -160,7 +159,6 @@ async fn load_cell_can_task() {
         send(load_cell_frame(&readings)).await;
     }
 }
-
 
 #[embassy_executor::task]
 async fn thermocouple_can_task() {
