@@ -179,6 +179,10 @@ pub mod cells {
             self.iter_mut()
         }
     }
+
+    impl<T> From<[T; NUM_CELLS_PER_CHIP]> for IndexByCell<T> {
+        fn from(arr: [T; NUM_CELLS_PER_CHIP]) -> Self { Self { data: arr } }
+    }
 }
 
 /// Number of ADBMS6830B chips we have.
@@ -851,6 +855,10 @@ pub mod gpios {
                 self.iter_mut()
             }
         }
+
+        impl<T> From<[T; OnboardThermIndex::COUNT]> for IndexByOnboardTherm<T> {
+            fn from(arr: [T; OnboardThermIndex::COUNT]) -> Self { Self { data: arr } }
+        }
     }
     use onboard_therms::*;
 
@@ -991,5 +999,9 @@ pub mod gpios {
         fn into_iter(self) -> Self::IntoIter {
             self.iter_mut()
         }
+    }
+
+    impl<T> From<[T; ADBMS6830B_NUM_GPIOS_PER_CHIP]> for IndexByGpio<T> {
+        fn from(arr: [T; ADBMS6830B_NUM_GPIOS_PER_CHIP]) -> Self { Self { data: arr } }
     }
 }
