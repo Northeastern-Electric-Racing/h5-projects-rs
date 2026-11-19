@@ -36,7 +36,7 @@ use crate::shock_pot::{NUM_SHOCK_POTS, SHOCK_POT_DATA, ShockPot, ShockPotReading
 use crate::strain_gauge::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
 use crate::thermocouple::{NUM_THERMOCOUPLES, THERMOCOUPLE_DATA, ThermocoupleReading};
 use crate::wheel_speed::{NUM_WHEELS, WHEEL_SPEED_DATA, Wheel, WheelSpeedReading};
-use crate::steering_angle::{NUM_STEERING_ANGLES, STEERING_ANGLE_DATA, SteeringAngle, SteeringAngleReading};
+use crate::steering_angle::{NUM_STEERING_ANGLES, STEERING_ANGLE_DATA, SteeringAngleReading};
 use can_handler::{NerCan, StdFilter};
 use cangen::{CanMessage, Msg, ToCanFrame};
 use embassy_executor::Spawner;
@@ -46,7 +46,7 @@ use embassy_stm32::can::{CanConfigurator, Frame};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use hdc2021_ner::Measurement;
+//use hdc2021_ner::Measurement;
 use lis2mdl_ner::MagneticField;
 
 /// Frames waiting for a free FDCAN TX buffer.
