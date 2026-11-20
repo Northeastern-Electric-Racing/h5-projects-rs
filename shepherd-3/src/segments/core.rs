@@ -2,7 +2,7 @@
 
 use static_cell::StaticCell;
 use embassy_time::{Timer};
-use super::chips::{ADBMS6830B_NUM_CHIPS, IndexByChip, ChipId};
+use super::chips::{ADBMS6830B_NUM_CHIPS, IndexByChip};
 use crate::helpers;
 
 #[cfg(not(feature = "hil"))]
@@ -269,7 +269,7 @@ impl Segments {
             defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PecMask", desc = "Current PEC mask state.", "{}", accumulator.pec_mask());
             defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/RecoveryStartupTime", desc = "Length of grace period that occurs after startup or after a sleep, where the accumulator doesn't accumulate PEC errors. Note: This is a constant value!", "{=u64}", accumulator.recovery_startup_time());
             defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/UpdatesWhileMaskedCount", desc = "This counts the number of times update_chips() (and therefore update() itself) has run while a PEC mask is active.", "{=usize}", accumulator.updates_while_masked_count());
-            
+
             // Per-chip diagnostics.
             for (chip, (failed, attempts, failure_pct, state, line)) in IndexByChip::new(helpers::zip5(accumulator.failed(), accumulator.attempts(), accumulator.failure_pct(), diagnostics.chip_state_diagnostics().chip_state(), diagnostics.chip_state_diagnostics().chip_line())) {
                 let chip = chip.as_u8();
