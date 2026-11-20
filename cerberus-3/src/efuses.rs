@@ -5,6 +5,7 @@
 //! via Efuses::send_command (by CAN through cansend or Argos).
 
 use cangen::ToCanFrame;
+use crate::faults::{self, Fault};
 use defmt::debug;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
@@ -475,6 +476,10 @@ pub async fn efuse_task(pins: EfusePins) {
                         efuse.disable();
                     } else if turn_on {
                         efuse.enable();
+                    }
+
+                    if efuse.is_faulted() {
+                        faults::INBOUND_FAULTS.send(Fault::EFUSE_FAULT).await;
                     }
                 }
             }

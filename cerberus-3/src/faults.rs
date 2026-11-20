@@ -31,13 +31,14 @@ pub enum Fault {
     ONBOARD_PEDAL_DIFFERENCE_FAULT,
     RTDS_FAULT,
     LV_LOW_VOLTAGE_FAULT,
+    EFUSE_FAULT
     // DO NOT ADD MORE THAN 32 FAULTS. THIS MUST FIT NEATLY IN A U32
 }
 const _: () = assert!(Fault::COUNT <= 32);
 
 const FAULT_CHANNEL_SIZE: usize = 32;
 
-static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, FAULT_CHANNEL_SIZE> = Channel::new();
+pub static INBOUND_FAULTS: Channel<ThreadModeRawMutex, Fault, FAULT_CHANNEL_SIZE> = Channel::new();
 
 impl Fault {
     pub fn is_critical(&self) -> bool {
@@ -135,6 +136,7 @@ impl AllFaults {
             .with_RTDS_FAULT(self.get_fault(Fault::RTDS_FAULT))
             .with_LV_LOW_VOLTAGE_FAULT(self.get_fault(Fault::LV_LOW_VOLTAGE_FAULT))
             .with_PRECHARGE_FLOATING_FAULT(self.get_fault(Fault::PRECHARGE_FLOATING_FAULT))
+            .with_EFUSE_FAULT(self.get_fault(Fault::EFUSE_FAULT))
             .to_can_frame()
     }
 

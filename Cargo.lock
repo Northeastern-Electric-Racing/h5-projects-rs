@@ -276,7 +276,7 @@ dependencies = [
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=cerberus-3%2Fefuse-fault-testing#1158147396cadbbad5dcf878fb1781325873aa72"
 dependencies = [
  "bitfield-struct 0.13.0",
  "cangen-macro",
@@ -287,7 +287,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=cerberus-3%2Fefuse-fault-testing#1158147396cadbbad5dcf878fb1781325873aa72"
 dependencies = [
  "definition-rs",
  "heck",
@@ -458,7 +458,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=cerberus-3%2Fefuse-fault-testing#1158147396cadbbad5dcf878fb1781325873aa72"
 dependencies = [
  "proc-macro2",
  "quote",
