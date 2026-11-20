@@ -216,7 +216,7 @@ dependencies = [
 [[package]]
 name = "boot-control"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#f170715b8bd3fd0431fa79bc8d4867535984ca7b"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#2680fd5c761f616f2a84364fc778dc0465cca664"
 dependencies = [
  "cortex-m",
  "embassy-boot",
@@ -232,14 +232,14 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.12.1"
+version = "1.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 
 [[package]]
 name = "can-bootloader-config"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#f170715b8bd3fd0431fa79bc8d4867535984ca7b"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#2680fd5c761f616f2a84364fc778dc0465cca664"
 dependencies = [
  "serde_json",
 ]
@@ -247,7 +247,7 @@ dependencies = [
 [[package]]
 name = "can-bootloader-core"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#f170715b8bd3fd0431fa79bc8d4867535984ca7b"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#2680fd5c761f616f2a84364fc778dc0465cca664"
 dependencies = [
  "crc",
  "defmt 1.2.0",
@@ -260,7 +260,7 @@ dependencies = [
 [[package]]
 name = "can-handler"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#2680fd5c761f616f2a84364fc778dc0465cca664"
 dependencies = [
  "defmt 1.2.0",
  "defmt-monitor",
@@ -270,13 +270,13 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embedded-can",
- "heapless 0.9.3",
+ "heapless 0.9.4",
 ]
 
 [[package]]
 name = "cangen"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#2680fd5c761f616f2a84364fc778dc0465cca664"
 dependencies = [
  "bitfield-struct 0.13.0",
  "cangen-macro",
@@ -287,7 +287,7 @@ dependencies = [
 [[package]]
 name = "cangen-macro"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#2680fd5c761f616f2a84364fc778dc0465cca664"
 dependencies = [
  "definition-rs",
  "heck",
@@ -299,9 +299,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.11.2"
+version = "1.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
+checksum = "02f0e023adb368345ce0ca6cdfc0f24a06554468d0e8503e14a0841de79bfa69"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -325,7 +325,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embedded-sht3x",
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "lsm6dsv16x-ner",
  "nereth",
  "num-traits",
@@ -458,7 +458,7 @@ dependencies = [
 [[package]]
 name = "definition-rs"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#2680fd5c761f616f2a84364fc778dc0465cca664"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -736,7 +736,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embedded-io-async 0.7.0",
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "xarxa",
  "xarxa-driver",
 ]
@@ -781,7 +781,7 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "embedded-storage",
  "embedded-storage-async",
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "nb 1.1.0",
  "proc-macro2",
  "quote",
@@ -803,7 +803,7 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "futures-core",
  "futures-sink",
- "heapless 0.9.3",
+ "heapless 0.9.4",
 ]
 
 [[package]]
@@ -835,7 +835,7 @@ version = "0.3.2"
 source = "git+https://github.com/embassy-rs/embassy?rev=8935e71155895245a52f888a3d43b83d8ccdd973#8935e71155895245a52f888a3d43b83d8ccdd973"
 dependencies = [
  "embassy-executor-timer-queue",
- "heapless 0.9.3",
+ "heapless 0.9.4",
 ]
 
 [[package]]
@@ -1122,9 +1122,9 @@ dependencies = [
 
 [[package]]
 name = "heapless"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25ba4bd83f9415b58b4ed8dc5714c76e626a105be4646c02630ad730ad3b5aa4"
+checksum = "411fdef4df93751117bd9ef8caa0e7f99c65dafec5bd84313eb8e2fdd75e32f2"
 dependencies = [
  "defmt 1.2.0",
  "hash32",
@@ -1207,7 +1207,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embedded-can",
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "panic-probe",
 ]
 
@@ -1302,7 +1302,7 @@ dependencies = [
 [[package]]
 name = "lsm6dsv16x-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#2680fd5c761f616f2a84364fc778dc0465cca664"
 dependencies = [
  "defmt 1.2.0",
  "embassy-time",
@@ -1392,7 +1392,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f230481974d8a9771d7f256e8c52dcfd6cae099d9463150d6a690a4955706e33"
 dependencies = [
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "num-traits",
 ]
 
@@ -1455,7 +1455,7 @@ dependencies = [
  "embassy-time",
  "embedded-hal-bus",
  "hdc2021-ner",
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "lis2mdl-ner",
  "lsm6dsv16x-ner",
  "panic-probe",
@@ -1481,7 +1481,7 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 [[package]]
 name = "nereth"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#83de0ca83c4741ce02a5ec0ef392b8904c18d20d"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#2680fd5c761f616f2a84364fc778dc0465cca664"
 dependencies = [
  "defmt 1.2.0",
  "embassy-executor",
@@ -1489,7 +1489,7 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "getrandom 0.2.17",
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "micropb",
  "micropb-gen",
  "protox",
@@ -1535,9 +1535,9 @@ dependencies = [
 
 [[package]]
 name = "pin-project-lite"
-version = "0.2.17"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+checksum = "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
 
 [[package]]
 name = "portable-atomic"
@@ -1718,9 +1718,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.13.1"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+checksum = "9807af0e638c12e753aa1b4e601791bf2a8f71274023c8bbeec12fc149950857"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -1730,9 +1730,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.18"
+version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+checksum = "41d60ef07df457506a0a1a2073112eb4aae5733dbd2813c3da77d1b0fd441158"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -1741,9 +1741,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 
 [[package]]
 name = "rustc_version"
@@ -1954,7 +1954,7 @@ dependencies = [
  "embedded-hal-async",
  "embedded-hal-bus",
  "function_name",
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "libm",
  "static_cell",
  "strum",
@@ -1970,9 +1970,9 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "smallvec"
-version = "1.16.5"
+version = "1.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "spin"
@@ -2117,7 +2117,7 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "panic-probe",
 ]
 
@@ -2483,7 +2483,7 @@ dependencies = [
  "critical-section",
  "defmt 1.2.0",
  "document-features",
- "heapless 0.9.3",
+ "heapless 0.9.4",
  "xarxa-driver",
 ]
 
