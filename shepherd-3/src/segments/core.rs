@@ -2,7 +2,8 @@
 
 use static_cell::StaticCell;
 use embassy_time::{Timer};
-use super::chips::ADBMS6830B_NUM_CHIPS;
+use super::chips::{ADBMS6830B_NUM_CHIPS, IndexByChip};
+use crate::helpers;
 
 #[cfg(not(feature = "hil"))]
 embassy_stm32::bind_interrupts!(struct Irqs {
@@ -269,44 +270,31 @@ impl Segments {
             defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/RecoveryStartupTime", desc = "Length of grace period that occurs after startup or after a sleep, where the accumulator doesn't accumulate PEC errors. Note: This is a constant value!", "{=u64}", accumulator.recovery_startup_time());
             defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/UpdatesWhileMaskedCount", desc = "This counts the number of times update_chips() (and therefore update() itself) has run while a PEC mask is active.", "{=usize}", accumulator.updates_while_masked_count());
 
-            // accumulator diagnostics (.failed() ones).
-            let failed = accumulator.failed();
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip0/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[0]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip1/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[1]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip2/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[2]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip3/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[3]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip4/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[4]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip5/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[5]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip6/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[6]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip7/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[7]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip8/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[8]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip9/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[9]);
+            // Per-chip diagnostics.
+            for (chip, (failed, attempts, failure_pct, state, line)) in IndexByChip::new(helpers::zip5(accumulator.failed(), accumulator.attempts(), accumulator.failure_pct(), diagnostics.chip_state_diagnostics().chip_state(), diagnostics.chip_state_diagnostics().chip_line())) {
+                let chip = chip.as_u8();
+                let command_count = state.command_count();
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/Accumulator/PerChip/Chip{=u8}/failed", chip], desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed);
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/Accumulator/PerChip/Chip{=u8}/attempts", chip], desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts);
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/Accumulator/PerChip/Chip{=u8}/failure_pct", chip], desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct);
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip{=u8}/line", chip], desc = "Which Line this chip is on.", "{}", line);
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip{=u8}/pec_failed_count", chip], desc = "Total number of times this chip has read in a failed PEC. (different to what the accumulator reports, since this is overall)", "{=usize}", state.pec_failed_count());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip{=u8}/pec_success_count", chip], desc = "Total number of times this chip has read in a successful PEC. (different to what the accumulator reports, since this is overall)", "{=usize}", state.pec_success_count());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip{=u8}/command_count_resets", chip], desc = "Number of times the command counter for this chip has been reset due to a sleep.", "{=usize}", state.command_count_resets());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip{=u8}/CommandCount/expected", chip], desc = "What this chip’s counter “should” be. This is tracked from the commands sent to it.", "{=u8}", command_count.expected());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip{=u8}/CommandCount/reported", chip], desc = "What this chip reported on the last read of it that passed its PEC.", "{=u8}", command_count.reported());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip{=u8}/CommandCount/in_sync", chip], desc = "Whether the reported counter matches the expected one. This can be expected to be false in some cases, like after isoSPI recovers from a break.", "{=bool}", command_count.in_sync());
 
-            // accumulator diagnostics (.attempts() ones).
-            let attempts = accumulator.attempts();
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip0/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[0]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip1/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[1]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip2/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[2]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip3/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[3]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip4/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[4]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip5/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[5]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip6/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[6]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip7/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[7]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip8/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[8]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip9/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[9]);
-
-            // accumulator diagnostics (.failure_pct() ones).
-            let failure_pct = accumulator.failure_pct();
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip0/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[0]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip1/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[1]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip2/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[2]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip3/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[3]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip4/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[4]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip5/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[5]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip6/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[6]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip7/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[7]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip8/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[8]);
-            defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip9/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[9]);
+                defmt_monitor::monitor!(
+                    ["Segments/ServiceDiagnostics/ChipState/Chip{=u8}/last_contacted", chip],
+                    desc = "Last time we heard from this chip with a good PEC. In ms since system boot. 0ms if we have never heard from this chip.",
+                    "{=u64}",
+                    match state.last_contacted() {
+                        Some(instant) => instant.as_millis(),
+                        None => 0,
+                    }
+                );
+            }
 
             // timing diagnostics
             let timing = diagnostics.timing();
@@ -322,43 +310,6 @@ impl Segments {
             defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_period", desc = "The maximum period the Service has observed while running. In ms.", "{=u64}", timing.max_period().as_millis());
             defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/work", desc = "How long the “work” of the Service took during the most recent Service cycle. In us.", "{=u64}", timing.work().as_micros());
             defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_work", desc = "The maximum work the Service has observed while running. In us.", "{=u64}", timing.max_work().as_micros());
-
-            // chip state diagnostics
-            let chipstate = diagnostics.chip_state_diagnostics();
-            /// macro for the chipstate diagnostics since i don't want to copy paste this. the only parameter is the index of the chip
-            macro_rules! chipstate_diagnostics {
-                ($val:literal) => {
-                    let state: adbms6830b::turnkey::api::ChipState = chipstate.chip_state()[$val];
-                    let line: adbms6830b::turnkey::api::LineId = chipstate.chip_line()[$val];
-                    let command_count = state.command_count();
-                    defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/line"], desc = "Which Line this chip is on.", "{}", line);
-                    defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/pec_failed_count"], desc = "Total number of times this chip has read in a failed PEC. (different to what the accumulator reports, since this is overall)", "{=usize}", state.pec_failed_count());
-                    defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/pec_success_count"], desc = "Total number of times this chip has read in a successful PEC. (different to what the accumulator reports, since this is overall)", "{=usize}", state.pec_success_count());
-                    defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/command_count_resets"], desc = "Number of times the command counter for this chip has been reset due to a sleep.", "{=usize}", state.command_count_resets());
-                    defmt_monitor::monitor!(
-                        ["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/last_contacted"],
-                        desc = "Last time we heard from this chip with a good PEC. In ms since system boot. 0ms if we have never heard from this chip.",
-                        "{=u64}",
-                        match state.last_contacted() {
-                            Some(instant) => instant.as_millis(),
-                            None => 0,
-                        }
-                    );
-                    defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/CommandCount/expected"], desc = "What this chip’s counter “should” be. This is tracked from the commands sent to it.", "{=u8}", command_count.expected());
-                    defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/CommandCount/reported"], desc = "What this chip reported on the last read of it that passed its PEC.", "{=u8}", command_count.reported());
-                    defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/CommandCount/in_sync"], desc = "Whether the reported counter matches the expected one. This can be expected to be false in some cases, like after isoSPI recovers from a break.", "{=bool}", command_count.in_sync());
-                };
-            }
-            chipstate_diagnostics!(0);
-            chipstate_diagnostics!(1);
-            chipstate_diagnostics!(2);
-            chipstate_diagnostics!(3);
-            chipstate_diagnostics!(4);
-            chipstate_diagnostics!(5);
-            chipstate_diagnostics!(6);
-            chipstate_diagnostics!(7);
-            chipstate_diagnostics!(8);
-            chipstate_diagnostics!(9);
 
             // general service diagnostics
             defmt_monitor::monitor!("Segments/ServiceDiagnostics/sleep_detection_spi_error_count", desc = "Number of times sleep detection has failed due to a SPI::Error.", "{=usize}", diagnostics.sleep_detection_spi_error_count());
