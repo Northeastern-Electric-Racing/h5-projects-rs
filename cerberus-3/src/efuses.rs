@@ -4,8 +4,8 @@
 //! The efuse condition can also be updated using update_control_state
 //! via Efuses::send_command (by CAN through cansend or Argos).
 
-use cangen::ToCanFrame;
 use crate::faults::{self, Fault};
+use cangen::ToCanFrame;
 use defmt::debug;
 use embassy_stm32::can::Frame;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
