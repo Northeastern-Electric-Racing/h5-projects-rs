@@ -1,5 +1,10 @@
 # Cerberus 3
 
+## Instructions for Can remote flashing
+Clone the firmware-rs repository, build the can-flash-cli, and then follow the instructions in the README for that folder.
+
+```can flash --host "http://192.168.100.12:8083"```
+
 ### Instructions for Probe-rs remote flashing
 Install tools: ```cargo install probe-rs-tools --features remote --force --locked``` <br>
 Stop probe-rs server (on root@192.168.100.12): ```/etc/init.d/S*probe-rs stop```, then run ```probe-rs serve```
