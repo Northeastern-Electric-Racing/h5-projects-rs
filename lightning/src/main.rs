@@ -2,6 +2,7 @@
 #![no_main]
 
 mod can;
+mod lightning_sensor;
 mod lights;
 mod sensors;
 mod statemachine;
@@ -103,7 +104,10 @@ async fn main(spawner: Spawner) -> ! {
     let as3935_spi = ExclusiveDevice::new(spi2, as3935_cs, Delay)
         .expect("Failed to create SPI device for AS3935");
     let as3935_irq = ExtiInput::new(p.PE3, p.EXTI3, Pull::Down, IrqsUsart);
-    let _ = as3935_irq;
+    spawner.spawn(
+        lightning_sensor::lightning_sensor_task(as3935_spi, as3935_irq)
+            .expect("Failed to spawn lightning_sensor_task()."),
+    );
 
     // There used to be some configuration here, but I removed it s.t I wouldn't step on NerCan's toes
     let mut usart_config = usart::Config::default();
