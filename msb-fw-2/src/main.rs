@@ -21,9 +21,8 @@ use msb_fw_2::can::{self, CanResources};
 use msb_fw_2::multiplexer_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
 use msb_fw_2::{
-    
-    imu, load_cell, misc_adc, magnetometer, orientation, shock_pot, steering_angle, strain_gauge,thermocouple,
-
+    imu, load_cell, magnetometer, misc_adc, orientation, shock_pot, steering_angle, strain_gauge,
+    thermocouple,
 };
 
 use {defmt_rtt as _, panic_probe as _};
@@ -122,15 +121,13 @@ async fn main(spawner: Spawner) -> ! {
         thermocouple::thermocouple_task()
             .expect("Failed to spawn thermocouple::thermocouple_task()."),
     );
-    spawner.spawn( 
-        misc_adc::misc_adc_task().expect("Failed to spawn misc_adc::misc_adc_task().")
-    );
+    spawner.spawn(misc_adc::misc_adc_task().expect("Failed to spawn misc_adc::misc_adc_task()."));
 
     // magnetometer on SPI2 -> need to chk this too
     //
-     let mut spi2_config = spi::Config::default();
-     spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
-     spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
+    let mut spi2_config = spi::Config::default();
+    spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
+    spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
 
     let spi2 = Spi::new(
         p.SPI2,
