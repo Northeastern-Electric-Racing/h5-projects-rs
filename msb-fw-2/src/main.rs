@@ -122,12 +122,15 @@ async fn main(spawner: Spawner) -> ! {
         thermocouple::thermocouple_task()
             .expect("Failed to spawn thermocouple::thermocouple_task()."),
     );
+    spawner.spawn( 
+        misc_adc::misc_adc_task().expect("Failed to spawn misc_adc::misc_adc_task().")
+    );
 
-    // /// magnetometer on SPI2 -> need to chk this too
-    // ///
-    // let mut spi2_config = spi::Config::default();
-    // spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
-    // spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
+    // magnetometer on SPI2 -> need to chk this too
+    //
+     let mut spi2_config = spi::Config::default();
+     spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
+     spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
 
     let spi2 = Spi::new(
         p.SPI2,
