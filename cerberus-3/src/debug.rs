@@ -1,3 +1,5 @@
+//! Handles the debug LEDs and user button.
+
 use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};

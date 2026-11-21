@@ -1,7 +1,7 @@
 //! Load cell polling, similar to `u_load_cell.c` in the C firmware
 
 use crate::analog_sensor::{self, AnalogSensor, SensorData};
-use crate::multiplexor_handler::{MuxChannel, MuxId, MuxInput, MuxSource};
+use crate::multiplexer_handler::{MuxChannel, MuxId, MuxInput, MuxSource};
 use embassy_sync::watch::Watch;
 use embassy_time::Duration;
 

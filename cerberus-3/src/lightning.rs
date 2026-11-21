@@ -1,3 +1,6 @@
+//! Monitors the lightning CAN bus for pulses,
+//! and queues a fault if no pulses are received for 4 seconds.
+
 use defmt::debug;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

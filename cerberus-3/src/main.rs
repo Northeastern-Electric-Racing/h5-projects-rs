@@ -7,9 +7,6 @@ use defmt::debug;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::gpio::Level;
-use embassy_stm32::gpio::Output;
-use embassy_stm32::gpio::Speed;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_time::Timer;
@@ -20,7 +17,10 @@ mod bms;
 mod buttons;
 mod can;
 mod debug;
+mod dti;
 mod efuses;
+mod ethernet;
+mod faults;
 mod lightning;
 mod pedals;
 mod peripherals;
@@ -29,7 +29,7 @@ mod shutdown;
 mod statemachine;
 
 use crate::can::can_inbox_task;
-use crate::peripherals::I2C2Resources;
+use crate::peripherals::{I2C2Resources, SPI2Resources};
 use crate::shutdown::ShutdownInputs;
 use crate::shutdown::report_shutdown_task;
 use adc::{Adc1Resources, adc1_task};
@@ -94,6 +94,7 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     });
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     spawner.spawn(
         can_handler::can_tx(
             can_tx_half,
@@ -106,7 +107,35 @@ async fn main(spawner: Spawner) -> ! {
         can_handler::can_rx(can_rx_half, can::INCOMING.dyn_sender())
             .expect("Failed to spawn ner_can::can_rx()."),
     );
-    spawner.spawn(can_inbox_task().expect("Failed to spawn can::can_inbox_task()."));
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
+    spawner.spawn(can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
+
+    // Ethernet
+    spawner.spawn(
+        ethernet::ethernet_task(
+            spawner,
+            ethernet::EthernetResources {
+                phy_reset: p.PE10,
+                rng: p.RNG,
+                eth: p.ETH,
+                ref_clk: p.PA1,
+                crs: p.PA7,
+                rx_d0: p.PC4,
+                rx_d1: p.PC5,
+                tx_d0: p.PB12,
+                tx_d1: p.PB15,
+                tx_en: p.PA5,
+                sma: p.ETH_SMA,
+                mdio: p.PA2,
+                mdc: p.PC1,
+            },
+        )
+        .expect("Failed to spawn ethernet::ethernet_task()."),
+    );
 
     // ADC1 + analog mux
     spawner.spawn(
@@ -130,7 +159,7 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn adc::adc1_task()."),
     );
 
-    // pedals
+    // Pedals
     spawner.spawn(
         pedals_task(AdcPedalsResources {
             adc: p.ADC2,
@@ -178,9 +207,10 @@ async fn main(spawner: Spawner) -> ! {
 
     // Statemachine
     spawner.spawn(
-        statemachine::statemachine_task()
+        statemachine::statemachine_task(p.PG15)
             .expect("Failed to spawn statemachine::statemachine_task()."),
     );
+    spawner.spawn(faults::fault_task().expect("failed to spawn faults::fault_task()"));
 
     // Buttons
     spawner.spawn(buttons::button_task().expect("Failed to spawn buttons::button_task()."));
@@ -203,27 +233,36 @@ async fn main(spawner: Spawner) -> ! {
 
     // Peripherals (temp sensor)
     spawner.spawn(
-        peripherals::peripherals_task(I2C2Resources {
+        peripherals::i2c_peripherals_task(I2C2Resources {
             i2c: p.I2C2,
             scl: p.PF1,
             sda: p.PF0,
         })
-        .expect("Failed to spawn peripherals::peripherals_task()."),
+        .expect("Failed to spawn peripherals::i2c_peripherals_task()."),
+    );
+
+    // IMU
+    spawner.spawn(
+        peripherals::spi_peripherals_task(SPI2Resources {
+            spi: p.SPI2,
+            sck: p.PA12,
+            mosi: p.PG1,
+            miso: p.PB14,
+            cs: p.PB9,
+            tx_dma: p.GPDMA1_CH2,
+            rx_dma: p.GPDMA1_CH3,
+        })
+        .expect("Failed to spawn peripherals::spi_peripherals_task()."),
     );
 
     // RTDS
-    let rtds_pin = Output::new(p.PD2, Level::Low, Speed::Low);
-    spawner.spawn(rtds::rtds_task(rtds_pin).expect("Failed to spawn rtds::rtds_task()."));
+    spawner.spawn(rtds::rtds_task(p.PD2).expect("Failed to spawn rtds::rtds_task()."));
 
-    // lightning board monitor
+    // Lightning CAN monitor
     spawner.spawn(
         lightning::lightning_can_monitor_task()
             .expect("Failed to spawn lightning::lightning_can_monitor_task()."),
     );
-
-    // Watchdog
-    let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
-    watchdog.unleash();
 
     // Debug
     spawner.spawn(
@@ -236,14 +275,18 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn debug::debug_task()."),
     );
 
-    let _can_fault = Output::new(p.PG15, Level::High, Speed::Low);
+    // Watchdog
+    let mut watchdog = IndependentWatchdog::new(p.IWDG, 1_000_000);
+    watchdog.unleash();
 
     loop {
         debug!("Status: Alive");
+
         watchdog.pet();
         debug::enable_red_led();
         debug::disable_green_led();
         Timer::after_millis(500).await;
+
         watchdog.pet();
         debug::disable_red_led();
         debug::enable_green_led();

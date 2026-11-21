@@ -1,20 +1,23 @@
-//! CAN bring-up for Cerberus.
+//! Handles the CAN bus, including initialization and
+//! parsing of incoming messages. The CAN bus is
+//! used to communicate with the BMS, Lightning, and
+//! other devices on the vehicle.
 
 use crate::bms::{PrechargeState, set_precharge_state};
-use crate::efuses::EfuseCommand;
-use crate::efuses::EfuseId::*;
-use crate::{bms, buttons, lightning, rtds, shutdown};
+use crate::{bms, buttons, dti, efuses, lightning, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
+use embassy_stm32::can::Frame;
 use embassy_stm32::can::filter::{ExtendedFilterSlot, StandardFilterSlot};
-use embassy_stm32::can::{
-    CanConfigurator, CanRx, CanTx, Frame, IT0InterruptHandler, IT1InterruptHandler,
-};
+use embassy_stm32::can::{CanConfigurator, CanRx, CanTx};
+use embassy_stm32::can::{IT0InterruptHandler, IT1InterruptHandler};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use uom::si::f32::ThermodynamicTemperature as Temperature;
+use uom::si::angular_velocity::revolution_per_minute;
+use uom::si::electric_current::ampere;
+use uom::si::f32::{AngularVelocity, ElectricCurrent, ThermodynamicTemperature as Temperature};
 use uom::si::thermodynamic_temperature::degree_celsius;
 
 bind_interrupts!(struct Irqs {
@@ -71,6 +74,12 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
         id2: None,
     };
 
+    const SLOT_6: StdFilter = StdFilter {
+        slot: StandardFilterSlot::_6,
+        id1: cangen::VcuBootRequest::ID,
+        id2: None,
+    };
+
     const SLOT_1E: ExtFilter = ExtFilter {
         slot: ExtendedFilterSlot::_1,
         id1: cangen::RtdsCommandMessage::ID,
@@ -114,7 +123,7 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
     };
 
     let can = NerCan::init(configurator)
-        .with_standard_filters(&[SLOT_1, SLOT_2, SLOT_3, SLOT_4, SLOT_5])
+        .with_standard_filters(&[SLOT_1, SLOT_2, SLOT_3, SLOT_4, SLOT_5, SLOT_6])
         .with_extended_filters(&[
             SLOT_1E, SLOT_2E, SLOT_3E, SLOT_4E, SLOT_5E, SLOT_6E, SLOT_7E,
         ]);
@@ -124,20 +133,27 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn can_inbox_task() -> ! {
+pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -> ! {
+    use crate::efuses::EfuseId::*;
+
     loop {
         let frame = INCOMING.receive().await;
         match Msg::decode(&frame) {
+            Some(Msg::VcuBootRequest(_)) => {
+                if boot_control::is_valid_request(frame.data()) {
+                    // Begin cleanup before reset: add application-specific shutdown here.
+
+                    // End cleanup before reset.
+                    bootloader.enter_bootloader();
+                }
+            }
             Some(Msg::LightningPulseMessage(_)) => lightning::lightning_handle_pulse_message(),
             Some(Msg::CellTemperatures(m)) => {
                 bms::set_battery_box_temp(Temperature::new::<degree_celsius>(m.avg_val()))
             }
             Some(Msg::PrechargeStatus(m)) => match PrechargeState::try_from(m.precharge_status()) {
                 Ok(state) => set_precharge_state(state),
-                Err(state) => debug!(
-                    "Received invalid precharge state from CAN message: {}",
-                    state
-                ),
+                Err(e) => debug!("Unknown precharge state: {}", e),
             },
             Some(Msg::ShutdownAsReadByBms(m)) => {
                 shutdown::update_bms_shutdown(m.shutdown_state().into()).await
@@ -145,38 +161,49 @@ pub async fn can_inbox_task() -> ! {
             Some(Msg::MaxDcCurrentCommand(_)) => bms::bms_handle_dcl_message(),
 
             Some(Msg::FrontWheelRpm(_)) => {}
-            Some(Msg::TempsFaultCodeStatus(_)) => {}
-            Some(Msg::ErpmDutyInputVoltageStatus(_)) => {}
-            Some(Msg::CurrentsStatus(_)) => {}
-
-            Some(Msg::DashboardEfuseState(m)) => {
-                EfuseCommand::add_command(EfuseDashboard, m.state())
+            Some(Msg::ErpmDutyInputVoltageStatus(m)) => {
+                dti::set_rpm(AngularVelocity::new::<revolution_per_minute>(
+                    m.erpm() as f32 / dti::POLE_PAIRS,
+                ))
+                .await
             }
-            Some(Msg::BrakeEfuseState(m)) => EfuseCommand::add_command(EfuseBrake, m.state()),
-            Some(Msg::ShutdownEfuseState(m)) => EfuseCommand::add_command(EfuseShutdown, m.state()),
-            Some(Msg::LvEfuseState(m)) => EfuseCommand::add_command(EfuseLV, m.state()),
-            Some(Msg::RadfanEfuseState(m)) => EfuseCommand::add_command(EfuseRadfan, m.state()),
-            Some(Msg::FanbattEfuseState(m)) => EfuseCommand::add_command(EfuseFanbatt, m.state()),
-            Some(Msg::PumponeEfuseState(m)) => EfuseCommand::add_command(EfusePump1, m.state()),
-            Some(Msg::PumptwoEfuseState(m)) => EfuseCommand::add_command(EfusePump2, m.state()),
-            Some(Msg::BattboxEfuseState(m)) => EfuseCommand::add_command(EfuseBattbox, m.state()),
-            Some(Msg::McEfuseState(m)) => EfuseCommand::add_command(EfuseMC, m.state()),
-            Some(Msg::SpareEfuseState(m)) => EfuseCommand::add_command(EfuseSpare, m.state()),
+            Some(Msg::TempsFaultCodeStatus(m)) => {
+                dti::set_motor_temp(Temperature::new::<degree_celsius>(m.motor_temp())).await;
+                dti::set_controller_temp(Temperature::new::<degree_celsius>(m.controller_temp()))
+                    .await;
+            }
+            Some(Msg::CurrentsStatus(m)) => {
+                dti::set_ac_current(ElectricCurrent::new::<ampere>(m.ac_current())).await;
+                dti::set_dc_current(ElectricCurrent::new::<ampere>(m.dc_current())).await;
+            }
+
+            Some(Msg::DashboardEfuseState(m)) => efuses::send_command(EfuseDashboard, m.state()),
+            Some(Msg::BrakeEfuseState(m)) => efuses::send_command(EfuseBrake, m.state()),
+            Some(Msg::ShutdownEfuseState(m)) => efuses::send_command(EfuseShutdown, m.state()),
+            Some(Msg::LvEfuseState(m)) => efuses::send_command(EfuseLV, m.state()),
+            Some(Msg::RadfanEfuseState(m)) => efuses::send_command(EfuseRadfan, m.state()),
+            Some(Msg::FanbattEfuseState(m)) => efuses::send_command(EfuseFanbatt, m.state()),
+            Some(Msg::PumponeEfuseState(m)) => efuses::send_command(EfusePump1, m.state()),
+            Some(Msg::PumptwoEfuseState(m)) => efuses::send_command(EfusePump2, m.state()),
+            Some(Msg::BattboxEfuseState(m)) => efuses::send_command(EfuseBattbox, m.state()),
+            Some(Msg::McEfuseState(m)) => efuses::send_command(EfuseMC, m.state()),
+            Some(Msg::SpareEfuseState(m)) => efuses::send_command(EfuseSpare, m.state()),
 
             Some(Msg::RtdsCommandMessage(m)) => match rtds::RtdsCommand::try_from(m.command()) {
                 Ok(cmd) => {
                     if rtds::send(cmd).is_err() {
-                        debug!("Failed to forward RTDS CAN command")
+                        debug!("Failed to forward RTDS CAN command");
                     }
                 }
                 Err(byte) => debug!("Unknown message {}", byte),
             },
-            Some(Msg::WheelButtons(m)) => buttons::register_press(m.button_id()),
+            Some(Msg::WheelButtons(m)) => match buttons::Button::try_from(m.button_id()) {
+                Ok(button) => buttons::register_press(button),
+                Err(e) => debug!("Unknown button pressed: {}", e),
+            },
 
-            Some(_) => debug!("Unknown message"),
-            _ => {
-                debug!("failed to parse id")
-            }
+            Some(m) => debug!("Received unhandled message: {}", m.name()),
+            None => debug!("Failed to decode CAN message"),
         }
     }
 }

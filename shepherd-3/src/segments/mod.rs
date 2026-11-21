@@ -22,7 +22,7 @@ pub use core::task::{
 pub use chips::{
     ChipId, IndexByChip, ChipKind,
     cells::{CellId, IndexByCell, NUM_CELLS_TOTAL},
-    gpios::{GpioId, IndexByGpio, ThermistorTemperatures},
+    gpios::{GpioId, IndexByGpio, ThermistorTemperatures, onboard_therms::OnboardThermIndex, onboard_therms::IndexByOnboardTherm},
     segments::{SegmentId, IndexBySegment, NUM_CELLS_PER_SEGMENT},
 };
 pub use cache::{CacheData, RegisterCacheData, Reading, fault_counts, redundant_aux, cell_voltages, average_cell_voltages, filtered_cell_voltages, s_voltages, status_c, status_d, aux, status_a, status_b, pwm};

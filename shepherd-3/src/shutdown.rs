@@ -1,5 +1,4 @@
 use core::sync::atomic::{AtomicBool, Ordering};
-use embassy_stm32::gpio::Level;
 use embassy_time::{Instant, Duration, Ticker};
 use crate::can;
 use crate::helpers::deadline::Deadline;
@@ -32,6 +31,15 @@ impl Debouncer {
         self.stable
     }
 
+    /// Whether the raw reading currently disagrees with the debounced one.
+    ///
+    /// The whole point of the debounce is that [`Self::stable`] does not move until the
+    /// disagreement has lasted [`DEBOUNCE_TIME`], so a line that is chattering shows up here and
+    /// nowhere else.
+    const fn pending(&self) -> bool {
+        self.disagreed_at.is_some()
+    }
+
     /// given one raw reading, returns `true` only on the tick the debounced value changes
     /// call `stable()` for the value itself
     fn update(&mut self, raw: bool, now: Instant) -> bool {
@@ -56,18 +64,6 @@ impl Debouncer {
             },
         }
     }
-}
-
-/// Breaks or restores the BMS's link in the shutdown loop
-/// `true` pulls PG15 low, which breaks the loop and cuts the pack off the car
-/// Low is the active state
-pub fn set_fault(faulted: bool) {
-    let level = if faulted {
-        Level::Low // should always be asserted at level low! otherwise loop won't always shut down when a node is opened!
-    } else {
-        Level::High
-    };
-    crate::gpios::pins().get().mcu_fault_pin.set_level(level);
 }
 
 /// Reads the four shutdown sense pins every 50ms, debounces them, and sends the
@@ -106,6 +102,32 @@ pub async fn shutdown_task() -> ! {
         let changed: bool = updated_ts_minus || updated_ts_plus || updated_acc_sense || updated_tsip_sense || updated_and_for_all_reads;
 
         CIRCUIT_CLOSED.store(and_for_all_reads.stable(), Ordering::Relaxed);
+
+        #[cfg(defmt_monitor)]
+        '_defmt_monitor: {
+            defmt_monitor::monitor!("Shutdown/TsMinus/raw", desc = "TS- shutdown sense pin as read this tick, before debouncing.", "{=bool}", raw_ts_minus);
+            defmt_monitor::monitor!("Shutdown/TsMinus/debounced", desc = "TS- shutdown sense after 200 ms of agreement.", "{=bool}", ts_minus.stable());
+            defmt_monitor::monitor!("Shutdown/TsMinus/pending", desc = "TS- raw reading currently disagrees with its debounced value, so the line is bouncing.", "{=bool}", ts_minus.pending());
+
+            defmt_monitor::monitor!("Shutdown/TsPlus/raw", desc = "TS+ shutdown sense pin as read this tick, before debouncing.", "{=bool}", raw_ts_plus);
+            defmt_monitor::monitor!("Shutdown/TsPlus/debounced", desc = "TS+ shutdown sense after 200 ms of agreement.", "{=bool}", ts_plus.stable());
+            defmt_monitor::monitor!("Shutdown/TsPlus/pending", desc = "TS+ raw reading currently disagrees with its debounced value, so the line is bouncing.", "{=bool}", ts_plus.pending());
+
+            defmt_monitor::monitor!("Shutdown/AccSense/raw", desc = "Accumulator shutdown sense pin as read this tick, before debouncing.", "{=bool}", raw_acc_sense);
+            defmt_monitor::monitor!("Shutdown/AccSense/debounced", desc = "Accumulator shutdown sense after 200 ms of agreement.", "{=bool}", acc_sense.stable());
+            defmt_monitor::monitor!("Shutdown/AccSense/pending", desc = "Accumulator raw reading currently disagrees with its debounced value, so the line is bouncing.", "{=bool}", acc_sense.pending());
+
+            defmt_monitor::monitor!("Shutdown/TsipSense/raw", desc = "TSIP shutdown sense pin as read this tick, before debouncing.", "{=bool}", raw_tsip_sense);
+            defmt_monitor::monitor!("Shutdown/TsipSense/debounced", desc = "TSIP shutdown sense after 200 ms of agreement.", "{=bool}", tsip_sense.stable());
+            defmt_monitor::monitor!("Shutdown/TsipSense/pending", desc = "TSIP raw reading currently disagrees with its debounced value, so the line is bouncing.", "{=bool}", tsip_sense.pending());
+
+            defmt_monitor::monitor!("Shutdown/Joined/raw", desc = "All four sense pins high on this tick, before debouncing.", "{=bool}", combined);
+            defmt_monitor::monitor!("Shutdown/Joined/debounced", desc = "All four sense pins high for 200 ms straight. This is what is stored for `circuit_closed`. The BMS only taps four points, so the loop could still be cut somewhere it cannot see.", "{=bool}", and_for_all_reads.stable());
+            defmt_monitor::monitor!("Shutdown/Joined/pending", desc = "The joined raw reading currently disagrees with its debounced value.", "{=bool}", and_for_all_reads.pending());
+
+            // What callers actually get.
+            defmt_monitor::monitor!("Shutdown/1CircuitClosed", desc = "What `circuit_closed()` returns to callers, which is what gates HV. Compare against Shutdown/Joined/debounced: a disagreement means the function is overriding the measurement.", "{=bool}", circuit_closed());
+        }
 
         if changed || telem.past() {
             let shutdown_state = ShutdownAsReadByBms {
