@@ -1,4 +1,5 @@
-//! Charge and discharge current limits (CCL and DCL), ported from Shepherd's `ccl.c` and `dcl.c`.
+//! Charge and discharge current limits (CCL and DCL), ported from Shepherd's `ccl.c` and `dcl.c`, plus the DTI current
+//! commands and the limit-enforcement faults.
 
 use crate::helpers::debouncer::Debouncer;
 use crate::helpers::startup_cell::{StartupCell, UnwriteableStartupCell};
@@ -7,6 +8,12 @@ use embassy_time::{Duration, Instant};
 
 // Exported functions
 pub use task::limits_task;
+
+/// Converts a duration to a number of limits task cycles, for fault debounce counts. Returns `None` if `duration` isn't a
+/// whole multiple of the task period, so call it inside a `const {}` block and `.unwrap()`.
+pub const fn duration_to_limits_task_cycles(duration: Duration) -> Option<usize> {
+    crate::helpers::duration_to_task_cycles(task::PERIOD, duration)
+}
 
 /// The pack's current limits, all positive magnitudes.
 #[derive(Copy, Clone, defmt::Format)]
@@ -35,7 +42,7 @@ impl CurrentLimits {
 static LIMITS: StartupCell<CurrentLimits> = StartupCell::new();
 
 /// Gets a handle to the most recently published limits.
-// u_TODO - read by the DTI command sender and by limit enforcement once those exist.
+// u_TODO - nothing outside this module reads the limits yet.
 #[allow(dead_code)]
 pub fn limits() -> &'static UnwriteableStartupCell<CurrentLimits> {
     LIMITS.to_unwriteable()
@@ -51,16 +58,6 @@ mod config {
     pub const QUIET_DEBOUNCE: Duration = Duration::from_millis(100);
     /// Pulsing is only allowed while `inst` is within this of max.
     pub const PULSE_ENABLE_MARGIN_A: f32 = 0.01;
-
-    /// When a pulse is followed by a cooldown.
-    #[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
-    pub enum CooldownMode {
-        /// Only after a full-length pulse.
-        #[allow(dead_code)]
-        OnFullPulse,
-        /// After every pulse.
-        Always,
-    }
 
     /// Settings for one direction.
     pub struct LimitConfig {
@@ -81,7 +78,6 @@ mod config {
         pub ocv_min_at_v: f32,
         pub pulse_duration: Duration,
         pub cooldown_duration: Duration,
-        pub cooldown_mode: CooldownMode,
     }
 
     /// Charge settings.
@@ -103,7 +99,6 @@ mod config {
             ocv_min_at_v: 4.2,
             pulse_duration: Duration::from_millis(2000),
             cooldown_duration: Duration::from_millis(1000),
-            cooldown_mode: CooldownMode::Always,
         }
     };
 
@@ -126,7 +121,6 @@ mod config {
             ocv_min_at_v: 3.0,
             pulse_duration: Duration::from_millis(2000),
             cooldown_duration: Duration::from_millis(1000),
-            cooldown_mode: CooldownMode::Always,
         }
     };
 
@@ -249,14 +243,8 @@ mod pulse {
                 },
 
                 PulseState::Pulse { ends_at, below_ceiling } => {
-                    // Checked first, so a full-length pulse always gets its cooldown.
-                    if now >= *ends_at {
-                        self.enter_cooldown(now)
-                    } else if below_ceiling.calculate(current_a < cfg.max_current_a, QUIET_DEBOUNCE, now) {
-                        self.end_pulse_early(now)
-                    } else {
-                        cfg.pulse_current_a
-                    }
+                    // A pulse that runs its full length or ends early both go to cooldown.
+                    if now >= *ends_at || below_ceiling.calculate(current_a < cfg.max_current_a, QUIET_DEBOUNCE, now) { self.enter_cooldown(now) } else { cfg.pulse_current_a }
                 },
 
                 PulseState::Cooldown { ends_at } => {
@@ -275,7 +263,7 @@ mod pulse {
                     self.reset();
                     inst_a
                 },
-                PulseState::Pulse { .. } => self.end_pulse_early(now).min(inst_a),
+                PulseState::Pulse { .. } => self.enter_cooldown(now).min(inst_a),
                 PulseState::Cooldown { ends_at } if now < ends_at => self.cfg.cooldown_current_a.min(inst_a),
                 PulseState::Cooldown { .. } => {
                     self.reset();
@@ -287,16 +275,6 @@ mod pulse {
         fn enter_cooldown(&mut self, now: Instant) -> f32 {
             self.state = PulseState::Cooldown { ends_at: now.saturating_add(self.cfg.cooldown_duration) };
             self.cfg.cooldown_current_a
-        }
-
-        fn end_pulse_early(&mut self, now: Instant) -> f32 {
-            match self.cfg.cooldown_mode {
-                CooldownMode::Always => self.enter_cooldown(now),
-                CooldownMode::OnFullPulse => {
-                    self.reset();
-                    self.cfg.pulse_current_a
-                },
-            }
         }
     }
 }
@@ -378,16 +356,16 @@ mod task {
     use super::*;
     use crate::faults::{self, FaultCommand, FaultId, PassFailAction};
     use crate::helpers::deadline::Deadline;
+    use crate::state_machine::{self, BmsState};
     use crate::units::degree_celsius;
-    use crate::{charging, pack, state_machine};
+    use crate::{can, pack};
+    use cangen::ToCanFrame;
     use embassy_time::Ticker;
 
-    const PERIOD: Duration = Duration::from_millis(20);
+    pub(super) const PERIOD: Duration = Duration::from_millis(20);
     const DIAGNOSTIC_PERIOD: Duration = Duration::from_millis(200);
-    /// The DTI sends its current every ~25 ms.
-    const DTI_CURRENT_STALE_AFTER: Duration = Duration::from_millis(250);
-    /// The charger sends its current about once a second.
-    const CHARGER_CURRENT_STALE_AFTER: Duration = Duration::from_millis(2500);
+    /// Kept long so brief CAN hiccups don't drop the limits.
+    const PACK_CURRENT_STALE_AFTER: Duration = Duration::from_secs(5);
 
     /// `None` until the analyzer has taken its first OCV snapshot.
     fn read_cells() -> Option<CellInputs> {
@@ -406,14 +384,39 @@ mod task {
 
     /// Pack current in amps, positive is discharge. `None` when stale.
     fn read_pack_current(now: Instant) -> Option<f32> {
-        let stale_after = if charging::is_charger_connected() { CHARGER_CURRENT_STALE_AFTER } else { DTI_CURRENT_STALE_AFTER };
         let (current, received_at) = pack::analyzer::can_pack_current()?;
-        (now.saturating_duration_since(received_at) <= stale_after).then(|| current.as_amps())
+        (now.saturating_duration_since(received_at) <= PACK_CURRENT_STALE_AFTER).then(|| current.as_amps())
     }
 
     /// Pulsing is held off while charging or while a critical or segment comms fault is active.
-    fn pulse_inhibited() -> bool {
-        state_machine::state().is_charging() || faults::are_critical_faults_active() || faults::get_fault(FaultId::SegmentCommsFault).is_active()
+    fn pulse_inhibited(state: BmsState) -> bool {
+        state.is_charging() || faults::are_critical_faults_active() || faults::get_fault(FaultId::SegmentCommsFault).is_active()
+    }
+
+    const fn notify(bad: bool) -> PassFailAction {
+        if bad { PassFailAction::NotifyBad } else { PassFailAction::NotifyOkay }
+    }
+
+    /// Sends the continuous limits to the DTI while `Ready`, and zero in every other state. The VCU also faults if
+    /// `MaxDcCurrentCommand` stops arriving.
+    fn send_dti_commands(state: BmsState, limits: &CurrentLimits) {
+        let (max_dc_a, max_brake_a) = match state {
+            // The DTI only accepts a negative brake current.
+            BmsState::Ready => (limits.cont_dcl.as_amps(), -limits.cont_ccl.as_amps()),
+            _ => (0.0, 0.0),
+        };
+        // A full queue is retried on the next tick.
+        let _ = can::try_send(cangen::MaxDcCurrentCommand::new().with_max_dc_current_target(max_dc_a).to_can_frame());
+        let _ = can::try_send(cangen::MaxDcBrakeCurrentCommand::new().with_max_dc_brake_current_target(max_brake_a).to_can_frame());
+    }
+
+    /// Reports whether the pack current is over either continuous limit. Skipped while the current is stale.
+    async fn check_enforcement(pack_current_a: Option<f32>, limits: &CurrentLimits) {
+        let Some(current_a) = pack_current_a else {
+            return;
+        };
+        faults::queue(FaultCommand::DischargeLimitEnforcementFault(notify(current_a > limits.cont_dcl.as_amps()))).await;
+        faults::queue(FaultCommand::ChargeLimitEnforcement(notify(current_a < -limits.cont_ccl.as_amps()))).await;
     }
 
     #[embassy_executor::task]
@@ -429,19 +432,22 @@ mod task {
             ticker.next().await;
 
             let now = Instant::now();
+            let state = state_machine::state();
             let inputs = Inputs {
                 cells: read_cells(),
                 pack_current_a: read_pack_current(now),
-                pulse_inhibited: pulse_inhibited(),
+                pulse_inhibited: pulse_inhibited(state),
             };
             let limits = limiter.tick(now, &inputs);
             LIMITS.set(limits);
 
+            send_dti_commands(state, &limits);
+            check_enforcement(inputs.pack_current_a, &limits).await;
+
             let stale = inputs.pack_current_a.is_none();
             if stale != reported_stale {
-                let action = if stale { PassFailAction::NotifyBad } else { PassFailAction::NotifyOkay };
                 // If the queue is full, this is retried on the next tick.
-                if faults::try_queue(FaultCommand::PackCurrentStale(action)).is_ok() {
+                if faults::try_queue(FaultCommand::PackCurrentStale(notify(stale))).is_ok() {
                     if stale {
                         defmt::warn!("Limits: pack current is stale; continuous limits held at minimum.");
                     } else {
