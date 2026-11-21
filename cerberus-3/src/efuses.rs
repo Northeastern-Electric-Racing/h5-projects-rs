@@ -4,6 +4,7 @@
 //! The efuse condition can also be updated using update_control_state
 //! via Efuses::send_command (by CAN through cansend or Argos).
 
+use crate::faults::{self, Fault};
 use cangen::ToCanFrame;
 use defmt::debug;
 use embassy_stm32::can::Frame;
@@ -475,6 +476,10 @@ pub async fn efuse_task(pins: EfusePins) {
                         efuse.disable();
                     } else if turn_on {
                         efuse.enable();
+                    }
+
+                    if efuse.is_faulted() {
+                        faults::INBOUND_FAULTS.send(Fault::EFUSE_FAULT).await;
                     }
                 }
             }

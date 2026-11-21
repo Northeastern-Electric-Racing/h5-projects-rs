@@ -39,7 +39,7 @@ uom = {
 
 strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
-cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" } 
+cangen = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "cerberus-3/efuse-fault-testing" } 
 nereth = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
 
 lsm6dsv16x-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop"}
