@@ -68,6 +68,15 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
     loop {
         let frame = INCOMING.receive().await;
 
+        use embedded_can::Id;
+        use embedded_can::ExtendedId;
+        use cangen::ChargerBoxStatus;
+        // if *frame.id() == Id::Extended(ExtendedId::new(0x18FF50E5).unwrap()) {
+        //     defmt_monitor::monitor!("RxDebug/received", desc = "", "{}", "ChargerBoxStatus");
+        //     defmt::info!("ChargerBoxStatus dlc={} rtr={} data={=[u8]:x}", frame.header().len(), frame.header().rtr(), frame.data());
+        //     //let m: ChargerBoxStatus = ChargerBoxStatus::from_bits(*frame.data())
+        // }
+
         match Msg::decode(&frame) {
             Some(Msg::BmsBootRequest(_)) => {
                 if !frame.header().rtr() && boot_control::is_valid_request(frame.data()) {
@@ -81,18 +90,28 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
                 charging::alert_charger_received();
                 pack::analyzer::store_can_pack_current(Current::new::<ampere>(m.current()));
                 pack::analyzer::store_can_ts_voltage(Voltage::new::<volt>(m.voltage()));
+                defmt_monitor::monitor!("RxDebug/received", desc = "", "{}", "ChargerBoxStatus");
+                defmt_monitor::monitor!("ChargerBoxStatus/current", desc = "Requested current from charger box POV.", "{=f32}", m.current());
+
+                let raw = frame.data();
+                defmt_monitor::monitor!("ChargerBoxStatus/rawbytes", desc = "", "{=u8}, {=u8}, {=u8}, {=u8}, {=u8}, {=u8}, {=u8}, {=u8}", raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7]);
             },
             Some(Msg::CurrentsStatus(_)) => {
                 if let Some(current) = decode_dti_current(frame.data()) {
                     pack::analyzer::store_can_pack_current(current);
                 }
+                defmt_monitor::monitor!("RxDebug/received", desc = "", "{}", "CurrentStatus");
             },
             Some(Msg::ErpmDutyInputVoltageStatus(_)) => {
                 if let Some(voltage) = decode_dti_voltage(frame.data()) {
                     pack::analyzer::store_can_ts_voltage(voltage);
                 }
+                defmt_monitor::monitor!("RxDebug/received", desc = "", "{}", "ErpmDutyInputVoltageStatus");
             },
-            Some(Msg::ShepherdBmsPwmPercent(pwm)) => charging::update_pwm_duty_cycle(&pwm),
+            Some(Msg::ShepherdBmsPwmPercent(pwm)) => { 
+                charging::update_pwm_duty_cycle(&pwm);
+                defmt_monitor::monitor!("RxDebug/received", desc = "", "{}", "ShepherdBmsPwmPercent");
+            },
             Some(m) => defmt::debug!("Received unhandled CAN message: {}", m.name()),
             None => defmt::debug!("Failed to decode CAN frame"),
         }

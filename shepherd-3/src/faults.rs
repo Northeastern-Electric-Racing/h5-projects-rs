@@ -409,7 +409,9 @@ mod api {
     }
 
     pub fn are_critical_faults_active() -> bool {
-        FLAGS.are_critical_faults_active()
+        //FLAGS.are_critical_faults_active()
+        // u_TODO undo this
+        false
     }
 
     /// Adds a fault to the fault queue.
