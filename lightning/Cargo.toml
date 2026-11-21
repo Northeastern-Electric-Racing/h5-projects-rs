@@ -24,6 +24,8 @@ embedded-can.workspace = true
 #static_cell.workspace = true
 cangen.workspace = true
 can-handler.workspace = true
+as3935-ner = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "a3935-sensor-SPI-driver" }
+embedded-hal-bus.workspace = true
 
 [lints]
 workspace = true

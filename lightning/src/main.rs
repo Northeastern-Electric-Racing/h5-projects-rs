@@ -2,6 +2,7 @@
 #![no_main]
 
 mod can;
+mod lightning_sensor;
 mod lights;
 mod sensors;
 mod statemachine;
@@ -12,11 +13,16 @@ use cortex_m_rt::{ExceptionFrame, exception};
 use defmt::debug;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
+use embassy_stm32::exti::{self, ExtiInput};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::interrupt;
+use embassy_stm32::spi::Spi;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::Uart;
-use embassy_stm32::{Config, dma, peripherals, usart};
+use embassy_stm32::{Config, dma, peripherals, spi, usart};
 use embassy_stm32::{bind_interrupts, wdg::IndependentWatchdog};
-use embassy_time::{Duration, Ticker};
+use embassy_time::{Delay, Duration, Ticker};
+use embedded_hal_bus::spi::ExclusiveDevice;
 use heapless::String;
 
 use {defmt_rtt as _, panic_probe as _};
@@ -25,6 +31,9 @@ bind_interrupts!(struct IrqsUsart {
     LPUART1 => usart::InterruptHandler<peripherals::LPUART1>;
     GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
+    GPDMA1_CHANNEL2 => dma::InterruptHandler<peripherals::GPDMA1_CH2>;
+    GPDMA1_CHANNEL3 => dma::InterruptHandler<peripherals::GPDMA1_CH3>;
+    EXTI3 => exti::InterruptHandler<interrupt::typelevel::EXTI3>;
 });
 
 #[embassy_executor::main]
@@ -74,6 +83,31 @@ async fn main(spawner: Spawner) -> ! {
 
     // initialize the project, ensure we can debug during sleep
     let p = embassy_stm32::init(config);
+
+    // as3935 sensor on SPI2
+    let mut as3935_spi_config = spi::Config::default();
+    as3935_spi_config.mode = spi::MODE_1;
+    as3935_spi_config.frequency = Hertz::mhz(1);
+
+    let spi2 = Spi::new(
+        p.SPI2,
+        p.PB10,
+        p.PC3,
+        p.PC2,
+        p.GPDMA1_CH2,
+        p.GPDMA1_CH3,
+        IrqsUsart,
+        as3935_spi_config,
+    );
+
+    let as3935_cs = Output::new(p.PA3, Level::High, Speed::VeryHigh);
+    let as3935_spi = ExclusiveDevice::new(spi2, as3935_cs, Delay)
+        .expect("Failed to create SPI device for AS3935");
+    let as3935_irq = ExtiInput::new(p.PE3, p.EXTI3, Pull::Down, IrqsUsart);
+    spawner.spawn(
+        lightning_sensor::lightning_sensor_task(as3935_spi, as3935_irq)
+            .expect("Failed to spawn lightning_sensor_task()."),
+    );
 
     // There used to be some configuration here, but I removed it s.t I wouldn't step on NerCan's toes
     let mut usart_config = usart::Config::default();
