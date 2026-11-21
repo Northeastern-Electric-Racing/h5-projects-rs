@@ -6,6 +6,7 @@ pub mod can;
 pub mod imu;
 pub mod load_cell;
 pub mod magnetometer;
+pub mod misc_adc;
 pub mod multiplexer_handler;
 pub mod orientation;
 pub mod shock_pot;
