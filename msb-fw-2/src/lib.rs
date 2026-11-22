@@ -2,7 +2,7 @@
 pub mod analog_sensor;
 pub mod bind_interrupts;
 pub mod can;
-// pub mod hdc2021;
+pub mod hdc2021;
 pub mod imu;
 pub mod load_cell;
 pub mod magnetometer;
