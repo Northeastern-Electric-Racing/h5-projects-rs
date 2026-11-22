@@ -8,22 +8,22 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 
-// TODO: needed again when the magnetometer / IMU are re-enabled.
-// use embassy_stm32::gpio::{Level, Output, Speed};
-// use embassy_stm32::spi::{self, Spi};
-// TODO: needed again when the HDC2021 (I2C1) is re-enabled.
-// use embassy_stm32::i2c::{self, I2c};
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::i2c::{self, I2c};
+use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::{time::Hertz, wdg};
-// use embassy_time::Delay;
-// use embassy_time::Duration;
-use embassy_time::Timer;
+use embassy_time::Delay;
+use embassy_time::{Duration, Timer};
+use embedded_hal_bus::spi::ExclusiveDevice;
 
-// use embedded_hal_bus::spi::ExclusiveDevice;
-// use msb_fw_2::bind_interrupts::Irqs; // TODO: needed again with the HDC2021 (I2C1).
+use msb_fw_2::bind_interrupts::Irqs;
 use msb_fw_2::can::{self, CanResources};
-use msb_fw_2::multiplexor_handler::{self, MuxResources};
+use msb_fw_2::multiplexer_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
-use msb_fw_2::{load_cell, shock_pot, steering_angle, strain_guage, thermocouple}; //, ,magnetometer, , imu, hdc2021};
+use msb_fw_2::{
+    hdc2021, imu, load_cell, magnetometer, orientation, shock_pot, steering_angle, strain_gauge,
+    thermocouple,
+};
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -102,8 +102,8 @@ async fn main(spawner: Spawner) -> ! {
     };
 
     spawner.spawn(
-        multiplexor_handler::mux_scan_task(mux_resources)
-            .expect("Failed to spawn multiplexor_handler::mux_scan_task()."),
+        multiplexer_handler::mux_scan_task(mux_resources)
+            .expect("Failed to spawn multiplexer_handler::mux_scan_task()."),
     );
     spawner
         .spawn(shock_pot::shock_pot_task().expect("Failed to spawn shock_pot::shock_pot_task()."));
@@ -112,8 +112,8 @@ async fn main(spawner: Spawner) -> ! {
             .expect("Failed to spawn steering_angle::steering_angle_task()."),
     );
     spawner.spawn(
-        strain_guage::strain_gauge_task()
-            .expect("Failed to spawn strain_guage::strain_gauge_task()."),
+        strain_gauge::strain_gauge_task()
+            .expect("Failed to spawn strain_gauge::strain_gauge_task()."),
     );
     spawner
         .spawn(load_cell::load_cell_task().expect("Failed to spawn load_cell::load_cell_task()."));
@@ -122,45 +122,70 @@ async fn main(spawner: Spawner) -> ! {
             .expect("Failed to spawn thermocouple::thermocouple_task()."),
     );
 
-    // /// magnetometer on SPI2 -> need to chk this too
-    // ///
-    // let mut spi2_config = spi::Config::default();
-    // spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
-    // spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
+    // magnetometer on SPI2
+    let mut spi2_config = spi::Config::default();
+    spi2_config.mode = spi::MODE_0; // CPOL=0, CPHA=0 (first edge)
+    spi2_config.frequency = Hertz(1_000_000); // 1 MHz, the LIS2MDL supports up to 10 MHz
 
-    // let spi2 = Spi::new(p.SPI2, p.PA12, p.PG1, p.PB14, p.GPDMA1_CH2, p.GPDMA1_CH3, Irqs, spi2_config);
-    // let mag_cs = Output::new(p.PA11, Level::High, Speed::VeryHigh);
-    // let mag_spi = ExlusiveDevice::new(spi2, mag_cs, Delay).expect("Failed to create SPI device for magnetometer");
-    // spawner.spawn(magnetometer::magnetometer_task(mag_spi).expect("Failed to spawn magnetometer::magnetometer_task()."));
+    let spi2 = Spi::new(
+        p.SPI2,
+        p.PA12,
+        p.PG1,
+        p.PB14,
+        p.GPDMA1_CH2,
+        p.GPDMA1_CH3,
+        Irqs,
+        spi2_config,
+    );
+    let mag_cs = Output::new(p.PA11, Level::High, Speed::VeryHigh);
+    let mag_spi = ExclusiveDevice::new(spi2, mag_cs, Delay)
+        .expect("Failed to create SPI device for magnetometer");
+    spawner.spawn(
+        magnetometer::magnetometer_task(mag_spi)
+            .expect("Failed to spawn magnetometer::magnetometer_task()."),
+    );
 
-    // its driver is still WIP
-    // // imu on SPI1
-    // let mut spi1_config = spi::Config::default();
-    // spi1_config.mode = spi::MODE_0; // CPOL=0, CPHA=1edge
-    // spi1_config.frequency = Hertz(1_000_000); // 1 MHz,
-    // let spi1 = Spi::new(p.SPI1, p.PG11, p.PD7, p.PA6, p.GPDMA1_CH4, p.GPDMA1_CH5, spi1_config);
-    // let imu_cs = Output::new(p.PA4, Level::High, Speed::VeryHigh);
-    // let imu_spi = ExclusiveDevice::new(spi1, imu_cs, Delay).expect("Failed to create SPI device for IMU");
-    // spawner.spawn(imu::imu_task(imu_spi).expect("Failed to spawn imu::imu_task()."));
+    // imu on SPI1
+    let mut spi1_config = spi::Config::default();
+    spi1_config.mode = spi::MODE_0; // CPOL=0, CPHA=0 (first edge)
+    spi1_config.frequency = Hertz(1_000_000); // 1 MHz,
+    let spi1 = Spi::new(
+        p.SPI1,
+        p.PG11,
+        p.PD7,
+        p.PA6,
+        p.GPDMA1_CH4,
+        p.GPDMA1_CH5,
+        Irqs,
+        spi1_config,
+    );
+    let imu_cs = Output::new(p.PA4, Level::High, Speed::VeryHigh);
+    let imu_spi =
+        ExclusiveDevice::new(spi1, imu_cs, Delay).expect("Failed to create SPI device for IMU");
+    spawner.spawn(imu::imu_task(imu_spi).expect("Failed to spawn imu::imu_task()."));
 
-    // TODO: HDC2021 on I2C1 is disabled: the sensor doesn't respond on the bus (hardware issue).
-    // // HDC2021 on I2C1
-    // let mut i2c1_config = i2c::Config::default();
-    // i2c1_config.frequency = Hertz::khz(100); // standard mode
-    // // The driver busy-waits for this long when the bus is stuck (e.g. no sensor or pull-ups), which
-    // // blocks every other task. The 1 s default starves the 1 s watchdog and resets the board.
-    // i2c1_config.timeout = Duration::from_millis(10);
-    // let i2c1 = I2c::new(
-    //     p.I2C1,
-    //     p.PB8,
-    //     p.PB9,
-    //     p.GPDMA1_CH6,
-    //     p.GPDMA1_CH7,
-    //     Irqs,
-    //     i2c1_config,
-    // );
+    spawner.spawn(
+        orientation::orientation_task().expect("Failed to spawn orientation::orientation_task()."),
+    );
 
-    // spawner.spawn(hdc2021::hdc2021_task(i2c1).expect("Failed to spawn hdc2021::hdc2021_task()."));
+    // HDC2021 on I2C1. It didn't respond on an earlier board (I2C timeouts); the short timeout
+    // below keeps that from resetting the board.
+    let mut i2c1_config = i2c::Config::default();
+    i2c1_config.frequency = Hertz::khz(100); // standard mode
+    // The driver busy-waits for this long when the bus is stuck (e.g. no sensor or pull-ups), which
+    // blocks every other task. The 1 s default starves the 1 s watchdog and resets the board.
+    i2c1_config.timeout = Duration::from_millis(10);
+    let i2c1 = I2c::new(
+        p.I2C1,
+        p.PB8,
+        p.PB9,
+        p.GPDMA1_CH6,
+        p.GPDMA1_CH7,
+        Irqs,
+        i2c1_config,
+    );
+
+    spawner.spawn(hdc2021::hdc2021_task(i2c1).expect("Failed to spawn hdc2021::hdc2021_task()."));
 
     let wheel_speed_resources = WheelSpeedResources {
         left_timer: p.TIM1,
@@ -178,7 +203,13 @@ async fn main(spawner: Spawner) -> ! {
         rx: p.PB5,
         tx: p.PB6,
     };
-    can::start(spawner, can_resources);
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
+    bootloader
+        .confirm_boot()
+        .expect("Failed to confirm application startup");
+    can::start(spawner, can_resources, bootloader);
 
     let mut watchdog = wdg::IndependentWatchdog::new(p.IWDG, 1000000);
     watchdog.unleash();

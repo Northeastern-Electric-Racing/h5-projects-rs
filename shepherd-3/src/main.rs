@@ -8,7 +8,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{peripherals, Peri};
 use embassy_time::{Timer};
-use {defmt_rtt as _, panic_probe as _};
+use defmt_rtt as _;
 
 pub mod segments;
 pub mod hv_plate;
@@ -19,12 +19,14 @@ pub mod units;
 pub mod broadcast;
 pub mod job_diagnostics;
 pub mod debug;
-pub mod state_machine;
 pub mod faults;
 pub mod pack;
 pub mod helpers;
+pub mod state_machine;
+pub mod charging;
 pub mod gpios;
 pub mod shutdown;
+pub mod control;
 
 use assign_resources::assign_resources;
 #[cfg(not(feature = "hil"))]
@@ -88,6 +90,11 @@ assign_resources! {
         acc_sense_pin: PB0,
         tsip_sense_pin: PB1,
     }
+    /// Resources for the battery box fans (PWM0 on the compute board).
+    fan: FanResources {
+        fan_timer: TIM3,
+        fan_pin: PC7,
+    },
 }
 
 #[cfg(feature = "hil")]
@@ -127,6 +134,11 @@ assign_resources! {
         acc_sense_pin: PB0,
         tsip_sense_pin: PB1,
     }
+     /// Resources for the battery box fans (PWM0 on the compute board).
+    fan: FanResources {
+        fan_timer: TIM3,
+        fan_pin: PC7,
+    },
 }
 
 #[embassy_executor::main]
@@ -135,13 +147,27 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_stm32::init(clocks::rcc_config());
 
-    hardfault::report_last_reset();
+    let last_crash = hardfault::report_last_reset();
+    hardfault::set_watchdog_debug_freeze();
 
+    let mut bootloader = boot_control::Bootloader::new(p.FLASH);
     let r = split_resources!(p);
 
     gpios::init(r.gpios);
 
-    spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
+    // Confirm basic startup to prevent rollback on the next reset.
+    // Device initialization continues in application tasks.
+    bootloader.confirm_boot().expect("Failed to confirm application startup");
+    let (can_tx, can_rx) = can::init(r.can);
+    spawner.spawn(can_handler::can_tx(can_tx, can::OUTGOING.dyn_receiver(), can::OUTGOING.dyn_sender()).expect("Failed to spawn can_handler::can_tx()."));
+    spawner.spawn(can_handler::can_rx(can_rx, can::INCOMING.dyn_sender()).expect("Failed to spawn can_handler::can_rx()."));
+    spawner.spawn(can::can_inbox_task(bootloader).expect("Failed to spawn can::can_inbox_task()."));
+    #[cfg(defmt_monitor)]
+    {
+        spawner.spawn(can_handler::can_props(embassy_stm32::pac::FDCAN2).expect("Failed to spawn can_handler::can_props()."));
+        spawner.spawn(can::can_irq_monitor().expect("Failed to spawn can::can_irq_monitor()."));
+    }
+    spawner.spawn(hardfault::crash_report_task(last_crash).expect("Failed to spawn hardfault::crash_report_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
     spawner.spawn(hv_plate::hv_plate_task(r.hv_plate).expect("Failed to spawn hv_plate::hv_plate_task()."));
@@ -154,7 +180,8 @@ async fn main(spawner: Spawner) {
     spawner.spawn(debug::faults_debug(spawner).expect("Failed to spawn faults debug task."));
     spawner.spawn(pack::analyzer::analyzer_task().expect("Failed to spawn pack::analyzer_task()."));
     spawner.spawn(debug::hv_plate_debug().expect("Failed to spawn debug::hv_plate_debug()."));
-    spawner.spawn(debug::state_machine_debug().expect("Failed to spawn debug::state_machine_debug()."));
+    spawner.spawn(charging::charger_task().expect("Failed to spawn charging::charger_task()."));
+    spawner.spawn(control::fan_task(r.fan).expect("Failed to spawn control::fan_task()."));
 }
 
 /// pet the dog beat the heart

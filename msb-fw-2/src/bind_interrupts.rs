@@ -2,7 +2,7 @@ use embassy_stm32::{bind_interrupts, can, dma, peripherals};
 // use embassy_stm32::i2c; // TODO: re-enable with the HDC2021.
 
 bind_interrupts!(pub struct Irqs {
-    // Mux scan (multiplexor_handler)
+    // Mux scan (multiplexer_handler)
     GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
     // Magnetometer (SPI2)

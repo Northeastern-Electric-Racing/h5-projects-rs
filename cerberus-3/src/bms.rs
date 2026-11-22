@@ -1,3 +1,7 @@
+//! Tracks the BMS's precharge state and battery
+//! box temperature, and queues faults if the
+//! BMS stops sending DCL messages.
+
 use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use defmt::debug;
 use embassy_futures::select::{Either, select};

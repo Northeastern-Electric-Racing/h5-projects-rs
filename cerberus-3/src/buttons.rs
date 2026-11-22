@@ -1,12 +1,16 @@
+//! This module handles the button presses and calls the appropriate
+//! functions in the pedals and statemachine modules.
+
 use crate::{pedals, statemachine};
 use defmt::debug;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 
-const BUTTON_QUEUE_SIZE: usize = 12;
+const BUTTON_QUEUE_SIZE: usize = 32;
 static PRESSED: Channel<ThreadModeRawMutex, Button, BUTTON_QUEUE_SIZE> = Channel::new();
 
-enum Button {
+#[derive(Debug, Clone, Copy, defmt::Format)]
+pub(crate) enum Button {
     Escape,
     Left,
     Right,
@@ -17,35 +21,31 @@ enum Button {
     DownTorque,
     ToggleLaunchControl,
     ToggleTractionControl,
-    Unknown,
 }
 
-impl Button {
-    fn from_id(id: u8) -> Button {
-        match id {
-            0 => Button::Escape,
-            1 => Button::Left,
-            2 => Button::Right,
-            3 => Button::Enter,
-            4 => Button::UpRegen,
-            5 => Button::DownRegen,
-            6 => Button::UpTorque,
-            7 => Button::DownTorque,
-            8 => Button::ToggleLaunchControl,
-            9 => Button::ToggleTractionControl,
-            _ => {
-                debug!("Unexpected id: {}", id);
-                Button::Unknown
-            }
+impl TryFrom<u8> for Button {
+    type Error = u8;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Button::Escape),
+            1 => Ok(Button::Left),
+            2 => Ok(Button::ToggleLaunchControl),
+            3 => Ok(Button::UpRegen),
+            4 => Ok(Button::DownRegen),
+            5 => Ok(Button::Enter),
+            6 => Ok(Button::Right),
+            7 => Ok(Button::ToggleTractionControl),
+            8 => Ok(Button::UpTorque),
+            9 => Ok(Button::DownTorque),
+            _ => Err(value),
         }
     }
 }
 
-pub fn register_press(button: u8) {
+pub fn register_press(button: Button) {
     debug!("Pressed: {}", button);
-    debug!("Pressed: {}", button);
-    if PRESSED.try_send(Button::from_id(button)).is_err() {
-        debug!("Button queue full, dropping press {}", button);
+    if PRESSED.try_send(button).is_err() {
+        debug!("Button queue full, dropping press {:?}", button);
     }
 }
 
@@ -62,9 +62,9 @@ pub async fn button_task() -> ! {
             Button::DownRegen => pedals::decrease_regen_limit(statemachine::get_func_state().await),
             Button::UpTorque => pedals::increase_torque_limit(),
             Button::DownTorque => pedals::decrease_torque_limit(),
+
             Button::ToggleLaunchControl => pedals::toggle_launch_control(),
             Button::ToggleTractionControl => {}
-            Button::Unknown => {}
         }
     }
 }

@@ -11,7 +11,7 @@
 //! }
 //! ```
 
-use crate::multiplexor_handler::{MUX_SNAPSHOT, MuxSource};
+use crate::multiplexer_handler::{MUX_SNAPSHOT, MuxSource};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Ticker};
