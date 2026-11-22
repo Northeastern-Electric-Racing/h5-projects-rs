@@ -16,16 +16,22 @@ use embassy_time::{Delay, Duration, Ticker};
 use embedded_sht3x::{Repeatability::Medium, Sht3x, Status, Temperature};
 use lsm6dsv16x_ner::mdps::millidegree_per_second;
 use lsm6dsv16x_ner::{NerLsm6dsv16x, milligravity};
-use uom::si::f32::{Ratio, ThermodynamicTemperature};
+use uom::si::electric_current::ampere;
+use uom::si::electric_potential::volt;
+use uom::si::f32::{ElectricPotential, Ratio, ThermodynamicTemperature};
 use uom::si::ratio::percent;
 use uom::si::thermodynamic_temperature::degree_celsius;
 
 use crate::ethernet::Topic;
-use crate::{can, ethernet};
+use crate::faults::{self, Fault};
+use crate::{adc, can, ethernet};
 
 const SHT30_ADDRESS: u8 = 0x44;
 const TEMP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const IMU_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const ADC_SEND_INTERVAL: Duration = Duration::from_millis(100);
+/// Below this the LV battery is considered low and a fault is raised.
+const LV_LOW_VOLTAGE_THRESHOLD_VOLTS: f32 = 23.5;
 const IMU_SPI_FREQUENCY: Hertz = Hertz::mhz(2);
 
 bind_interrupts!(struct Irqs {
@@ -194,5 +200,56 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
         }
 
         ticker.next().await;
+    }
+}
+
+/// Sends the LFIU current sensor readings and the LV battery voltage over CAN,
+/// and raises [`Fault::LV_LOW_VOLTAGE_FAULT`] when the battery is low.
+#[embassy_executor::task]
+pub async fn adc_peripherals_task() -> ! {
+    let mut ticker = Ticker::every(ADC_SEND_INTERVAL);
+    let lv_threshold = ElectricPotential::new::<volt>(LV_LOW_VOLTAGE_THRESHOLD_VOLTS);
+
+    loop {
+        ticker.next().await;
+
+        let data = adc::data().await;
+        let lfiu_low = data.lfiu_low();
+        let lfiu_high = data.lfiu_high();
+        let lv = data.lv_battery();
+
+        can::OUTGOING
+            .send(
+                cangen::LfiuLowCurrentAdcReadings::new()
+                    .with_raw(lfiu_low.raw)
+                    .with_voltage(lfiu_low.voltage.get::<volt>())
+                    .with_current(lfiu_low.current.get::<ampere>())
+                    .to_can_frame(),
+            )
+            .await;
+
+        can::OUTGOING
+            .send(
+                cangen::LfiuHighCurrentAdcReadings::new()
+                    .with_raw(lfiu_high.raw)
+                    .with_voltage(lfiu_high.voltage.get::<volt>())
+                    .with_current(lfiu_high.current.get::<ampere>())
+                    .to_can_frame(),
+            )
+            .await;
+
+        can::OUTGOING
+            .send(
+                cangen::LvVoltage::new()
+                    .with_ADC(lv.raw)
+                    .with_Voltage(lv.voltage.get::<volt>())
+                    .to_can_frame(),
+            )
+            .await;
+
+        // A raw count of 0 means the mux hasn't completed a sweep yet, not a dead battery.
+        if lv.raw != 0 && lv.voltage < lv_threshold {
+            faults::trigger_fault(Fault::LV_LOW_VOLTAGE_FAULT);
+        }
     }
 }
