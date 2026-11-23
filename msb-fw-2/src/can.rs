@@ -24,14 +24,16 @@
 //! | 0x604 | Front MSB Gyro              | IMU angular rate (mdps)                        |
 //! | 0x602 | Front MSB Env               | HDC2021 temperature (°C) + humidity (%)        |
 //! | 0x611 | Front MSB Mag               | magnetometer (mgauss)                          |
+//! | 0x609 | Front MSB Orientation       | roll/pitch/yaw (deg) from the VQF orientation  |
 //!
 //! The MSB only transmits: the global filter rejects every incoming frame.
 
 use crate::bind_interrupts::Irqs;
-//use crate::hdc2021::HDC2021_DATA;
+use crate::hdc2021::HDC2021_DATA;
 use crate::imu::{IMU_DATA, ImuReading};
 use crate::load_cell::{LOAD_CELL_DATA, LoadCell, LoadCellReading, NUM_LOAD_CELLS};
 use crate::magnetometer::MAG_DATA;
+use crate::orientation::{ORIENTATION, Orientation};
 use crate::shock_pot::{NUM_SHOCK_POTS, SHOCK_POT_DATA, ShockPot, ShockPotReading};
 use crate::steering_angle::{NUM_STEERING_ANGLES, STEERING_ANGLE_DATA, SteeringAngleReading};
 use crate::strain_gauge::{NUM_STRAIN_GAUGES, STRAIN_GAUGE_DATA, StrainGauge, StrainGaugeReading};
@@ -46,7 +48,7 @@ use embassy_stm32::can::{CanConfigurator, Frame};
 use embassy_stm32::peripherals::{FDCAN2, PB5, PB6};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-//use hdc2021_ner::Measurement;
+use hdc2021_ner::Measurement;
 use lis2mdl_ner::MagneticField;
 
 /// Frames waiting for a free FDCAN TX buffer.
@@ -90,8 +92,9 @@ pub fn start(spawner: Spawner, r: CanResources, bootloader: boot_control::Bootlo
     spawner.spawn(load_cell_can_task().expect("Failed to spawn can::load_cell_can_task()."));
     spawner.spawn(thermocouple_can_task().expect("Failed to spawn can::thermocouple_can_task()."));
     spawner.spawn(imu_can_task().expect("Failed to spawn can::imu_can_task()."));
-    //spawner.spawn(hdc2021_can_task().expect("Failed to spawn can::hdc2021_can_task()."));
+    spawner.spawn(hdc2021_can_task().expect("Failed to spawn can::hdc2021_can_task()."));
     spawner.spawn(magnetometer_can_task().expect("Failed to spawn can::magnetometer_can_task()."));
+    spawner.spawn(orientation_can_task().expect("Failed to spawn can::orientation_can_task()."));
 }
 
 /// Queues a frame to send, waiting if [`OUTGOING`] is full.
@@ -182,17 +185,16 @@ async fn imu_can_task() {
     }
 }
 
-//HDC commented out for time being
-//#[embassy_executor::task]
-//async fn hdc2021_can_task() {
-//  let mut rx = HDC2021_DATA
-//        .receiver()
-//      .expect("Too many HDC2021_DATA receivers.");
-//    loop {
-//        let measurement = rx.changed().await;
-//        send(hdc2021_frame(&measurement)).await;
-//    }
-//}
+#[embassy_executor::task]
+async fn hdc2021_can_task() {
+    let mut rx = HDC2021_DATA
+        .receiver()
+        .expect("Too many HDC2021_DATA receivers.");
+    loop {
+        let measurement = rx.changed().await;
+        send(hdc2021_frame(&measurement)).await;
+    }
+}
 
 #[embassy_executor::task]
 async fn magnetometer_can_task() {
@@ -200,6 +202,17 @@ async fn magnetometer_can_task() {
     loop {
         let field = rx.changed().await;
         send(magnetometer_frame(&field)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn orientation_can_task() {
+    let mut rx = ORIENTATION
+        .receiver()
+        .expect("Too many ORIENTATION receivers.");
+    loop {
+        let orientation = rx.changed().await;
+        send(orientation_frame(&orientation)).await;
     }
 }
 
@@ -302,12 +315,12 @@ fn imu_frames(r: &ImuReading) -> [Frame; 2] {
 
 /// `Front MSB Env` (0x602): temperature (°C) and relative humidity (%), each scaled x10 into an
 /// unsigned 16-bit field, so temperatures below 0 °C go out as 0.
-//fn hdc2021_frame(m: &Measurement) -> Frame {
-//    cangen::FrontMsbEnv::new()
-//        .with_temp(m.temperature)
-//        .with_humidity(m.humidity)
-//        .to_can_frame()
-//}
+fn hdc2021_frame(m: &Measurement) -> Frame {
+    cangen::FrontMsbEnv::new()
+        .with_temp(m.temperature)
+        .with_humidity(m.humidity)
+        .to_can_frame()
+}
 
 /// `Front MSB Mag` (0x611): magnetic field on each axis in milligauss, as unscaled signed 16-bit
 /// fields. `cangen` saturates anything outside ±32767 mG; Earth's field is roughly 250-650 mG.
@@ -316,6 +329,23 @@ fn magnetometer_frame(f: &MagneticField) -> Frame {
         .with_x_mgauss(f.x_mgauss)
         .with_y_mgauss(f.y_mgauss)
         .with_z_mgauss(f.z_mgauss)
+        .to_can_frame()
+}
+
+/// `Front MSB Orientation` (0x609): roll (x), pitch (y) and yaw (z) in whole degrees, as signed
+/// 16-bit fields, converted from the VQF quaternion (ZYX / aerospace convention).
+///
+/// Yaw is only a heading when `fusion` is `NineD`; with `SixD` it is relative and drifts. Axis
+/// alignment and magnetometer calibration aren't done yet (see `orientation.rs`).
+fn orientation_frame(o: &Orientation) -> Frame {
+    let (w, x, y, z) = (o.w, o.x, o.y, o.z);
+    let roll = libm::atan2f(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
+    let pitch = libm::asinf((2.0 * (w * y - z * x)).clamp(-1.0, 1.0));
+    let yaw = libm::atan2f(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
+    cangen::FrontMsbOrientation::new()
+        .with_x_fdeg(roll.to_degrees())
+        .with_y_fdeg(pitch.to_degrees())
+        .with_z_fdeg(yaw.to_degrees())
         .to_can_frame()
 }
 
