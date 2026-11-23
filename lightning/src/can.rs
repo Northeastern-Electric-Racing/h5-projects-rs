@@ -73,12 +73,11 @@ pub fn init(pins: CanPins) -> (CanTx<'static>, CanRx<'static>) {
 #[embassy_executor::task]
 pub async fn can_pulse_task() -> ! {
     let mut count: u32 = 0;
-    let msg = cangen::LightningPulseMessage::new().with_count(count);
     let mut ticker: Ticker = Ticker::every(Duration::from_millis(500));
 
     loop {
         count += 1;
-        msg.with_count(count);
+        let msg = cangen::LightningPulseMessage::new().with_count(count);
         debug!("Sending pulse message with count: {}", count);
         OUTGOING.send(msg.to_can_frame()).await;
         ticker.next().await;
