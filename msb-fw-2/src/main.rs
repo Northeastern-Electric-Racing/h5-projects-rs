@@ -22,7 +22,7 @@ use msb_fw_2::multiplexer_handler::{self, MuxResources};
 use msb_fw_2::wheel_speed::{self, WheelSpeedResources};
 use msb_fw_2::{
     hdc2021, imu, load_cell, magnetometer, orientation, shock_pot, steering_angle, strain_gauge,
-    thermocouple,
+    thermocouple, misc_adc,
 };
 
 use {defmt_rtt as _, panic_probe as _};
