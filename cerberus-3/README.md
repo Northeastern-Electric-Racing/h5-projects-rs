@@ -11,4 +11,4 @@ Stop probe-rs server (on root@192.168.100.12): ```/etc/init.d/S*probe-rs stop```
 
 Flash remotely via: ```cargo run --release -p cerberus-3 -- --host ws://192.168.100.12:3000 --token ner```
 
-Reconnect to the running process via: ```probe-rs attach --chip STM32H563ZITx --host ws://192.168.100.12:3000 --token ner target/thumbv8m.main-none-eabihf/release/cerberus-3```
+Reconnect to the running process via: ```probe-rs attach --no-catch-reset --chip STM32H563ZITx --host ws://192.168.100.12:3000 --token ner target/thumbv8m.main-none-eabihf/release/cerberus-3```
