@@ -28,9 +28,9 @@ impl MiscAdc {
 
     const fn source(self) -> MuxSource {
         match self {
-            MiscAdc::Ext1 => (MuxId::U19, MuxChannel::Ch3, MuxInput::B),
-            MiscAdc::Ext2 => (MuxId::U19, MuxChannel::Ch4, MuxInput::A),
-            MiscAdc::Ext3 => (MuxId::U19, MuxChannel::Ch4, MuxInput::B),
+            MiscAdc::Ext1 => (MuxId::U18, MuxChannel::Ch4, MuxInput::B),
+            MiscAdc::Ext2 => (MuxId::U19, MuxChannel::Ch2, MuxInput::B),
+            MiscAdc::Ext3 => (MuxId::U19, MuxChannel::Ch3, MuxInput::A),
         }
     }
 }
