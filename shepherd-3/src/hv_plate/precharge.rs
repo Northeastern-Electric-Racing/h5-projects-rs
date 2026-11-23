@@ -3,6 +3,7 @@ use crate::units::{Voltage, volt};
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_time::{Duration, Instant};
 use strum::FromRepr;
+use crate::can::{self, types::PrechargeStatus};
 
 const MINIMUM_PACK_VOLTAGE: Voltage = Voltage::from_volts(200.0);
 const BATT_VOLT_BUFFER: Voltage = Voltage::from_volts(10.0);
@@ -193,6 +194,7 @@ pub mod task {
 
     const PERIOD: Duration = Duration::from_millis(100);
     const DIAGNOSTIC_PERIOD: Duration = Duration::from_secs(1);
+    const TELEMETRY_PERIOD: Duration = Duration::from_secs(2);
 
     #[embassy_executor::task]
     pub async fn precharge_task() {
@@ -201,6 +203,8 @@ pub mod task {
         let mut precharge = Precharge::new();
         let mut ticker = Ticker::every(PERIOD);
         let mut diagnostic_deadline = Deadline::expire_at_beginning_of_time();
+        let mut last_state_sent: Option<State> = None;
+        let mut telemetry_deadline = Deadline::expire_at_beginning_of_time();
 
         loop {
             ticker.next().await;
@@ -211,6 +215,13 @@ pub mod task {
             let state = precharge.tick(now, readings);
             STATE.store(state as u8, Ordering::Relaxed);
             defmt::trace!("HvPlate: precharge: {}", state);
+
+            let state_changed = last_state_sent != Some(state);
+            if state_changed || telemetry_deadline.past() {
+                can::send(PrechargeStatus {precharge_status: state as u8}.as_frame()).await;
+                last_state_sent = Some(state);
+                telemetry_deadline = Deadline::expire_in(TELEMETRY_PERIOD);
+            }
 
             if diagnostic_deadline.past() {
                 diagnostic_deadline = Deadline::expire_in(DIAGNOSTIC_PERIOD);

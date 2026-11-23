@@ -21,8 +21,11 @@ pub async fn segments_debug() {
     let filtered_cell_voltages_ready = segments::cache().get_filtered_cell_voltages().nice().ready().await;
     let cell_voltages_ready = segments::cache().get_cell_voltages().nice().ready().await;
     let pwm_ready = segments::cache().get_pwm().nice().ready().await;
+    let status_a_ready = segments::cache().get_status_a().nice().ready().await;
+    let status_b_ready = segments::cache().get_status_b().nice().ready().await;
     let status_c_ready = segments::cache().get_status_c().nice().ready().await;
     let s_voltages_ready = segments::cache().get_s_voltages().nice().ready().await;
+    let aux_ready = segments::cache().get_aux().nice().ready().await;
     let _fault_counts = segments::cache().get_fault_counts();
 
     // Wait until the analyzer has been written to at least once.
@@ -38,8 +41,11 @@ pub async fn segments_debug() {
         let filtered_cell_voltages = filtered_cell_voltages_ready.get();
         let cell_voltages = cell_voltages_ready.get();
         let pwm = pwm_ready.get();
+        let status_a = status_a_ready.get();
+        let status_b = status_b_ready.get();
         let status_c = status_c_ready.get();
-        let _s_voltages = s_voltages_ready.get();
+        let s_voltages = s_voltages_ready.get();
+        let aux = aux_ready.get();
 
         let ow = analyzer.partial_get(|inner| inner.data.ow_fault);
 
@@ -51,9 +57,55 @@ pub async fn segments_debug() {
                 let volts = if crate::state_machine::bms_state().is_charging() { cell_voltages.data().chip(chip) } else { filtered_cell_voltages.data().chip(chip) }; // u_TODO - if charging, we use cell_voltages, if not charging, we use filtered_cell_voltages. This is what TSECU-Shepherd did. but there's no charging state rn so for now who cares
                 let pwm = pwm.data().chip(chip);
                 let cvs = status_c.data().chip(chip).cell_channel_comparison_faults;
+                let s_volts = s_voltages.data().chip(chip);
 
                 match chip.kind() {
                     ChipKind::Alpha => {
+                        let chip_status_c = status_c.data().chip(chip);
+                        let chip_aux = aux.data().chip(chip);
+                        let chip_status_a = status_a.data().chip(chip);
+                        let chip_status_b = status_b.data().chip(chip);
+
+                        match can::try_send(
+                            can::types::AlphaChipADebug {
+                                chip_id: chip.segment().as_u8(),
+                                die_temp: chip_status_a.itmp.get::<degree_celsius>(),
+                                vpv: chip_aux.vpv.get::<volt>(),
+                                vmv: chip_aux.vmv.get::<volt>(),
+                                va_ov: chip_status_c.analog_rail_overvoltage.is_set(),
+                                va_uv: chip_status_c.analog_rail_undervoltage.is_set(),
+                                vd_ov: chip_status_c.digital_rail_overvoltage.is_set(),
+                                vd_uv: chip_status_c.digital_rail_undervoltage.is_set(),
+                                vde: chip_status_c.supply_rail_delta.is_set(),
+                                vdel: chip_status_c.supply_rail_delta_latent.is_set(),
+                                spiflt: chip_status_c.spi_fault.is_set(),
+                                sleep: chip_status_c.sleep_mode_detection.is_set(),
+                                thsd: chip_status_c.thermal_shutdown_status.is_set(),
+                                tmodchk: chip_status_c.test_mode_detection.is_set(),
+                                oscchk: chip_status_c.oscillator_check.is_set(),
+                            }
+                            .as_frame(),
+                        ) {
+                            Ok(_) => (),
+                            Err(_) => (),
+                        }
+
+                        match can::try_send(
+                            can::types::AlphaChipBDebug {
+                                vres: chip_status_b.vres.get::<volt>(),
+                                chip_id: chip.segment().as_u8(),
+                                vref2: chip_status_a.vref2.get::<volt>(),
+                                v_analog: chip_status_b.va.get::<volt>(),
+                                v_digital: chip_status_b.vd.get::<volt>(),
+                                otp1_med: chip_status_c.s_trim_error.is_set(),
+                                opt2_med: chip_status_c.s_trim_multiple_error.is_set(),
+                            }
+                            .as_frame(),
+                        ) {
+                            Ok(_) => (),
+                            Err(_) => (),
+                        }
+
                         for (cell_a, cell_b) in CellId::iter_pairs() {
                             match can::try_send(
                                 can::types::AlphaCellDataDebug {
@@ -79,10 +131,69 @@ pub async fn segments_debug() {
                                 Ok(_) => (),
                                 Err(_) => (),
                             }
+
+                            match can::try_send(
+                                can::types::AlphaCellSAdcData {
+                                    s_voltage_a: s_volts.cell(cell_a).get::<volt>(),
+                                    s_voltage_b: cell_b.map(|cell_b| s_volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
+                                    chip_id: chip.segment().as_u8(),
+                                    cell_a: cell_a.as_u8(),
+                                    cell_b: cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
+                                }
+                                .as_frame(),
+                            ) {
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
                         }
                     },
 
                     ChipKind::Beta => {
+                        let chip_status_c = status_c.data().chip(chip);
+                        let chip_aux = aux.data().chip(chip);
+                        let chip_status_a = status_a.data().chip(chip);
+                        let chip_status_b = status_b.data().chip(chip);
+
+                        match can::try_send(
+                            can::types::BetaChipADebug {
+                                chip_id: chip.segment().as_u8(),
+                                die_temp: chip_status_a.itmp.get::<degree_celsius>(),
+                                vpv: chip_aux.vpv.get::<volt>(),
+                                vmv: chip_aux.vmv.get::<volt>(),
+                                va_ov: chip_status_c.analog_rail_overvoltage.is_set(),
+                                va_uv: chip_status_c.analog_rail_undervoltage.is_set(),
+                                vd_ov: chip_status_c.digital_rail_overvoltage.is_set(),
+                                vd_uv: chip_status_c.digital_rail_undervoltage.is_set(),
+                                vde: chip_status_c.supply_rail_delta.is_set(),
+                                vdel: chip_status_c.supply_rail_delta_latent.is_set(),
+                                spiflt: chip_status_c.spi_fault.is_set(),
+                                sleep: chip_status_c.sleep_mode_detection.is_set(),
+                                thsd: chip_status_c.thermal_shutdown_status.is_set(),
+                                tmodchk: chip_status_c.test_mode_detection.is_set(),
+                                oscchk: chip_status_c.oscillator_check.is_set(),
+                            }
+                            .as_frame(),
+                        ) {
+                            Ok(_) => (),
+                            Err(_) => (),
+                        }
+
+                        match can::try_send(
+                            can::types::BetaChipBDebug {
+                                vres: chip_status_b.vres.get::<volt>(),
+                                chip_id: chip.segment().as_u8(),
+                                vref2: chip_status_a.vref2.get::<volt>(),
+                                v_analog: chip_status_b.va.get::<volt>(),
+                                v_digital: chip_status_b.vd.get::<volt>(),
+                                otp1_med: chip_status_c.s_trim_error.is_set(),
+                                opt2_med: chip_status_c.s_trim_multiple_error.is_set(),
+                            }
+                            .as_frame(),
+                        ) {
+                            Ok(_) => (),
+                            Err(_) => (),
+                        }
+
                         for (cell_a, cell_b) in CellId::iter_pairs() {
                             match can::try_send(
                                 can::types::BetaCellDataDebug {
@@ -102,6 +213,20 @@ pub async fn segments_debug() {
                                     discharging_b: cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
                                     cvs_b: cell_b.map(|cell_b| cvs.cell(cell_b).is_set()).unwrap_or(false),
                                     ow_b: cell_b.map(|cell_b| ow[chip][cell_b]).unwrap_or(false),
+                                }
+                                .as_frame(),
+                            ) {
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
+
+                            match can::try_send(
+                                can::types::BetaCellSAdcData {
+                                    s_voltage_a: s_volts.cell(cell_a).get::<volt>(),
+                                    s_voltage_b: cell_b.map(|cell_b| s_volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
+                                    chip_id: chip.segment().as_u8(),
+                                    cell_a: cell_a.as_u8(),
+                                    cell_b: cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
                                 }
                                 .as_frame(),
                             ) {
@@ -187,6 +312,7 @@ pub async fn hv_plate_debug() {
     use crate::hv_plate::{self, HV_PLATE_FRESH_DATA_SIGNAL};
     use crate::units::{degree_celsius, volt};
     use uom::si::electric_current::ampere;
+    use crate::can;
 
     // Subscribe to the HV plate fresh data signal so we are notified when new data comes in.
     let mut subscription = HV_PLATE_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
@@ -215,6 +341,54 @@ pub async fn hv_plate_debug() {
         let aux = *aux_ready.get().data();
         #[cfg_attr(not(defmt_monitor), allow(unused_variables))]
         let status = *status_ready.get().data();
+
+        // Not sure of intended measurement source for 0x701 HvPlateVoltages compared to 0x704
+
+        // match can::try_send(
+        //     can::types::HvPlateVoltages {
+        //         batt_voltage: current_voltage.batt_voltage.get::<volt>(),
+        //         ts_voltage: voltages.ts_voltage.get::<volt>(),
+        //     }
+        //     .as_frame(),
+        // ) {
+        //     Ok(_) => (),
+        //     Err(_) => (),
+        // }
+
+        // Also not sure of intended measurement source for 0x703 compared to 0x705
+
+        // match can::try_send(
+        //     can::types::PackCurrentAndShuntTemp {
+        //         pack_current: current_voltage.pack_current.get::<ampere>(),
+        //         shunt_temp: voltages.shunt_temperature.get::<degree_celsius>(),
+        //     }
+        //     .as_frame(),
+        // ) {
+        //     Ok(_) => (),
+        //     Err(_) => (),
+        // }
+
+        match can::try_send(
+            can::types::HvPlateVoltagesAdbms {
+                batt_volts: current_voltage.batt_voltage.get::<volt>(),
+                ts_volts: voltages.ts_voltage.get::<volt>(),
+            }
+            .as_frame(),
+        ) {
+            Ok(_) => (),
+            Err(_) => (),
+        }
+
+        match can::try_send(
+            can::types::PackCurrentAndShuntTempAdbms {
+                pack_current: current_voltage.pack_current.get::<ampere>(),
+                shunt_temp: voltages.shunt_temperature.get::<degree_celsius>(),
+            }
+            .as_frame(),
+        ) {
+            Ok(_) => (),
+            Err(_) => (),
+        }
 
         '_println: {
             defmt::println!("HV Plate Data:");

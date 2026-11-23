@@ -259,6 +259,8 @@ pub mod jobs {
 
 pub mod task {
     use super::*;
+    use crate::can::{self, types::{HvPlateIsospiCommunicationStatus, HvPlateDiagnostics, HvPlateDiagnosticsSecond, HvPlatePecErrors}};
+    use crate::units::{volt, degree_celsius};
 
     /// `Broadcast` static for the HV plate task, so other tasks can await fresh cache data.
     pub mod signal {
@@ -300,6 +302,58 @@ pub mod task {
                 defmt_monitor::monitor!("HvPlate/Device/ReportedCommandCounter", desc = "Command counter the chip reported on the most recent read. 255 if it has never been read.", "{=u8}", device.reported_command_counter().unwrap_or(u8::MAX));
             }
             defmt_monitor::monitor!("HvPlate/Device/SuspectedReset", desc = "True if the chip reported counter 0 unexpectedly, meaning it rebooted and lost its configuration.", "{=bool}", device.suspected_reset());
+        }
+
+        fn send_isospi_status(&self) {
+            let state = self.recovery_service.state() as u8;
+            let verification_attempts = self.recovery_service.verification_attempts().min(u8::MAX as u32) as u8;
+            let recovery_successful = u8::from(self.recovery_service.recovery_successful());
+
+            let frame = HvPlateIsospiCommunicationStatus {state,verification_attempts,recovery_successful}.as_frame();
+            let _ = can::try_send(frame);
+        }
+
+        fn send_hv_plate_diagnostics(&self) {
+            let Some(aux) = cache::CACHE.get_aux().nice().try_get() else {
+                return;
+            };
+
+            let aux = aux.data();
+
+            let frame = HvPlateDiagnostics {
+                flags: 0,
+                vreg: aux.vreg.get::<volt>(),
+                tmp1: aux.die_temperature.get::<degree_celsius>(),
+                vref1p25: aux.vref1p25.get::<volt>(),
+                osccnt: u16::from(aux.osccnt), 
+            }.as_frame();
+
+            let _ = can::try_send(frame);
+        }
+
+        fn send_hv_plate_diagnostics_second(&self) {
+            let Some(aux) = cache::CACHE.get_aux().nice().try_get() else {
+                return;
+            };
+
+            let aux = aux.data();
+
+            let frame = HvPlateDiagnosticsSecond {
+                epad: aux.epad.get::<volt>(),
+                vdig: aux.vdig.get::<volt>(),
+                vdd: aux.vdd.get::<volt>(),
+                tmp2: aux.secondary_temperature.get::<degree_celsius>(),
+                vdiv: aux.vdiv.get::<volt>(),
+            }.as_frame();
+
+            let _ = can::try_send(frame);
+        }
+
+        fn send_hv_plate_pec_errors(&self) {
+            let pec_errors = self.api.device().pec_failed_count().min(u16::MAX as u32) as u16;
+            let frame = HvPlatePecErrors { pec_errors }.as_frame();
+
+            let _ = can::try_send(frame);
         }
     }
 
@@ -353,7 +407,13 @@ pub mod task {
                 if tick_count == 0 {
                     if let Err(err) = hv_plate.job_update_aux_registers().await {
                         defmt::error!("HvPlate: Inside `hv_plate_task()`: `job_update_aux_registers()` failed. Error: {}", err);
+                    } else {
+                        hv_plate.send_hv_plate_diagnostics();
+                        hv_plate.send_hv_plate_diagnostics_second();
                     }
+
+                    hv_plate.send_isospi_status();
+                    hv_plate.send_hv_plate_pec_errors();
                 }
 
                 if tick_count == DIAGNOSTIC_TICKS / 2 {

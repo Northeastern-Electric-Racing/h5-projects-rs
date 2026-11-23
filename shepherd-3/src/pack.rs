@@ -618,13 +618,14 @@ pub mod analyzer {
         use crate::{
             can,
             can::{
-                types::{CellTemperatures, CellVoltage, PackSocStatus, SegmentAverageVoltages, SegmentTotalVoltages, SegmentTemperatures},
+                types::{BmsStatus, BmsCriticallyFaulted, FaultStatus, CellTemperatures, CellVoltage, OnboardThermTemperatures, PackSocStatus, SegmentAverageVoltages, SegmentTotalVoltages, SegmentDeltaVoltages, SegmentTemperatures},
             },
             segments::{SEGMENTS_FRESH_DATA_SIGNAL, SEGMENTS_OPENWIRE_RAN_SIGNAL, SegmentId},
             units::{degree_celsius, volt},
         };
         use crate::segments;
         use crate::state_machine::{BmsState};
+        use crate::faults::FaultId;
 
         // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
         let mut segments_freshdata_subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
@@ -698,6 +699,68 @@ pub mod analyzer {
             }
 
             update(*analyzer);
+
+            let state = match state_machine::bms_state() {
+                BmsState::Boot => 0,
+                BmsState::Ready => 1,
+                BmsState::Charging => 2,
+                BmsState::Faulted => 4,
+            };
+
+            can::send(
+                BmsStatus {
+                    state,
+                    temp_average: analyzer.avg_temp.get::<degree_celsius>(),
+                }
+                .as_frame(),
+            )
+            .await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                defmt_monitor::monitor!("AnalyzerDebug/BmsStatus/state", desc = "Current BMS state as encoded for CAN.", "{=u8}", state);
+                defmt_monitor::monitor!("AnalyzerDebug/BmsStatus/temp_average", desc = "Average thermistor temperature, in degrees Celsius.", "{=f32}", analyzer.avg_temp.get::<degree_celsius>());
+            }
+
+            let critically_faulted = crate::faults::are_critical_faults_active();
+            can::send(BmsCriticallyFaulted{ critically_faulted }.as_frame()).await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                defmt_monitor::monitor!("AnalyzerDebug/BmsCriticallyFaulted/critically_faulted", desc = "Whether any critical BMS fault is active.", "{=bool}", critically_faulted);
+            }
+
+            let active = crate::faults::get_all_faults();
+
+            let high_voltage_fault = active[FaultId::CellVoltageTooHigh].is_active();
+            let charging = crate::state_machine::bms_state().is_charging();
+
+            can::send(FaultStatus {
+                dcl_enforce: active[FaultId::DischargeLimitEnforcementFault].is_active(),
+                ccl_enforce: active[FaultId::ChargeLimitEnforcement].is_active(),
+                low_cell_volt: active[FaultId::CellVoltageTooLow].is_active(),
+                high_cell_volt: high_voltage_fault && !charging,
+                high_charge_volt: high_voltage_fault && charging,
+                pack_hot: active[FaultId::PackTooHot].is_active(),
+                die_temp_max: active[FaultId::DieTempMaximumFault].is_active(),
+                segment_comms: active[FaultId::SegmentCommsFault].is_active(),
+                hv_plate_comms: active[FaultId::HvPlateCommsFault].is_active(),
+                cell_open_wire: active[FaultId::CellOpenWireFault].is_active(),
+            }.as_frame()).await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/dcl_enforce", desc = "Discharge current limit enforcement fault active.", "{=bool}", active[FaultId::DischargeLimitEnforcementFault].is_active());
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/ccl_enforce", desc = "Charge current limit enforcement fault active.", "{=bool}", active[FaultId::ChargeLimitEnforcement].is_active());
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/low_cell_volt", desc = "Cell undervoltage fault active.", "{=bool}", active[FaultId::CellVoltageTooLow].is_active());
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/high_cell_volt", desc = "Cell overvoltage fault active while not charging.", "{=bool}", high_voltage_fault && !charging);
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/high_charge_volt", desc = "Cell overvoltage fault active while charging.", "{=bool}", high_voltage_fault && charging);
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/pack_hot", desc = "Pack overtemperature fault active.", "{=bool}", active[FaultId::PackTooHot].is_active());
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/die_temp_max", desc = "Maximum chip die temperature fault active.", "{=bool}", active[FaultId::DieTempMaximumFault].is_active());
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/segment_comms", desc = "Segment communication fault active.", "{=bool}", active[FaultId::SegmentCommsFault].is_active());
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/hv_plate_comms", desc = "HV plate communication fault active.", "{=bool}", active[FaultId::HvPlateCommsFault].is_active());
+                defmt_monitor::monitor!("AnalyzerDebug/FaultStatus/cell_open_wire", desc = "Cell open-wire fault active.", "{=bool}", active[FaultId::CellOpenWireFault].is_active());
+            }
 
             can::send(
                 CellVoltage {
@@ -775,6 +838,25 @@ pub mod analyzer {
             }
 
             can::send(
+                SegmentDeltaVoltages {
+                    seg1: analyzer.segment_delta_volts[SegmentId::Segment0].get::<volt>(),
+                    seg2: analyzer.segment_delta_volts[SegmentId::Segment1].get::<volt>(),
+                    seg3: analyzer.segment_delta_volts[SegmentId::Segment2].get::<volt>(),
+                    seg4: analyzer.segment_delta_volts[SegmentId::Segment3].get::<volt>(),
+                    seg5: analyzer.segment_delta_volts[SegmentId::Segment4].get::<volt>(),
+                }
+                .as_frame(),
+            )
+            .await;
+
+            #[cfg(defmt_monitor)]
+            '_defmt_monitor: {
+                for segment in SegmentId::iter() {
+                    defmt_monitor::monitor!(["AnalyzerDebug/SegmentDeltaVoltages/seg_{=u8}/", segment.as_u8()], desc = "Delta voltage for this segment, in volts.", "{=f32}", analyzer.segment_delta_volts[segment].get::<volt>());
+                }
+            }
+
+            can::send(
                 CellTemperatures {
                     high_val: analyzer.max_temp.value().get::<degree_celsius>(),
                     high_cell: analyzer.max_temp.cell().as_u8(),
@@ -817,6 +899,30 @@ pub mod analyzer {
                     defmt_monitor::monitor!(["AnalyzerDebug/SegmentTemperatures/seg_{=u8}/", segment.as_u8()], desc = "Temperature for this segment, in degrees celsius.", "{=f32}", analyzer.segment_average_temps[segment].get::<degree_celsius>());
                 }
             }
+
+            for chip in ChipId::iter() {
+                let temps = redundant_aux.get().data()[chip].to_temps();
+
+                can::send(
+                    OnboardThermTemperatures {
+                        chip_id: chip.as_u8(),
+                        therm_temp_1: temps.on_board_temp_1.get::<degree_celsius>(),
+                        therm_temp_2: temps.on_board_temp_2.get::<degree_celsius>(),
+                        therm_temp_3: temps.on_board_temp_3.get::<degree_celsius>(),
+                    }
+                    .as_frame(),
+                )
+                .await;
+
+                #[cfg(defmt_monitor)]
+                '_defmt_monitor: {
+                    defmt_monitor::monitor!(["AnalyzerDebug/OnboardThermTemperatures/chip_{=u8}/temp_1", chip.as_u8()], desc = "First onboard thermistor temperature, in degrees Celsius.", "{=f32}", temps.on_board_temp_1.get::<degree_celsius>());
+                    defmt_monitor::monitor!(["AnalyzerDebug/OnboardThermTemperatures/chip_{=u8}/temp_2", chip.as_u8()], desc = "Second onboard thermistor temperature, in degrees Celsius.", "{=f32}", temps.on_board_temp_2.get::<degree_celsius>());
+                    defmt_monitor::monitor!(["AnalyzerDebug/OnboardThermTemperatures/chip_{=u8}/temp_3", chip.as_u8()], desc = "Third onboard thermistor temperature, in degrees Celsius.", "{=f32}", temps.on_board_temp_3.get::<degree_celsius>());
+                }
+            }
+
+            
 
             let pack_soc = analyzer.soc.map_or(0.0_f32, |soc| soc.get::<ratio>());
             can::send(PackSocStatus { pack_soc, pack_soc_drift: soc_data.drift }.as_frame()).await;

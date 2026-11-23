@@ -1,7 +1,7 @@
 //! Module holding the `Segments` struct. This is the main place where the Segments stuff is configured/set up. The main segments task (i.e., the one that owns the SPI peripheral and actually does the reads/cache updates) is also in here.
 
 use static_cell::StaticCell;
-use embassy_time::{Timer};
+use embassy_time::{Timer, Duration, Instant};
 use super::chips::ADBMS6830B_NUM_CHIPS;
 
 #[cfg(not(feature = "hil"))]
@@ -51,6 +51,7 @@ pub mod alias {
 /// Guy in charge of the segments.
 pub(super) struct Segments {
     pub(super) service: &'static mut alias::Service,
+    last_pec_report: Instant,
     #[cfg(feature = "hil")]
     hil_initialized: bool,
 }
@@ -107,6 +108,7 @@ impl Segments {
 
         Self {
             service,
+            last_pec_report: Instant::now(),
             #[cfg(feature = "hil")]
             hil_initialized: false,
         }
@@ -238,7 +240,25 @@ impl Segments {
         #[cfg(not(feature = "hil"))]
         let diagnostics = self.service.run(startup).await;
 
-        // handle diagnostics
+        #[cfg(not(feature = "hil"))]
+
+        if self.last_pec_report.elapsed() >= Duration::from_secs(1) {
+            use crate::can::{self, types::SegmentPecErrors};
+
+            let chipstate = diagnostics.chip_state_diagnostics();
+
+            for (chip_id, state) in chipstate.chip_state().iter().enumerate() {
+                let pec_errors = state.pec_failed_count().min(u16::MAX as usize) as u16;
+                let frame = SegmentPecErrors { chip_id: chip_id as u8, pec_errors}.as_frame();
+
+                let _ = can::try_send(frame);
+            }
+
+            self.last_pec_report = Instant::now();
+
+        }
+
+        // handle diagnosticscargo check -p shepherd-3
         #[cfg(not(feature = "hil"))]
         {
             // u_TODO: eventually this should probably go into its own (flaggable) task, since it doesn't do any SPI transactions itself. it never awaits as of rn so it's probably fine for now.

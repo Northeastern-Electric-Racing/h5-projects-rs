@@ -115,6 +115,59 @@ pub mod types {
         }
     }
 
+    pub struct BmsCriticallyFaulted {
+        pub critically_faulted: bool,
+    }
+    impl BmsCriticallyFaulted {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BmsCriticallyFaulted::new().with_critically_faulted(self.critically_faulted);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct HvPlateIsospiCommunicationStatus {
+        pub state: u8,
+        pub verification_attempts: u8,
+        pub recovery_successful: u8,
+    }
+    impl HvPlateIsospiCommunicationStatus {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::HvPlateIsospiCommunicationStatus::new().with_state(self.state).with_verification_attempts(self.verification_attempts).with_recovery_successful(self.recovery_successful);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct FaultStatus {
+        pub dcl_enforce: bool,
+        pub ccl_enforce: bool,
+        pub low_cell_volt:bool,
+        pub high_cell_volt: bool,
+        pub high_charge_volt: bool,
+        pub pack_hot: bool,
+        pub die_temp_max: bool,
+        pub segment_comms: bool,
+        pub hv_plate_comms: bool,
+        pub cell_open_wire: bool,
+    }
+    impl FaultStatus {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::FaultStatus::new()
+                .with_dcl_enforce(self.dcl_enforce)
+                .with_ccl_enforce(self.ccl_enforce)
+                .with_low_cell_volt(self.low_cell_volt)
+                .with_high_cell_volt(self.high_cell_volt)
+                .with_pack_hot(self.pack_hot)
+                .with_die_temp_max(self.die_temp_max)
+                .with_segment_comms(self.segment_comms)
+                .with_hv_plate_comms(self.hv_plate_comms)
+                .with_cell_open_wire(self.cell_open_wire);
+
+            frame.to_can_frame()
+        }
+    }
+
     pub struct CellVoltage {
         pub high_val: f32,
         pub high_chip: u8,
@@ -157,6 +210,58 @@ pub mod types {
     impl SegmentTotalVoltages {
         pub fn as_frame(&self) -> Frame {
             let frame = cangen::SegmentTotalVoltages::new().with_seg1(self.seg1).with_seg2(self.seg2).with_seg3(self.seg3).with_seg4(self.seg4).with_seg5(self.seg5);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct SegmentDeltaVoltages {
+        pub seg1: f32,
+        pub seg2: f32,
+        pub seg3: f32,
+        pub seg4: f32,
+        pub seg5: f32,
+    }
+    impl SegmentDeltaVoltages {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::SegmentDeltaVoltages::new().with_seg1(self.seg1).with_seg2(self.seg2).with_seg3(self.seg3).with_seg4(self.seg4).with_seg5(self.seg5);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct BmsStatus {
+        pub state: u8,
+        pub temp_average: f32,
+    }
+    impl BmsStatus {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BmsStatus::new().with_state(self.state).with_temp_average(self.temp_average);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct OnboardThermTemperatures {
+        pub chip_id: u8,
+        pub therm_temp_1: f32,
+        pub therm_temp_2: f32,
+        pub therm_temp_3: f32,
+    }
+    impl OnboardThermTemperatures {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::OnboardThermTemperatures::new().with_chip_id(self.chip_id).with_therm_temp_1(self.therm_temp_1).with_therm_temp_2(self.therm_temp_2).with_therm_temp_3(self.therm_temp_3);
+        
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct PrechargeStatus {
+        pub precharge_status: u8,
+    }
+    impl PrechargeStatus {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::PrechargeStatus::new().with_precharge_status(self.precharge_status);
 
             frame.to_can_frame()
         }
@@ -216,6 +321,318 @@ pub mod types {
     impl ShutdownAsReadByBms {
         pub fn as_frame(&self) -> Frame {
             let frame = cangen::ShutdownAsReadByBms::new().with_shutdown_state(self.shutdown_state).with_shutdown_ts_minus_sense(self.shutdown_ts_minus_sense).with_shutdown_ts_plus_sense(self.shutdown_ts_plus_sense).with_shutdown_acc_sense(self.shutdown_acc_sense).with_shutdown_tsip_sense(self.shutdown_tsip_sense);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct HvPlateDiagnostics {
+        pub flags: u16,
+        pub vreg: f32,
+        pub tmp1: f32,
+        pub vref1p25: f32,
+        pub osccnt: u16,
+    }
+    impl HvPlateDiagnostics {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::HvPlateDiagnostics::new()
+                .with_flags(self.flags)
+                .with_vreg(self.vreg)
+                .with_tmp1(self.tmp1)
+                .with_vref1p25(self.vref1p25)
+                .with_osccnt(self.osccnt);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct HvPlateDiagnosticsSecond {
+        pub epad: f32,
+        pub vdig: f32,
+        pub vdd: f32,
+        pub tmp2: f32, 
+        pub vdiv: f32,
+    }
+    impl HvPlateDiagnosticsSecond {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::HvPlateDiagnosticsSecond::new()
+                .with_epad(self.epad).
+                with_vdig(self.vdig).
+                with_vdd(self.vdd).
+                with_tmp2(self.tmp2).
+                with_vdiv(self.vdiv);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct SegmentPecErrors {
+        pub chip_id: u8,
+        pub pec_errors: u16,
+    }
+    impl SegmentPecErrors {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::SegmentPecErrors::new().with_chip_id(self.chip_id).with_pec_errors(self.pec_errors);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct HvPlatePecErrors {
+        pub pec_errors: u16,
+    }
+
+    impl HvPlatePecErrors {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::HvPlatePecErrors::new().with_pec_errors(self.pec_errors);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct AlphaCellSAdcData {
+        pub s_voltage_a: f32,
+        pub s_voltage_b: f32,
+        pub chip_id: u8,
+        pub cell_a: u8,
+        pub cell_b: u8,
+    }
+    impl AlphaCellSAdcData {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::AlphaCellSAdcData::new()
+                .with_s_voltage_a(self.s_voltage_a)
+                .with_s_voltage_a(self.s_voltage_b)
+                .with_chip_id(self.chip_id)
+                .with_cell_a(self.cell_a)
+                .with_cell_b(self.cell_b);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct BetaCellSAdcData {
+        pub s_voltage_a: f32,
+        pub s_voltage_b: f32,
+        pub chip_id: u8,
+        pub cell_a: u8,
+        pub cell_b: u8,
+    }
+    impl BetaCellSAdcData {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BetaCellSAdcData::new()
+                .with_s_voltage_a(self.s_voltage_a)
+                .with_s_voltage_a(self.s_voltage_b)
+                .with_chip_id(self.chip_id)
+                .with_cell_a(self.cell_a)
+                .with_cell_b(self.cell_b);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct AlphaChipADebug {
+        pub chip_id: u8,
+        pub die_temp: f32,
+        pub vpv: f32,
+        pub vmv: f32, 
+        pub va_ov: bool, 
+        pub va_uv: bool,
+        pub vd_ov: bool,
+        pub vd_uv: bool,
+        pub vde: bool,
+        pub vdel: bool,
+        pub spiflt: bool,
+        pub sleep: bool,
+        pub thsd: bool,
+        pub tmodchk: bool,
+        pub oscchk: bool,
+    }
+    impl AlphaChipADebug {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::AlphaChipADebug::new()
+            .with_chip_id(self.chip_id)
+            .with_die_temp(self.die_temp)
+            .with_vpv(self.vpv)
+            .with_vmv(self.vmv)
+            .with_va_ov(self.va_ov)
+            .with_va_uv(self.va_uv)
+            .with_vd_ov(self.vd_ov)
+            .with_vd_uv(self.vd_uv)
+            .with_vde(self.vde)
+            .with_vdel(self.vdel)
+            .with_spiflt(self.spiflt)
+            .with_sleep(self.sleep)
+            .with_thsd(self.thsd)
+            .with_tmodchk(self.tmodchk)
+            .with_oscchk(self.oscchk);
+
+            frame.to_can_frame()
+        }
+    }
+
+
+    pub struct BetaChipADebug {
+        pub chip_id: u8,
+        pub die_temp: f32,
+        pub vpv: f32,
+        pub vmv: f32,
+        pub va_ov: bool,
+        pub va_uv: bool,
+        pub vd_ov: bool,
+        pub vd_uv: bool,
+        pub vde: bool,
+        pub vdel: bool,
+        pub spiflt: bool,
+        pub sleep: bool,
+        pub thsd: bool,
+        pub tmodchk: bool,
+        pub oscchk: bool,
+    }
+
+    impl BetaChipADebug {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BetaChipADebug::new()
+                .with_chip_id(self.chip_id)
+                .with_die_temp(self.die_temp)
+                .with_vpv(self.vpv)
+                .with_vmv(self.vmv)
+                .with_va_ov(self.va_ov)
+                .with_va_uv(self.va_uv)
+                .with_vd_ov(self.vd_ov)
+                .with_vd_uv(self.vd_uv)
+                .with_vde(self.vde)
+                .with_vdel(self.vdel)
+                .with_spiflt(self.spiflt)
+                .with_sleep(self.sleep)
+                .with_thsd(self.thsd)
+                .with_tmodchk(self.tmodchk)
+                .with_oscchk(self.oscchk);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct BetaChipBDebug {
+        pub vres: f32,
+        pub chip_id: u8,
+        pub vref2: f32,
+        pub v_analog: f32,
+        pub v_digital: f32,
+        pub otp1_med: bool,
+        pub opt2_med: bool,
+    }
+
+    impl BetaChipBDebug {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BetaChipBDebug::new()
+                .with_vres(self.vres)
+                .with_chip_id(self.chip_id)
+                .with_vref2(self.vref2)
+                .with_v_analog(self.v_analog)
+                .with_v_digital(self.v_digital)
+                .with_otp1_med(self.otp1_med)
+                .with_opt2_med(self.opt2_med);
+
+            frame.to_can_frame()
+        }
+    }
+ 
+    pub struct AlphaChipBDebug {
+        pub vres: f32,
+        pub chip_id: u8,
+        pub vref2: f32,
+        pub v_analog: f32,
+        pub v_digital: f32,
+        pub otp1_med: bool,
+        pub opt2_med: bool,
+    }
+    impl AlphaChipBDebug {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::AlphaChipBDebug::new()
+                .with_vres(self.vres)
+                .with_chip_id(self.chip_id)
+                .with_vref2(self.vref2)
+                .with_v_analog(self.v_analog)
+                .with_v_digital(self.v_digital)
+                .with_otp1_med(self.otp1_med)
+                .with_opt2_med(self.opt2_med);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct FanDutyCyclePercentage {
+        pub fan_duty_cycle: u8,
+    }
+    impl FanDutyCyclePercentage {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::FanDutyCyclePercentage::new().with_fan_duty_cycle(self.fan_duty_cycle);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct HvPlateVoltages {
+        pub batt_voltage: f32,
+        pub ts_voltage: f32,
+    }
+    impl HvPlateVoltages {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::HvPlateVoltages::new().with_batt_voltage(self.batt_voltage).with_ts_voltage(self.ts_voltage);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct BmsDebug {
+        pub spare0: u8,
+        pub spare1: u8,
+        pub spare2: u16,
+        pub spare3: u32,
+    }
+    impl BmsDebug {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BmsDebug::new()
+                .with_spare0(self.spare0)
+                .with_spare1(self.spare1)
+                .with_spare2(self.spare2)
+                .with_spare3(self.spare3);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct PackCurrentAndShuntTemp {
+        pub pack_current: f32,
+        pub shunt_temp: f32,
+    }
+    impl PackCurrentAndShuntTemp {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::PackCurrentAndShuntTemp::new().with_pack_current(self.pack_current).with_shunt_temp(self.shunt_temp);
+
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct HvPlateVoltagesAdbms {
+        pub batt_volts: f32,
+        pub ts_volts: f32,
+    }
+    impl HvPlateVoltagesAdbms {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::HvPlateVoltagesAdbms::new().with_batt_volts(self.batt_volts).with_ts_volts(self.ts_volts);
+
+            frame.to_can_frame()
+        }
+    }
+
+        pub struct PackCurrentAndShuntTempAdbms {
+        pub pack_current: f32,
+        pub shunt_temp: f32,
+    }
+    impl PackCurrentAndShuntTempAdbms {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::PackCurrentAndShuntTempAdbms::new().with_pack_current(self.pack_current).with_shunt_temp(self.shunt_temp);
 
             frame.to_can_frame()
         }

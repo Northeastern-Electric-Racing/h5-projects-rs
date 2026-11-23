@@ -116,6 +116,14 @@ impl Service {
         self.state
     }
 
+    pub(super) const fn verification_attempts(&self) -> u32 {
+        self.verification_attempts
+    }
+
+    pub(super) const fn recovery_successful(&self) -> bool {
+        self.recovery_successful
+    }
+
     /// PEC failures accumulated since the last re-baseline -- the quantity the break detector
     /// thresholds on. For diagnostics.
     pub(super) const fn errors_in_window(&self, api: &alias::Api) -> u32 {
