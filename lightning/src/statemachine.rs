@@ -22,20 +22,21 @@ pub static FAULT_QUEUE: Channel<ThreadModeRawMutex, FaultframeState, QUEUE_SIZE>
 
 fn next_state(
     state: State,
-    event: FaultframeState,
+    reset_requested: bool,
     any_timeout: bool,
     awaiting_contact: bool,
     any_fault: bool,
 ) -> State {
-    use FaultframeState::*;
-
-    match (state, event) {
-        _ if any_timeout => State::Red,
-        _ if awaiting_contact => State::Startup,
-        _ if any_fault => State::Red,
-        (State::Red, ResetRequested) => State::Green,
-        (State::Red, _) => State::Red,
-        _ => State::Green,
+    if any_timeout {
+        State::Red
+    } else if awaiting_contact {
+        State::Startup
+    } else if any_fault {
+        State::Red
+    } else if state == State::Red && !reset_requested {
+        State::Red
+    } else {
+        State::Green
     }
 }
 
@@ -49,7 +50,7 @@ pub async fn statemachine_task(mut leds: lights::Leds) -> ! {
 
     // Note that this always waits slightly longer than the grace period
     leds.set_all_off(); // TODO: Change this to set_all_on when lamp check hardware allows
-    embassy_time::Timer::after(GRACE_PERIOD_DURATION).await; //Wait until the end of the grace period
+    Timer::after(GRACE_PERIOD_DURATION).await; //Wait until the end of the grace period
 
     leds.set_all_off();
 
@@ -64,25 +65,24 @@ pub async fn statemachine_task(mut leds: lights::Leds) -> ! {
         )
         .await;
 
-        let mut command = FaultframeState::BMSFault;
+        let mut reset_requested: bool = false;
 
         match event {
-            Either3::First(message) => {
-                command = message;
-                match message {
-                    FaultframeState::BMSFault | FaultframeState::BMSOk => {
-                        bms_seen = true;
-                        bms_deadline = Instant::now() + CAN_TIMEOUT;
-                        bms_faulted = message == FaultframeState::BMSFault;
-                    }
-                    FaultframeState::IMDFault | FaultframeState::IMDOk => {
-                        imd_seen = true;
-                        imd_deadline = Instant::now() + CAN_TIMEOUT;
-                        imd_faulted = message == FaultframeState::IMDFault;
-                    }
-                    FaultframeState::ResetRequested => {}
+            Either3::First(message) => match message {
+                FaultframeState::BMSFault | FaultframeState::BMSOk => {
+                    bms_seen = true;
+                    bms_deadline = Instant::now() + CAN_TIMEOUT;
+                    bms_faulted = message == FaultframeState::BMSFault;
                 }
-            }
+                FaultframeState::IMDFault | FaultframeState::IMDOk => {
+                    imd_seen = true;
+                    imd_deadline = Instant::now() + CAN_TIMEOUT;
+                    imd_faulted = message == FaultframeState::IMDFault;
+                }
+                FaultframeState::ResetRequested => {
+                    reset_requested = true;
+                }
+            },
             Either3::Second(()) => {
                 bms_deadline = Instant::MAX;
                 warn!("BMS CAN timeout");
@@ -95,7 +95,7 @@ pub async fn statemachine_task(mut leds: lights::Leds) -> ! {
 
         let new = next_state(
             state,
-            command,
+            reset_requested,
             bms_deadline == Instant::MAX || imd_deadline == Instant::MAX,
             !bms_seen || !imd_seen,
             bms_faulted || imd_faulted,
