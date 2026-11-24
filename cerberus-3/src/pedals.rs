@@ -3,6 +3,7 @@
 //! determines how to handle the torque and regen
 //! values based on the current drive mode.
 
+use crate::bms;
 use crate::can;
 use crate::dti;
 use crate::statemachine;
@@ -25,10 +26,6 @@ use uom::si::torque::newton_meter;
 
 fn get_traction_control() -> f32 {
     0.0
-}
-
-fn is_not_precharge() -> bool {
-    false
 }
 
 fn tc_process() {}
@@ -176,8 +173,6 @@ mod locks {
                 Locks::BspdPref => {}
                 Locks::BmsNotPrechargedYet => {}
             }
-            // todo: call the appropriate fault
-            defmt::error!("Fault queued: {:?}", fault);
         }
 
         pub(super) fn unset_lock(&mut self, fault: Locks) {
@@ -774,7 +769,7 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
             ElectricCurrent::new::<ampere>(0.0),
         );
 
-        if is_not_precharge() {
+        if !bms::get_precharge_state() {
             drive_lock.set_lock(locks::Locks::BmsNotPrechargedYet);
         } else {
             drive_lock.unset_lock(locks::Locks::BmsNotPrechargedYet);
@@ -782,7 +777,6 @@ pub async fn pedals_task(r: analog::AdcPedalsResources) -> ! {
 
         if drive_lock.any_locked() {
             dti::set_torque(Torque::new::<newton_meter>(0.0)).await;
-            debug!("Drive locked due to faults: {:?}", drive_lock.drive_locks);
         } else {
             tc_process();
 

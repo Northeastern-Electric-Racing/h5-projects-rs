@@ -1,3 +1,5 @@
+//! Initializes the ethernet peripheral and handles outgoing packets.
+
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::{Peri, peripherals};
@@ -42,17 +44,23 @@ pub async fn ethernet_task(spawner: Spawner, r: EthernetResources) {
     Timer::after_millis(500).await;
     phy_reset.set_high();
 
-    let Some(eth) = NerEth::<ID>::new(
+    let eth = match NerEth::<ID>::new(
         spawner, r.rng, r.eth, r.ref_clk, r.crs, r.rx_d0, r.rx_d1, r.tx_d0, r.tx_d1, r.tx_en,
         r.sma, r.mdio, r.mdc,
     )
     .await
-    else {
-        defmt::error!("Ethernet init failed; running without Ethernet");
-        return;
+    {
+        Ok(eth) => eth,
+        Err(e) => {
+            defmt::error!("Failed to initialize ethernet: {:?}", e);
+            return;
+        }
     };
 
-    let mut publishers = Topic::publishers(&eth).await;
+    let Some(mut publishers) = Topic::publishers(&eth).await else {
+        defmt::error!("Failed to get publishers");
+        return;
+    };
 
     loop {
         let packet = OUTGOING.receive().await;
