@@ -61,10 +61,7 @@ pub async fn lightning_sensor_task(spi: As3935Spi, mut irq: ExtiInput<'static, A
             Ok(Interrupt::NoiseTooHigh) => defmt::warn!("AS3935: noise too high"),
             Ok(Interrupt::None) => {}
             Err(e) => {
-                defmt::warn!(
-                    "As3935 interrupt read failed: {} ",
-                    defmt::Debug2Format(&e)
-                );
+                defmt::warn!("As3935 interrupt read failed: {} ", defmt::Debug2Format(&e));
                 Timer::after_millis(100).await;
             }
         }
