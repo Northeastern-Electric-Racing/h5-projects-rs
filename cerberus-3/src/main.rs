@@ -241,12 +241,6 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn peripherals::i2c_peripherals_task()."),
     );
 
-    // LFIU current + LV battery voltage
-    spawner.spawn(
-        peripherals::adc_peripherals_task()
-            .expect("Failed to spawn peripherals::adc_peripherals_task()."),
-    );
-
     spawner.spawn(
         peripherals::spi_peripherals_task(SPI2Resources {
             spi: p.SPI2,
@@ -260,6 +254,12 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn peripherals::spi_peripherals_task()."),
     );
 
+    // LFIU current + LV battery voltage
+    spawner.spawn(
+        peripherals::adc_peripherals_task()
+            .expect("Failed to spawn peripherals::adc_peripherals_task()."),
+    );
+    
     // RTDS
     spawner.spawn(rtds::rtds_task(p.PD2).expect("Failed to spawn rtds::rtds_task()."));
 

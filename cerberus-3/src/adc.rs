@@ -63,17 +63,14 @@ pub struct LvReading {
     pub voltage: ElectricPotential,
 }
 
-/// Converts a raw 12-bit count to the voltage at the ADC pin.
-fn raw_to_pin_voltage(raw: u16) -> f32 {
-    f32::from(raw) / ADC_MAX_COUNT * ADC_VREF_VOLTS
-}
-
-fn lfiu_reading(raw: u16, center_volts: f32, volts_per_amp: f32) -> LfiuReading {
-    let pin_volts = raw_to_pin_voltage(raw);
-    LfiuReading {
-        raw,
-        voltage: ElectricPotential::new::<volt>(pin_volts),
-        current: ElectricCurrent::new::<ampere>((pin_volts - center_volts) / volts_per_amp),
+impl LfiuReading {
+    fn new(raw: u16, center_volts: f32, volts_per_amp: f32) -> Self {
+        let pin_volts = f32::from(raw) / ADC_MAX_COUNT * ADC_VREF_VOLTS;
+        Self {
+            raw,
+            voltage: ElectricPotential::new::<volt>(pin_volts),
+            current: ElectricCurrent::new::<ampere>((pin_volts - center_volts) / volts_per_amp),
+        }
     }
 }
 
@@ -143,7 +140,7 @@ impl AdcMuxData {
 
     /// LFIU_1, the low-current (high-sensitivity) sensor.
     pub fn lfiu_low(&self) -> LfiuReading {
-        lfiu_reading(
+        LfiuReading::new(
             self.mux[MuxDataIndex::Sel2High as usize],
             LFIU_LOW_CENTER_VOLTS,
             LFIU_LOW_VOLTS_PER_AMP,
@@ -152,7 +149,7 @@ impl AdcMuxData {
 
     /// LFIU_2, the high-current (low-sensitivity) sensor.
     pub fn lfiu_high(&self) -> LfiuReading {
-        lfiu_reading(
+        LfiuReading::new(
             self.mux[MuxDataIndex::Sel2Low as usize],
             LFIU_HIGH_CENTER_VOLTS,
             LFIU_HIGH_VOLTS_PER_AMP,
