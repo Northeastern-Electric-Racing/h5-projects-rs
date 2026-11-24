@@ -1,7 +1,7 @@
 //! Monitors the lightning CAN bus for pulses,
 //! and queues a fault if no pulses are received for 4 seconds.
 
-use defmt::debug;
+use crate::faults::{self, Fault};
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -40,8 +40,7 @@ pub async fn lightning_can_monitor_task() {
 
     loop {
         if let Either::First(_) = select(ticker.next(), TICKER_RESET.wait()).await {
-            // TODO: queue Fault::LightningCanMonitor once cerberus-3 has faults
-            debug!("LightningCanMonitor fault was queued");
+            faults::trigger_fault(Fault::LIGHTNING_CAN_MONITOR_FAULT);
         } else {
             ticker.reset();
         }
