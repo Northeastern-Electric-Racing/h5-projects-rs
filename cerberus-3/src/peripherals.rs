@@ -21,7 +21,7 @@ use uom::si::ratio::percent;
 use uom::si::thermodynamic_temperature::degree_celsius;
 
 use crate::ethernet::Topic;
-use crate::{can, ethernet};
+use crate::{can, ethernet, faults};
 
 const SHT30_ADDRESS: u8 = 0x44;
 const TEMP_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -82,6 +82,8 @@ impl TempSensor<'_> {
                 value.temperature.celsius().value(),
             );
             self.humidity = Ratio::new::<percent>(value.relative_humidity.value());
+        } else {
+            faults::trigger_fault(faults::Fault::IMU_ACCEL_FAULT);
         }
     }
 }
@@ -175,6 +177,8 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
             can::OUTGOING.send(frame.to_can_frame()).await;
 
             ethernet::try_publish(Topic::Acceleration, [x, y, z]);
+        } else {
+            faults::trigger_fault(faults::Fault::IMU_ACCEL_FAULT);
         }
 
         if let Some(ang_vel) = imu.get_angular_vel().await {
@@ -191,6 +195,8 @@ pub async fn spi_peripherals_task(r: SPI2Resources) -> ! {
             can::OUTGOING.send(frame.to_can_frame()).await;
 
             ethernet::try_publish(Topic::Gyro, [x, y, z]);
+        } else {
+            faults::trigger_fault(faults::Fault::IMU_GYRO_FAULT);
         }
 
         ticker.next().await;
