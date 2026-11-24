@@ -164,9 +164,15 @@ mod locks {
                 Locks::BrakeSc => {
                     faults::trigger_fault(faults::Fault::ONBOARD_BRAKE_SHORT_CIRCUIT_FAULT);
                 }
-                Locks::AccelOc => {}
-                Locks::AccelSc => {}
-                Locks::AccelDiff => {}
+                Locks::AccelOc => {
+                    faults::trigger_fault(faults::Fault::ONBOARD_ACCEL_OPEN_CIRCUIT_FAULT);
+                }
+                Locks::AccelSc => {
+                    faults::trigger_fault(faults::Fault::ONBOARD_ACCEL_SHORT_CIRCUIT_FAULT);
+                }
+                Locks::AccelDiff => {
+                    faults::trigger_fault(faults::Fault::ONBOARD_PEDAL_DIFFERENCE_FAULT);
+                }
                 Locks::BspdPref => {}
                 Locks::BmsNotPrechargedYet => {}
             }
@@ -251,8 +257,8 @@ mod locks {
                     || dc_current > ElectricCurrent::new::<ampere>(10.0))
             {
                 self.motor_disabled = true;
-                // TODO: queue BSPD_prefault
-                self.queue_fault(Locks::BspdPref);
+
+                faults::trigger_fault(faults::Fault::BSPD_PREFAULT);
                 self.set_lock(Locks::BspdPref);
             }
 
