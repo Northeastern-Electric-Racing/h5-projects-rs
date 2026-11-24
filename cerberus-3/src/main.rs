@@ -231,7 +231,7 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Failed to spawn shutdown::report_shutdown_task()."),
     );
 
-    // Peripherals (temp sensor)
+    // Peripherals
     spawner.spawn(
         peripherals::i2c_peripherals_task(I2C2Resources {
             i2c: p.I2C2,
@@ -240,8 +240,6 @@ async fn main(spawner: Spawner) -> ! {
         })
         .expect("Failed to spawn peripherals::i2c_peripherals_task()."),
     );
-
-    // IMU
     spawner.spawn(
         peripherals::spi_peripherals_task(SPI2Resources {
             spi: p.SPI2,
