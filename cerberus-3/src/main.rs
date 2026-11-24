@@ -259,7 +259,7 @@ async fn main(spawner: Spawner) -> ! {
         peripherals::adc_peripherals_task()
             .expect("Failed to spawn peripherals::adc_peripherals_task()."),
     );
-    
+
     // RTDS
     spawner.spawn(rtds::rtds_task(p.PD2).expect("Failed to spawn rtds::rtds_task()."));
 
