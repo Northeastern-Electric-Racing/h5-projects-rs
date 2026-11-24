@@ -91,10 +91,11 @@ dependencies = [
 [[package]]
 name = "as3935-ner"
 version = "0.1.0"
-source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=a3935-sensor-SPI-driver#7906aa3c583ef48ac17070030108e300ca041e52"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=a3935-sensor-SPI-driver#fce6d3549064ed645e98304b49c2ac26ac264e41"
 dependencies = [
  "defmt 1.2.0",
  "embedded-hal-async",
+ "uom",
 ]
 
 [[package]]

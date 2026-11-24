@@ -23,12 +23,17 @@ pub async fn lightning_sensor_task(spi: As3935Spi, mut irq: ExtiInput<'static, A
             sensor.preset_default().await?;
             sensor.calibrate_rco().await?;
             Timer::after_millis(10).await;
-            sensor.set_afe(Afe::Indoor).await
+            sensor.set_afe(Afe::Indoor).await?;
+            sensor.afe().await
         }
         .await;
 
         match result {
-            Ok(()) => break,
+            Ok(Afe::Indoor) => break,
+            Ok(other) => {
+                defmt::error!("As3935 AFE readback mismatch: got {} (retrying)", other);
+                Timer::after_millis(500).await;
+            }
             Err(e) => {
                 defmt::error!(
                     "As3935 setup failed: {} (retrying)",
