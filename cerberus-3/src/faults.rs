@@ -1,4 +1,8 @@
-use defmt::{debug, info, warn};
+//! Keeps track of faults and handles fault reporting.
+//! Faults are reported over CAN and can be triggered by any task using the `trigger_fault` function.
+//! The fault task will handle the rest.
+
+use defmt::warn;
 use embassy_futures::select::{Either3, select3};
 use embassy_stm32::{can::Frame, gpio::Output};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
@@ -93,7 +97,6 @@ impl AllFaults {
     }
 
     fn set_fault(&mut self, fault: Fault) {
-        info!("fault triggered! {:?}", &fault);
         if fault.is_critical() {
             warn!("Critical fault triggered! {:?}", &fault);
         }
@@ -102,7 +105,6 @@ impl AllFaults {
     }
 
     pub fn reset_fault(&mut self, fault: Fault) {
-        debug!("Reset fault: {:?}", &fault);
         self.faults &= !fault.as_bitmap_component();
         self.expirations[fault as usize] = Instant::MAX;
     }
@@ -147,7 +149,6 @@ impl AllFaults {
                 if deadline <= &mut Instant::now()
                     && let Some(some_fault) = Fault::from_repr(id)
                 {
-                    debug!("reset exipired faults: {:?}", &some_fault);
                     self.reset_fault(some_fault);
                 }
             })
@@ -181,7 +182,6 @@ pub async fn fault_task() {
         .await
         {
             Either3::First(_) => {
-                debug!("here");
                 faults.reset_expired_faults();
                 if !faults.critical_fault_present() {
                     set_ready_state().await;

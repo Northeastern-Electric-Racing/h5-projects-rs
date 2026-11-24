@@ -30,5 +30,31 @@ mod misc {
             _ => None,
         }
     }
+
+    /// Combines three arrays of size `N` into a single tuple array of size `N`.
+    pub fn zip3<A, B, C, const N: usize>(a: [A; N], b: [B; N], c: [C; N]) -> [(A, B, C); N] {
+        let mut a = a.into_iter();
+        let mut b = b.into_iter();
+        let mut c = c.into_iter();
+
+        core::array::from_fn(|_| {
+            // PANIC SAFETY: These will not panic because this function signiature requires `a`, `b`, and `c` to be the same size (`N`).
+            (a.next().unwrap(), b.next().unwrap(), c.next().unwrap())
+        })
+    }
+
+    /// Combines five arrays of size `N` into a single tuple array of size `N`.
+    pub fn zip5<A, B, C, D, E, const N: usize>(a: [A; N], b: [B; N], c: [C; N], d: [D; N], e: [E; N]) -> [(A, B, C, D, E); N] {
+        let mut a = a.into_iter();
+        let mut b = b.into_iter();
+        let mut c = c.into_iter();
+        let mut d = d.into_iter();
+        let mut e = e.into_iter();
+
+        core::array::from_fn(|_| {
+            // PANIC SAFETY: These will not panic because this function signiature requires `a`, `b`, `c`, `d`, and `e` to be the same size (`N`).
+            (a.next().unwrap(), b.next().unwrap(), c.next().unwrap(), d.next().unwrap(), e.next().unwrap())
+        })
+    }
 }
 pub use misc::*;
