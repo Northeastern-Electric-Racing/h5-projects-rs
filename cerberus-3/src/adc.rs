@@ -9,6 +9,9 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::once_lock::OnceLock;
 use embassy_time::Timer;
+use uom::si::electric_current::ampere;
+use uom::si::electric_potential::volt;
+use uom::si::f32::{ElectricCurrent, ElectricPotential};
 use variant_count::VariantCount;
 
 use crate::efuses::EfuseId;
@@ -25,6 +28,51 @@ const MUX_SETTLE_MS: u64 = 10;
 const SAMPLE_TIME: SampleTime = SampleTime::Cycles475;
 /// Sample time for the LFIU mux input, which needs longer to change.
 const SAMPLE_TIME_MUX2: SampleTime = SampleTime::Cycles2475;
+
+/// ADC reference voltage.
+const ADC_VREF_VOLTS: f32 = 3.3;
+/// Full-scale count for a 12-bit conversion.
+const ADC_MAX_COUNT: f32 = 4095.0;
+
+/// LFIU_1 (low range) zero-current output voltage, calibrated 6/13.
+const LFIU_LOW_CENTER_VOLTS: f32 = 1.559;
+/// LFIU_1 sensitivity in volts per amp at the ADC pin (80 mV/A, scaled by 0.6).
+const LFIU_LOW_VOLTS_PER_AMP: f32 = 0.08 * 0.6;
+/// LFIU_2 (high range) zero-current output voltage, calibrated 6/13.
+const LFIU_HIGH_CENTER_VOLTS: f32 = 1.573;
+/// LFIU_2 sensitivity in volts per amp at the ADC pin (10 mV/A, scaled by 0.6).
+const LFIU_HIGH_VOLTS_PER_AMP: f32 = 0.01 * 0.6;
+
+/// LV battery voltage = `raw * SLOPE + OFFSET`, a linear fit to measurements from VCU 001.
+const LV_VOLTS_PER_COUNT: f32 = 0.008988;
+const LV_OFFSET_VOLTS: f32 = -0.89151;
+
+/// One LFIU current-sense channel: the raw count, the voltage at the ADC pin,
+/// and the current derived from it.
+#[derive(Clone, Copy)]
+pub struct LfiuReading {
+    pub raw: u16,
+    pub voltage: ElectricPotential,
+    pub current: ElectricCurrent,
+}
+
+/// The LV battery reading: the raw count and the full battery voltage.
+#[derive(Clone, Copy)]
+pub struct LvReading {
+    pub raw: u16,
+    pub voltage: ElectricPotential,
+}
+
+impl LfiuReading {
+    fn new(raw: u16, center_volts: f32, volts_per_amp: f32) -> Self {
+        let pin_volts = f32::from(raw) / ADC_MAX_COUNT * ADC_VREF_VOLTS;
+        Self {
+            raw,
+            voltage: ElectricPotential::new::<volt>(pin_volts),
+            current: ElectricCurrent::new::<ampere>((pin_volts - center_volts) / volts_per_amp),
+        }
+    }
+}
 
 #[derive(PartialEq, Eq)]
 enum AdcMuxSel {
@@ -87,6 +135,35 @@ impl AdcMuxData {
             EfuseId::EfuseBattbox => Some(self.mux[MuxDataIndex::Sel1Low as usize]),
             EfuseId::EfuseMC => Some(self.adc1[Adc1Channels::Adc1Channel18 as usize]),
             EfuseId::EfuseSpare => None,
+        }
+    }
+
+    /// LFIU_1, the low-current (high-sensitivity) sensor.
+    pub fn lfiu_low(&self) -> LfiuReading {
+        LfiuReading::new(
+            self.mux[MuxDataIndex::Sel2High as usize],
+            LFIU_LOW_CENTER_VOLTS,
+            LFIU_LOW_VOLTS_PER_AMP,
+        )
+    }
+
+    /// LFIU_2, the high-current (low-sensitivity) sensor.
+    pub fn lfiu_high(&self) -> LfiuReading {
+        LfiuReading::new(
+            self.mux[MuxDataIndex::Sel2Low as usize],
+            LFIU_HIGH_CENTER_VOLTS,
+            LFIU_HIGH_VOLTS_PER_AMP,
+        )
+    }
+
+    /// The LV battery voltage. Can read slightly negative for a raw count near 0.
+    pub fn lv_battery(&self) -> LvReading {
+        let raw = self.mux[MuxDataIndex::Sel4Low as usize];
+        LvReading {
+            raw,
+            voltage: ElectricPotential::new::<volt>(
+                f32::from(raw) * LV_VOLTS_PER_COUNT + LV_OFFSET_VOLTS,
+            ),
         }
     }
 }
