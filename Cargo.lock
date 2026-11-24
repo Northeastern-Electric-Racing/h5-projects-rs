@@ -1456,6 +1456,7 @@ dependencies = [
  "embedded-hal-bus",
  "hdc2021-ner",
  "heapless 0.9.4",
+ "libm",
  "lis2mdl-ner",
  "lsm6dsv16x-ner",
  "panic-probe",
