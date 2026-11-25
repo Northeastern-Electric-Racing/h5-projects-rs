@@ -82,6 +82,7 @@ pub mod temperature {
     use super::consts;
     use uom::Conversion;
     use uom::si::thermodynamic_temperature::Unit;
+    use uom::si::thermodynamic_temperature::degree_celsius;
 
     /// Temperature!
     pub type UomTemperature = uom::si::f32::ThermodynamicTemperature;
@@ -124,6 +125,11 @@ pub mod temperature {
         /// Creates a new `Temperature` from a `UomTemperature`.
         pub const fn from_inner(inner: UomTemperature) -> Self {
             Self { kelvin: inner.value }
+        }
+
+        /// Gets this data in units of °C. This is just a wrapper around `.get::<degree_celsius>()`, but it looks nicer.
+        pub fn as_celsius(&self) -> f32 {
+            self.get::<degree_celsius>()
         }
 
         /// Returns whichever one of `self` or `other` is larger. If they are equal, returns `self`.
