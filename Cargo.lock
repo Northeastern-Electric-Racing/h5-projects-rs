@@ -1219,7 +1219,6 @@ dependencies = [
  "embassy-time",
  "embedded-can",
  "embedded-hal-bus",
- "heapless 0.9.3",
  "heapless 0.9.4",
  "panic-probe",
 ]
