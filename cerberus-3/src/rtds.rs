@@ -6,6 +6,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::can;
+use crate::faults::{self, Fault};
 use crate::shutdown::{self, BmsShutdownState};
 use cangen::ToCanFrame;
 use defmt::{debug, error};
@@ -64,11 +65,6 @@ pub enum RtdsError {
     QueueFull,
 }
 
-// TODO: faults aren't ported yet, swap this out once we have faults
-fn send_rtds_fault() {
-    error!("RTDS_FAULT (placeholder, faults not ported yet).");
-}
-
 static COMMANDS: Channel<ThreadModeRawMutex, RtdsCommand, COMMAND_QUEUE_SIZE> = Channel::new();
 
 // copies of the task state so other tasks can check it without needing the pin
@@ -80,7 +76,7 @@ static REVERSING: AtomicBool = AtomicBool::new(false);
 pub(crate) fn send(command: RtdsCommand) -> Result<(), RtdsError> {
     COMMANDS.try_send(command).map_err(|_| {
         error!("RTDS command queue full, dropped {}.", command);
-        send_rtds_fault();
+        faults::trigger_fault(Fault::RTDS_FAULT);
         RtdsError::QueueFull
     })
 }

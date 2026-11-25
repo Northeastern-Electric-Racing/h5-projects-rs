@@ -2,8 +2,8 @@
 //! box temperature, and queues faults if the
 //! BMS stops sending DCL messages.
 
+use crate::faults::{self, Fault};
 use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
-use defmt::debug;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Ticker};
@@ -30,20 +30,6 @@ impl TryFrom<u8> for PrechargeState {
             other => Err(other),
         }
     }
-}
-
-#[derive(Clone, Copy, defmt::Format)]
-enum Fault {
-    PrechargeFloating,
-    BmsCanMonitor,
-}
-
-// TODO once faults have been implemented
-fn queue_fault_placeholder(fault: Fault) {
-    debug!(
-        "Fault queued (placeholder, faults not ported yet): {}",
-        fault
-    );
 }
 
 /// how long the BMS can go without a DCL message before BmsCanMonitor is queued
@@ -76,7 +62,7 @@ pub fn set_precharge_state(state: PrechargeState) {
         PrechargeState::Open => PRECHARGE_CLOSED.store(false, Ordering::Relaxed),
         PrechargeState::Floating => {
             PRECHARGE_CLOSED.store(false, Ordering::Relaxed);
-            queue_fault_placeholder(Fault::PrechargeFloating);
+            faults::trigger_fault(Fault::PRECHARGE_FLOATING_FAULT);
         }
         PrechargeState::Closed => PRECHARGE_CLOSED.store(true, Ordering::Relaxed),
     }
@@ -98,7 +84,7 @@ pub async fn bms_can_monitor_task() {
     loop {
         match select(ticker.next(), DCL_RECEIVED.wait()).await {
             // timed out with no DCL message, keep firing every period until messages resume
-            Either::First(_) => queue_fault_placeholder(Fault::BmsCanMonitor),
+            Either::First(_) => faults::trigger_fault(Fault::BMS_CAN_MONITOR_FAULT),
             // got a message, restart the full period
             Either::Second(_) => ticker.reset(),
         }

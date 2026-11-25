@@ -4,7 +4,7 @@
 //! other devices on the vehicle.
 
 use crate::bms::{PrechargeState, set_precharge_state};
-use crate::{bms, buttons, dti, efuses, lightning, rtds, shutdown};
+use crate::{bms, buttons, dti, efuses, faults, lightning, rtds, shutdown};
 use can_handler::{ExtFilter, NerCan, StdFilter};
 use cangen::{CanMessage, Msg};
 use defmt::debug;
@@ -168,6 +168,9 @@ pub async fn can_inbox_task(mut bootloader: boot_control::Bootloader<'static>) -
                 .await
             }
             Some(Msg::TempsFaultCodeStatus(m)) => {
+                if m.motor_temp() > 125.0 {
+                    faults::trigger_fault(faults::Fault::MOTOR_TEMP_SENSOR_FAULT);
+                }
                 dti::set_motor_temp(Temperature::new::<degree_celsius>(m.motor_temp())).await;
                 dti::set_controller_temp(Temperature::new::<degree_celsius>(m.controller_temp()))
                     .await;
