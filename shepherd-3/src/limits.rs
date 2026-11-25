@@ -60,6 +60,8 @@ mod config {
     pub const PULSE_ENABLE_MARGIN_A: f32 = 0.01;
 
     /// Settings for one direction.
+    // u_TODO - switch these fields to the `units.rs` types once const traits are stabilized, so the configs can still be
+    // built in `const` context.
     pub struct LimitConfig {
         pub min_current_a: f32,
         pub max_current_a: f32,
@@ -228,7 +230,7 @@ mod pulse {
 
             let pulse_allowed = !inhibited && inst_a >= cfg.max_current_a - PULSE_ENABLE_MARGIN_A;
             if !pulse_allowed {
-                return self.step_not_allowed(now, inst_a);
+                return self.current_when_step_not_allowed(now, inst_a);
             }
 
             match &mut self.state {
@@ -257,7 +259,7 @@ mod pulse {
         }
 
         /// One tick while pulsing is not allowed. A running pulse or cooldown still finishes its cooldown.
-        fn step_not_allowed(&mut self, now: Instant, inst_a: f32) -> f32 {
+        fn current_when_step_not_allowed(&mut self, now: Instant, inst_a: f32) -> f32 {
             match self.state {
                 PulseState::Rest { .. } => {
                     self.reset();
@@ -357,7 +359,6 @@ mod task {
     use crate::faults::{self, FaultCommand, FaultId, PassFailAction};
     use crate::helpers::deadline::Deadline;
     use crate::state_machine::{self, BmsState};
-    use crate::units::degree_celsius;
     use crate::{can, pack};
     use cangen::ToCanFrame;
     use embassy_time::Ticker;
@@ -373,8 +374,8 @@ mod task {
             .try_partial_get(|holder| {
                 let data = &holder.data;
                 data.last_settled_at.is_some().then(|| CellInputs {
-                    min_temp_c: data.min_temp.value().get::<degree_celsius>(),
-                    max_temp_c: data.max_temp.value().get::<degree_celsius>(),
+                    min_temp_c: data.min_temp.value().as_celsius(),
+                    max_temp_c: data.max_temp.value().as_celsius(),
                     min_ocv_v: data.min_ocv.value().as_volts(),
                     max_ocv_v: data.max_ocv.value().as_volts(),
                 })
@@ -391,10 +392,6 @@ mod task {
     /// Pulsing is held off while charging or while a critical or segment comms fault is active.
     fn pulse_inhibited(state: BmsState) -> bool {
         state.is_charging() || faults::are_critical_faults_active() || faults::get_fault(FaultId::SegmentCommsFault).is_active()
-    }
-
-    const fn notify(bad: bool) -> PassFailAction {
-        if bad { PassFailAction::NotifyBad } else { PassFailAction::NotifyOkay }
     }
 
     /// Sends the continuous limits to the DTI while `Ready`, and zero in every other state. The VCU also faults if
@@ -415,8 +412,8 @@ mod task {
         let Some(current_a) = pack_current_a else {
             return;
         };
-        faults::queue(FaultCommand::DischargeLimitEnforcementFault(notify(current_a > limits.cont_dcl.as_amps()))).await;
-        faults::queue(FaultCommand::ChargeLimitEnforcement(notify(current_a < -limits.cont_ccl.as_amps()))).await;
+        faults::queue(FaultCommand::DischargeLimitEnforcementFault(if current_a > limits.cont_dcl.as_amps() { PassFailAction::NotifyBad } else { PassFailAction::NotifyOkay })).await;
+        faults::queue(FaultCommand::ChargeLimitEnforcement(if current_a < -limits.cont_ccl.as_amps() { PassFailAction::NotifyBad } else { PassFailAction::NotifyOkay })).await;
     }
 
     #[embassy_executor::task]
@@ -447,7 +444,7 @@ mod task {
             let stale = inputs.pack_current_a.is_none();
             if stale != reported_stale {
                 // If the queue is full, this is retried on the next tick.
-                if faults::try_queue(FaultCommand::PackCurrentStale(notify(stale))).is_ok() {
+                if faults::try_queue(FaultCommand::PackCurrentStale(if stale { PassFailAction::NotifyBad } else { PassFailAction::NotifyOkay })).is_ok() {
                     if stale {
                         defmt::warn!("Limits: pack current is stale; continuous limits held at minimum.");
                     } else {
