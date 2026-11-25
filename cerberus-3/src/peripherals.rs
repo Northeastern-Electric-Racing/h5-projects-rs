@@ -83,7 +83,7 @@ impl TempSensor<'_> {
             );
             self.humidity = Ratio::new::<percent>(value.relative_humidity.value());
         } else {
-            faults::trigger_fault(faults::Fault::IMU_ACCEL_FAULT);
+            faults::trigger_fault(faults::Fault::ONBOARD_TEMP_FAULT);
         }
     }
 }
