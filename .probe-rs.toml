@@ -1,1 +1,3 @@
-
+[presets]
+default = { chip = "STM32H563ZITx", no-catch-reset = true}
+tpu_cerb = { chip = "STM32H563ZITx", no-catch-reset = true, host = "ws://192.168.00.12", token = "ner"}
